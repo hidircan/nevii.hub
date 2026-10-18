@@ -64,7 +64,7 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
   const club = result.data.clubs.find((c) => c.id === clubId);
   if (!club) notFound();
   const [data, instruments, terminal, slug] = await Promise.all([
-    readPaymentsPageData(),
+    readPaymentsPageData({ clubOnly: true }), // DB egress (2026-10-19): yalnız kulüp ücretleri okunur
     resolveActiveInstrumentNames(session.tenantId),
     listTerminalContractIds(session.tenantId),
     careerSlugForTenant(session.tenantId),
@@ -99,9 +99,9 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
   };
   const tone = { success: ["var(--color-success-soft)", "var(--color-success)"], warning: ["var(--color-warning-soft)", "var(--color-warning)"], muted: ["var(--color-surface-muted)", "var(--color-text-muted)"] };
   const monthlyTotal = active.reduce((s, m) => s + m.monthlyFee, 0);
-  // 2. aşama — oturumlar: 120 gün geri / 200 gün ileri pencere (DB egress: tüm dersler okunmaz).
+  // 2. aşama — oturumlar: 120 gün geri / 200 gün ileri pencere; DB egress (2026-10-19) yalnız kulüp satırları (~4.700 → ~150).
   const nowMs = new Date().getTime();
-  const win = await readLessonWindow(new Date(nowMs - 120 * 86_400_000).toISOString(), new Date(nowMs + 200 * 86_400_000).toISOString());
+  const win = await readLessonWindow(new Date(nowMs - 120 * 86_400_000).toISOString(), new Date(nowMs + 200 * 86_400_000).toISOString(), { clubOnly: true });
   const sessions = groupClubSessions(win.lessons, club.id).filter((x) => !x.cancelled);
   const upcoming = sessions.filter((x) => Date.parse(x.endAt) >= nowMs);
   const pastSessions = sessions.filter((x) => Date.parse(x.endAt) < nowMs).reverse();

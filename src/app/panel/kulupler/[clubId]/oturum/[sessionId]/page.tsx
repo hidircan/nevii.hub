@@ -31,7 +31,8 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
   const club = clubs.data.clubs.find((c) => c.id === clubId);
   if (!club) notFound();
   const nowMs = new Date().getTime();
-  const data = await readLessonWindow(new Date(nowMs - 400 * 86_400_000).toISOString(), new Date(nowMs + 400 * 86_400_000).toISOString());
+  // DB egress (2026-10-19): yalnız kulüp satırları (tüm dersler değil).
+  const data = await readLessonWindow(new Date(nowMs - 400 * 86_400_000).toISOString(), new Date(nowMs + 400 * 86_400_000).toISOString(), { clubOnly: true });
   const s = groupClubSessions(data.lessons, club.id).find((x) => x.sessionId === sessionId);
   if (!s) notFound();
   const studentName = (id: string) => data.students.find((x) => x.id === id)?.name ?? "Silinmiş öğrenci";

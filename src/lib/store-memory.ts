@@ -49,6 +49,7 @@ import { buildRegistrationFirstPayment, REGISTRATION_FIRST_PAYMENT_SOURCE, regis
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  type ClubOnlyOptions,
   narrowToMakeupCenter,
   type MakeupCenterOptions,
   type MakeupCenterData,
@@ -254,8 +255,8 @@ export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
-export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
-  return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso));
+export async function readLessonWindow(fromIso: string, toIso: string, opts?: ClubOnlyOptions): Promise<LessonWindowData> {
+  return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso), opts);
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToPayoutWindow`. */
@@ -269,8 +270,8 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToPaymentsPage`. */
-export async function readPaymentsPageData(): Promise<PaymentsPageData> {
-  return narrowToPaymentsPage(await readData());
+export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<PaymentsPageData> {
+  return narrowToPaymentsPage(await readData(), opts);
 }
 
 /** Bkz. src/lib/reference-data.ts `StudentListData`. */

@@ -274,13 +274,13 @@ type StoreApi = {
   /** Dar okuma — tek öğrenci dilimi (bkz. src/lib/reference-data.ts `narrowToStudentScope`). */
   readStudentScope: (studentId: string) => Promise<StudentScopeData>;
   /** Dar okuma — referans veri + [from, to] penceresindeki dersler (Ders Programı). */
-  readLessonWindow: (fromIso: string, toIso: string) => Promise<LessonWindowData>;
+  readLessonWindow: (fromIso: string, toIso: string, opts?: import("./reference-data").ClubOnlyOptions) => Promise<LessonWindowData>;
   /** Dar okuma — referans veri + tüm dersler (`linked`: yalnız taleplerin dersleri) + tüm telafi talepleri. */
   readMakeupCenterData: (opts?: import("./reference-data").MakeupCenterOptions) => Promise<MakeupCenterData>;
   /** Dar okuma — referans veri + ödeme durum alanları (Öğrenciler listesi). */
   readStudentListData: () => Promise<StudentListData>;
   /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
-  readPaymentsPageData: () => Promise<PaymentsPageData>;
+  readPaymentsPageData: (opts?: import("./reference-data").ClubOnlyOptions) => Promise<PaymentsPageData>;
   /** Dar okuma — hakediş penceresi: [from, to] dersleri + kayıtlı hakedişler + hariç tutmalar. */
   readPayoutWindow: (fromIso: string, toIso: string) => Promise<PayoutWindowData>;
   /** Dar okuma — Panel özeti (bkz. reference-data.ts `DashboardData`). */
@@ -581,10 +581,14 @@ export async function readMakeupCenterData(opts?: import("./reference-data").Mak
 }
 
 /** DB egress (2026-09-30) — Ders Programı: referans veri + penceredeki dersler (bkz. reference-data.ts). */
-export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
+export async function readLessonWindow(
+  fromIso: string,
+  toIso: string,
+  opts?: import("./reference-data").ClubOnlyOptions
+): Promise<LessonWindowData> {
   return withTenantScope(async () => {
     await store.commitMakeupPlanningExpiry(new Date());
-    return store.readLessonWindow(fromIso, toIso);
+    return store.readLessonWindow(fromIso, toIso, opts);
   });
 }
 
@@ -594,8 +598,8 @@ export async function readStudentListData(): Promise<StudentListData> {
 }
 
 /** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
-export async function readPaymentsPageData(): Promise<PaymentsPageData> {
-  return withTenantScope(() => store.readPaymentsPageData());
+export async function readPaymentsPageData(opts?: import("./reference-data").ClubOnlyOptions): Promise<PaymentsPageData> {
+  return withTenantScope(() => store.readPaymentsPageData(opts));
 }
 
 /** DB egress (2026-09-30) — Hakedişler / ay hakediş özeti (bkz. reference-data.ts `PayoutWindowData`). */
