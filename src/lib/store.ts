@@ -257,6 +257,8 @@ type StoreApi = {
   readLessonSeriesByIds: (seriesIds: string[]) => Promise<import("./types").LessonSeries[]>;
   readSlotScopeData: (target: import("./lesson-scope").SlotScopeTarget, days?: Date[]) => Promise<AppData>;
   readStudentById: (studentId: string) => Promise<Student | undefined>;
+  /** DB egress (2026-10-18) — yalnız şube satırları (`readData().settings.branches` ile aynı). */
+  readBranches: () => Promise<AppData["settings"]["branches"]>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
   readLessonsStartingBetween: (fromIso: string, toIso: string) => Promise<import("./types").Lesson[]>;
   readLessonsForTeacher: (teacherId: string) => Promise<import("./types").Lesson[]>;
@@ -487,6 +489,10 @@ export async function readLessonById(lessonId: string): Promise<import("./types"
 }
 
 /** DB egress (2026-10-16) — yalnız penceredeki ders satırları (referans veri yok); bildirim tick'i. */
+export async function readBranches(): Promise<AppData["settings"]["branches"]> {
+  return withTenantScope(() => store.readBranches());
+}
+
 export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
   return withTenantScope(() => store.readLessonsStartingBetween(fromIso, toIso));
 }

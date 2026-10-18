@@ -77,4 +77,7 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
   → `readSchoolBranding`, sayaç → `count` sorgusu. Kalan yollar: son `docs/performance/DB_EGRESS_*.md` "Kalan" bölümü.
 - Yazım sonrası kanca (mesaj taslağı/bildirim) ve cron döngüsündeki store yazımı da tam okuma yapmaz; doğrulama
   `scripts/bench/bench-flow-full-reads.ts` ile akış başına (bkz. performance-db-egress kural 17–18).
+- Önce ÜRETİMİ ölç: `scripts/ops/egress-top-queries.sql` (canlı `pg_stat_statements`, salt okuma) — "tüm dersler/tüm
+  bildirimler" okuyan dilimler log satırı basmaz, yalnız burada görünür (kural 19–21). Vercel CPU rota başına: `vercel metrics`.
+- Kota sıfırlamak için yeni Vercel team/hesap açma (Hobby ticari kullanım yasak; bkz. performance-db-egress §5).
 - Ayrıntı: CLAUDE.md "Egress rules — enforced".

@@ -310,7 +310,7 @@ export async function hasRecentNotification(input: {
         targetUserId: input.userId,
         kind: input.kind,
         createdAt: { gte: input.since },
-        body: { contains: input.bodyIncludes },
+        ...(input.bodyIncludes ? { body: { contains: input.bodyIncludes } } : {}),
       },
       select: { id: true },
     });

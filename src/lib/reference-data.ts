@@ -79,20 +79,46 @@ export type MakeupCenterData = ReferenceData & Pick<AppData, "lessons" | "makeup
 
 /**
  * DB egress (2026-10-18) — `"linked"`: yalnız taleplerin kaynak/onaylı dersleri (mobil telafi listesi yalnız bu
- * derslerin saatini gösterir; sanal süre dolumu da yalnız kaynak derse bakar). Telafi Merkezi öneri slotlarını
- * yeniden doğruladığı için TÜM dersleri okur — varsayılan.
+ * derslerin saatini gösterir; sanal süre dolumu da yalnız kaynak derse bakar).
+ * `"planning"` (Telafi Merkezi): `"linked"` + telafi dersleri (`makeupRequestId` dolu) + açık taleplerin önerilen
+ * saatlerinin ±1 günündeki TÜM dersler. Öneri yeniden doğrulaması (`validateLessonSlot`) yalnız slotla çakışan ve
+ * slotla aynı gündeki derslere bakar; dönem hakkı/aşama yalnız kaynak/onaylı derse. Tüm dersler (~5 600 satır,
+ * sayfa başı ~1,4 MB) okunmaz. `"all"` (varsayılan) çok kurumlu birleşik görünüm içindir.
  */
-export type MakeupCenterOptions = { lessons?: "all" | "linked" };
+export type MakeupCenterOptions = { lessons?: "all" | "linked" | "planning" };
 
 export function makeupLinkedLessonIds(makeupRequests: { sourceLessonId: string; confirmedLessonId?: string | null }[]): string[] {
   return [...new Set(makeupRequests.flatMap((m) => (m.confirmedLessonId ? [m.sourceLessonId, m.confirmedLessonId] : [m.sourceLessonId])))];
 }
 
+const PLANNING_OPEN_STATUSES: readonly string[] = ["pending", "suggested", "awaiting_info"];
+const DAY_MS = 86_400_000;
+
+/** Açık taleplerin önerilen slotlarını kapsayan [ilk − 1 gün, son + 1 gün] penceresi; slot yoksa null. */
+export function makeupPlanningWindow(
+  makeupRequests: { status: string; suggestedSlots?: { startAt: string }[] | null }[]
+): { from: Date; to: Date } | null {
+  const starts = makeupRequests
+    .filter((m) => PLANNING_OPEN_STATUSES.includes(m.status))
+    .flatMap((m) => (m.suggestedSlots ?? []).map((s) => Date.parse(s.startAt)))
+    .filter(Number.isFinite);
+  if (starts.length === 0) return null;
+  return { from: new Date(Math.min(...starts) - DAY_MS), to: new Date(Math.max(...starts) + DAY_MS) };
+}
+
 export function narrowToMakeupCenter(data: AppData, opts?: MakeupCenterOptions): MakeupCenterData {
-  const linked = opts?.lessons === "linked" ? new Set(makeupLinkedLessonIds(data.makeupRequests)) : null;
+  const mode = opts?.lessons ?? "all";
+  const linked = mode === "all" ? null : new Set(makeupLinkedLessonIds(data.makeupRequests));
+  const window = mode === "planning" ? makeupPlanningWindow(data.makeupRequests) : null;
+  const inWindow = (startAt: string) => {
+    const t = Date.parse(startAt);
+    return window !== null && t >= window.from.getTime() && t <= window.to.getTime();
+  };
   return {
     ...toReferenceData(data),
-    lessons: linked ? data.lessons.filter((l) => linked.has(l.id)) : data.lessons,
+    lessons: !linked
+      ? data.lessons
+      : data.lessons.filter((l) => linked.has(l.id) || (mode === "planning" && (Boolean(l.makeupRequestId) || inWindow(l.startAt)))),
     makeupRequests: data.makeupRequests,
   };
 }

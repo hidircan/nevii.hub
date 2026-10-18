@@ -21,7 +21,7 @@ import { listTerminalContractIds } from "@/lib/contracts";
 import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
 import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
-import { listNotificationsForUser } from "@/lib/notifications";
+import { listNotificationsPageForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
 import { NotificationList } from "@/components/notification-list";
 import { AnnouncementAttachments } from "@/components/announcement-attachments";
@@ -164,11 +164,11 @@ export default async function OgrenciPortalPage({
     .sort((a, b) => b.startAt.localeCompare(a.startAt))
     .slice(0, 5);
 
-  const notifications = await listNotificationsForUser({
-    tenantId: data.settings.tenantId,
-    userId: session.userId,
-    studentId: student.id,
-  });
+  // DB egress (2026-10-18): öğrencinin tüm bildirimleri yerine en yeni 50'si.
+  const { notifications } = await listNotificationsPageForUser(
+    { tenantId: data.settings.tenantId, userId: session.userId, studentId: student.id },
+    { limit: 50 }
+  );
 
   const announcementsResult = await listAnnouncementsForUserTool(session);
   const announcements = announcementsResult.ok ? announcementsResult.data.announcements : [];

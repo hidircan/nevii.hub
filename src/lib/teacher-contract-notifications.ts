@@ -53,12 +53,12 @@ export async function notifyTeacherContractReminder(
     input.daysLeft
   );
 
-  const { createNotification, listNotificationsForUser } = await import("./notifications");
+  const { createNotification, hasRecentNotification } = await import("./notifications");
 
   for (const userId of adminIds) {
     try {
-      const existing = await listNotificationsForUser({ tenantId: input.tenantId, userId });
-      const isDuplicate = existing.some((n) => n.kind === kind);
+      // DB egress (2026-10-18): yöneticinin tüm bildirimleri (binlerce satır) yerine aynı "bu tür var mı" kuralı SQL'de.
+      const isDuplicate = await hasRecentNotification({ tenantId: input.tenantId, userId, kind, bodyIncludes: "", since: new Date(0) });
       if (isDuplicate) {
         result.duplicatesSkipped++;
         continue;

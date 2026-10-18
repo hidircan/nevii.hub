@@ -24,7 +24,9 @@ function extractBearer(request: Request): string | null {
  * POST|GET /api/v1/notifications/tick — yaklaşan ders, bekleyen ödeme, bekleyen izin.
  * Secret (fail-closed, JWT kabul edilmez): NOTIFICATION_CRON_SECRET (eski GitHub Actions POST'u) veya
  * Vercel'in `CRON_SECRET`'ı. 2026-10-16: zamanlayıcı Vercel Cron'a taşındı (vercel.json: her 10 dk `?stages=lessons`,
- * günde bir tam tur).
+ * günde bir tam tur). 2026-10-18 (Active CPU + egress): 10 dk'lık tur yalnız 04–18 UTC (07:00–21:59 TR) — 1 sa/15 dk
+ * hatırlatma ve 15–90 dk "yaklaşan ders" 08:00–22:00 TR arası başlayan dersleri kapsar (canlı dersler 10:00–19:59 TR).
+ * Daha erken/geç ders başlarsa vercel.json + apps/cloudflare-cron'daki saat aralığını genişletin.
  * Çift tetiklenme güvenli: bildirimler tekilleştirme anahtarı + günlük satır kimliğiyle idempotent.
  */
 async function tick(request: Request) {

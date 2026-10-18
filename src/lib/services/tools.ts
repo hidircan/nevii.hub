@@ -2078,7 +2078,7 @@ export async function createPaymentTool(
     try {
       const { getUserIdByStudentId } = await import("../auth/users");
       const { isCategoryEnabledForUser } = await import("../notification-preferences");
-      const { createNotification, listNotificationsForUser } = await import("../notifications");
+      const { createNotification, hasRecentNotification } = await import("../notifications");
       // Tahsilat sonrası güncel satır (collectPayment işlem sonrası okudu) — ayrıca tam okuma yok.
       const payment = collected.payment;
       const studentUserId = payment ? await getUserIdByStudentId(ctx.tenantId, payment.studentId) : null;
@@ -2086,8 +2086,8 @@ export async function createPaymentTool(
         const enabled = await isCategoryEnabledForUser(ctx.tenantId, studentUserId, "payment_received");
         if (enabled) {
           const since = Date.now() - 24 * 60 * 60 * 1000;
-          const existing = await listNotificationsForUser({ tenantId: ctx.tenantId, userId: studentUserId });
-          const dup = existing.some((n) => n.kind === "payment_received" && n.body.includes(v.data.paymentId) && new Date(n.createdAt).getTime() >= since);
+          // DB egress (2026-10-18): kullanıcının tüm bildirimleri yerine aynı kural SQL'de (en fazla 1 satır).
+          const dup = await hasRecentNotification({ tenantId: ctx.tenantId, userId: studentUserId, kind: "payment_received", bodyIncludes: v.data.paymentId, since: new Date(since) });
           if (!dup && payment) {
             await createNotification({
               tenantId: ctx.tenantId,
@@ -11790,14 +11790,14 @@ export async function startLessonTool(
     try {
       const { getUserIdByStudentId } = await import("../auth/users");
       const { isCategoryEnabledForUser } = await import("../notification-preferences");
-      const { createNotification, listNotificationsForUser } = await import("../notifications");
+      const { createNotification, hasRecentNotification } = await import("../notifications");
       const studentUserId = await getUserIdByStudentId(ctx.tenantId, result.lesson.studentId);
       if (studentUserId) {
         const enabled = await isCategoryEnabledForUser(ctx.tenantId, studentUserId, "lesson_started");
         if (enabled) {
           const since = Date.now() - 60 * 60 * 1000; // 1 hour dedupe window
-          const existing = await listNotificationsForUser({ tenantId: ctx.tenantId, userId: studentUserId });
-          const dup = existing.some((n) => n.kind === "lesson_started" && n.body.includes(result.lesson.id) && new Date(n.createdAt).getTime() >= since);
+          // DB egress (2026-10-18): her ders başlangıcında öğrencinin tüm bildirimleri okunmaz; aynı kural SQL'de.
+          const dup = await hasRecentNotification({ tenantId: ctx.tenantId, userId: studentUserId, kind: "lesson_started", bodyIncludes: result.lesson.id, since: new Date(since) });
           if (!dup) {
             await createNotification({
               tenantId: ctx.tenantId,
