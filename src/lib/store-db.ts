@@ -1437,13 +1437,96 @@ const referenceSchoolInclude = {
 } as const;
 
 /**
+ * DB egress (2026-10-18, owner onaylı) — çok-öğrencili dilimlerin öğrenci/öğretmen/oda satırları örnek (instance)
+ * belleğinde tutulur; her istekte DB yalnız bu üç tablonun satır özetini (md5, ~100 B) döndürür. Özet değiştiyse
+ * satırlar özetle AYNI anlık görüntüde (REPEATABLE READ) yeniden okunur: eski veri sunulmaz, örnekler arası fark
+ * olmaz. Her isabette derin kopya verilir (tüketici mutasyonu önbelleği bozamaz). Kapatma: NEVII_REF_CACHE=0.
+ * Yalnız include değeri referans varsayılanıyla AYNI olan ilişkiler değiştirilir (ör. readStudentScope'un tek
+ * öğrenci okuması dokunulmaz).
+ */
+type RefRows = {
+  hash: string;
+  students: Prisma.StudentGetPayload<{ omit: typeof referenceStudentOmit }>[];
+  teachers: Prisma.TeacherGetPayload<object>[];
+  rooms: Prisma.RoomGetPayload<object>[];
+};
+const refRowsCache = new Map<string, RefRows>();
+
+function refRowsHash(tid: string) {
+  return prisma.$queryRaw<{ id: string; h: string }[]>`
+    select sc.id, md5(
+      coalesce((select string_agg(s::text, '|' order by s.id) from "Student" s where s."schoolId" = sc.id), '') || '#' ||
+      coalesce((select string_agg(t::text, '|' order by t.id) from "Teacher" t where t."schoolId" = sc.id), '') || '#' ||
+      coalesce((select string_agg(r::text, '|' order by r.id) from "Room" r where r."schoolId" = sc.id), '')
+    ) as h
+    from "School" sc where sc."tenantId" = ${tid} limit 1`;
+}
+
+async function readRefRows(tid: string): Promise<(RefRows & { schoolId: string }) | null> {
+  const [current] = await refRowsHash(tid);
+  if (!current) return null;
+  const key = `${tid}:${current.id}`;
+  let entry = refRowsCache.get(key);
+  if (entry?.hash !== current.h) {
+    const schoolId = current.id;
+    const [[snap], students, teachers, rooms] = await prisma.$transaction(
+      [
+        refRowsHash(tid),
+        prisma.student.findMany({ where: { schoolId }, omit: referenceStudentOmit }),
+        prisma.teacher.findMany({ where: { schoolId } }),
+        prisma.room.findMany({ where: { schoolId } }),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
+    entry = { hash: snap?.h ?? "", students, teachers, rooms };
+    if (snap?.id === schoolId) {
+      if (refRowsCache.size > 50) refRowsCache.clear(); // ponytail: kaba sınır; çok kiracıda LRU gerekirse eklenir.
+      refRowsCache.set(key, entry);
+    }
+  }
+  return { schoolId: current.id, ...structuredClone(entry) };
+}
+
+/** `prisma.school.findFirst` ile aynı sonuç; referans öğrenci/öğretmen/oda ilişkileri doğrulanmış önbellekten. */
+async function findSchoolWithCachedRefs<T extends Prisma.SchoolFindFirstArgs & { include: Prisma.SchoolInclude }>(
+  tid: string,
+  args: T
+): Promise<Prisma.SchoolGetPayload<T> | null> {
+  const inc = args.include;
+  const swap = {
+    students: inc.students === referenceSchoolInclude.students,
+    teachers: inc.teachers === true,
+    rooms: inc.rooms === true,
+  };
+  if (process.env.NEVII_REF_CACHE === "0" || !(swap.students || swap.teachers || swap.rooms)) {
+    return (await prisma.school.findFirst(args)) as Prisma.SchoolGetPayload<T> | null;
+  }
+  const stripped = { ...inc };
+  for (const k of ["students", "teachers", "rooms"] as const) if (swap[k]) delete stripped[k];
+  const [school, refs] = await Promise.all([
+    prisma.school.findFirst({ ...args, include: stripped }),
+    readRefRows(tid).catch(() => null), // önbellek yolu hata verirse eski tek sorguya düşer
+  ]);
+  if (!school) return null;
+  if (!refs || refs.schoolId !== school.id) {
+    return (await prisma.school.findFirst(args)) as Prisma.SchoolGetPayload<T> | null;
+  }
+  return {
+    ...school,
+    ...(swap.students ? { students: refs.students } : {}),
+    ...(swap.teachers ? { teachers: refs.teachers } : {}),
+    ...(swap.rooms ? { rooms: refs.rooms } : {}),
+  } as unknown as Prisma.SchoolGetPayload<T>;
+}
+
+/**
  * DB egress (2026-09-30) — bkz. src/lib/reference-data.ts. `readData()` ile aynı eşleme, ama
  * ağır koleksiyonlar ve ~79 KB logo okunmaz. Okul yoksa `readData()`'nın seed davranışı korunur.
  */
 export async function readReferenceData(): Promise<ReferenceData> {
   const tid = tenantId();
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({ where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
+    findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
@@ -1472,7 +1555,7 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
   const tid = tenantId();
   const own = { tenantId: tid, studentId };
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
+    findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: {
@@ -1501,7 +1584,7 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
   const from = new Date(fromIso);
   const to = new Date(toIso);
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
+    findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: { ...referenceSchoolInclude, lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } } },
@@ -1557,7 +1640,7 @@ export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<
         }
       : { id: { in: makeupLinkedLessonIds(refs) } };
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
+    findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: {
@@ -1592,7 +1675,7 @@ export async function readPayoutWindow(fromIso: string, toIso: string): Promise<
   const to = new Date(toIso);
   const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] =
     await Promise.all([
-      prisma.school.findFirst({
+      findSchoolWithCachedRefs(tid, {
         where: { tenantId: tid },
         omit: { logoUrl: true },
         include: {
@@ -1634,7 +1717,7 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
   const now = new Date(nowIso);
   const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides, futureLesson] =
     await Promise.all([
-      prisma.school.findFirst({
+      findSchoolWithCachedRefs(tid, {
         where: { tenantId: tid },
         omit: { logoUrl: true },
         include: {
@@ -1686,7 +1769,7 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
 export async function readPaymentsPageData(): Promise<PaymentsPageData> {
   const tid = tenantId();
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
+    findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: { ...referenceSchoolInclude, payments: true },
@@ -1718,7 +1801,7 @@ export async function readStudentListData(): Promise<StudentListData> {
   const tid = tenantId();
   const tenantPayments = { tenantId: tid, school: { tenantId: tid } };
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, openGroups, paidStudents] = await Promise.all([
-    prisma.school.findFirst({ where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
+    findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
     readTeacherPayoutPolicies(tid),
@@ -1936,7 +2019,7 @@ async function readMakeupRequestWindowData(
   if (!request) return null;
   const { from, to } = range(request);
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
-    prisma.school.findFirst({
+    findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: {

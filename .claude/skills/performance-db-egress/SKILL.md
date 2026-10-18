@@ -105,6 +105,13 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    GET'lerinin %73'ü kendi filtre yazımlarıydı). `window.history.replaceState(null, "", url)` Next ile senkron
    (`useSearchParams` güncellenir). Yalnız sunucu sayfasının OKUDUĞU parametre değişiyorsa router kullan
    (ör. `silinenler`, evraklarda `studentId`). Bul: `grep -rnE 'router\.(replace|push)\(`\$\{pathname\}' src`.
+25. **Nadiren değişen çok-satırlı referans = doğrulanmış önbellek** (2026-10-18, owner onaylı). `store-db.ts`
+   `findSchoolWithCachedRefs`: öğrenci/öğretmen/oda satırları örnek belleğinde; her istekte DB yalnız `md5(string_agg(row::text))`
+   döndürür (~100 B), değiştiyse satırlar özetle AYNI REPEATABLE READ anlık görüntüsünde okunur, isabette `structuredClone`.
+   Önbelleği TTL ile değil İÇERİK özetiyle doğrula (örnekler arası tutarsızlık = finans hatası; advisor'ın reddettiği
+   doğrulamasız readData önbelleği bu değil). Ödeme/ders/yoklama gibi sık değişen tabloları önbelleğe ALMA. Yeni dilim
+   `referenceSchoolInclude` kullanıyorsa `prisma.school.findFirst` yerine `findSchoolWithCachedRefs(tid, …)` çağır.
+   Kapatma `NEVII_REF_CACHE=0`; kontrol `scripts/bench/check-ref-cache.ts` (kapalı=ıska=isabet + geçersiz kılma).
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).
@@ -132,6 +139,12 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 - Canlı DB'ye ops betiği gerekirse: port 5432 / `BEGIN TRANSACTION READ ONLY`; `:6543`'te asla session `SET`.
   Canlıda load test, toplu export, dump, `pg_stat_statements_reset` YOK.
 - Tel düzeyinde SQL görmek: `scripts/_x.tmp.ts` içinde `pg.Client.prototype.query`'yi sarıp log'la, çalıştır, SİL.
+
+- **Skew'i ayır:** `vercel metrics … --group-by deploymentId --since <snapshot>` — eski deploy'un payı yüksekse
+  pgss farkındaki eski sorgu biçimleri (ör. dar dilimden önceki tam kolon `Student`) yeni kodun maliyeti DEĞİL.
+  Ara anlık görüntüleri `egress-snapshots/pgss-<ISO>.csv` olarak sakla (taban 14:28Z, deploy sonrası 17:11Z).
+- **POST ≠ yeniden çizim:** sayfa rotasına `serverActionName` boş POST'lar `LastRouteTracker` (`actionSaveLastRoute`,
+  her gezinme, ~500 B upsert) — CPU GET'in ~1/4'ü ise sayfa yeniden çizilmiyor; egress kaynağı değil.
 
 ## 4. Ölçüm (önce/sonra) — yalnız yerel tek kullanımlık DB
 ```bash
