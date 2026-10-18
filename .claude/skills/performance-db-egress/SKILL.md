@@ -24,6 +24,9 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
 - 2026-10-18 (`perf/egress-p4`): Ders Programı sil/revize/öğretmen değişimi/seri iptal (işlem başına 2–3 tam okuma),
   öğrenci kaydı, sözleşmeler, davet/şifre e-postaları, mobil ana sayfa/öğretmenler/Hakedişlerim/ödeme başlat, Telafi
   oluştur/öneri, öğretmen Özet/Program/Yoklama, ödeme oluştur/düzenle/sil dar okumaya (−59…−100 %).
+- 2026-10-18 (`perf/egress-p5`): uçtan uca akış sayacı iki gizli tam okuma buldu — ders taşıma sonrası mesaj taslağı
+  kancası ve gece tahakkuk cron'unun öğrenci başına çağırdığı plan satırı yazımı; + hakediş ekranı, finans özeti,
+  mobil telafi listesi (yalnız bağlı dersler).
 
 ## 2. Kalıcı kurallar (kod yazarken)
 1. **"Var mı" kontrolü için tam `readData()` YAZMA.** Tek satır okuyucu kullan; yoksa önce onu ekle (3 store modu).
@@ -72,6 +75,12 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    { ...readReferenceData(), lessons: [], … }`. Smoke'ta referans veri `store-db.readData()` (HAM) olmalı: `store.readData`
    sanal telafi süre-dolumu uygular, store içi kurallar ham veriyle çalışır (sahte "fark" üretir).
 
+17. **Okuyucuyu değil AKIŞI ölç.** `scripts/bench/bench-flow-full-reads.ts` gerçek tool'u çağırıp akış boyunca tam
+   okumayı sayar. Yazım sonrası kancalar (`queue*BestEffort`, taslak/bildirim) ve store yazımının sonundaki okuma
+   okuyucu bench'inde görünmez. Yeni akış = tabloya bir satır.
+18. **Zamanlanmış işin satır başı çağrısı okuma YAPMAZ.** Cron/tick döngüsünde çağrılan store yazımı (ör.
+   `upsertMonthlyPlanPayment`) tam okuma yaparsa maliyet satır sayısıyla çarpılır; dönüşte yalnız kimlik.
+
 ## 3. Kanıt toplama (erişim sınırları)
 - Üretim Supabase (`wsbucz…`, org `neviihub-prod-org`) bu ortamdaki Supabase MCP'de GÖRÜNMEZ (yalnız eski org).
   Usage, Query Performance, `pg_stat_statements`, hata dökümü → owner'dan ekran görüntüsü iste. Sayaç başlangıcı bilinmez:
@@ -95,6 +104,7 @@ export DATABASE_URL=postgresql://$USER@127.0.0.1:5432/neviihub_egress_bench_p0
 STORE_MODE=db npx tsx scripts/bench/bench-tool-egress.ts --label after     # tool/mutasyon + oturum
 npx tsx scripts/bench/bench-db-egress.ts --app . --label after --repeats 1   # sayfalar (önce `npx next build`)
 STORE_MODE=db npx tsx scripts/bench/verify-db-slices.ts                     # dilim ≡ tam veri, 0 hata beklenir
+STORE_MODE=db npx tsx scripts/bench/bench-flow-full-reads.ts                # akış başına tam okuma + bayt (önce reseed)
 ```
 - "Önce": `git worktree add --detach ../nevii-hub-perf-base origin/main` → `npm ci` → `npx prisma generate` →
   `npx next build`; bench betiklerini oraya kopyala (yeni betikler tabanda yok); sayfa bench'i `--app ../nevii-hub-perf-base`.

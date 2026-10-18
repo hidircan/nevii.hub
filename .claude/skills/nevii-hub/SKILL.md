@@ -75,4 +75,6 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
   `readData()` önüne önbellek koyma (instance'lar arası bayat finans verisi). Ölçüm/yöntem: `performance-db-egress` skill.
 - Yazım sonrası tüm veriyi yeniden okuma (`data: await readData()`); ders düzenleme → `readLessonEditScope`, e-posta logosu
   → `readSchoolBranding`, sayaç → `count` sorgusu. Kalan yollar: son `docs/performance/DB_EGRESS_*.md` "Kalan" bölümü.
+- Yazım sonrası kanca (mesaj taslağı/bildirim) ve cron döngüsündeki store yazımı da tam okuma yapmaz; doğrulama
+  `scripts/bench/bench-flow-full-reads.ts` ile akış başına (bkz. performance-db-egress kural 17–18).
 - Ayrıntı: CLAUDE.md "Egress rules — enforced".
