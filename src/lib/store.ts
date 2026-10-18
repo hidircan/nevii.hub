@@ -188,7 +188,7 @@ type StoreApi = {
     /** 2026-10-09 — dönem ayı satırı branş başınadır (bkz. student-enrollments.ts EnrollmentScope). */
     enrollmentId?: string;
     includeUnlinked?: boolean;
-  }) => Promise<{ data: AppData; paymentId: string }>;
+  }) => Promise<{ paymentId: string }>;
   /** Owner policy (2026-08-30) — kayıt tamamlanma anında tahsil edilen ilk ödeme; idempotent (bkz. store-json.ts). */
   addRegistrationFirstPayment: (input: {
     studentId: string;
@@ -202,7 +202,7 @@ type StoreApi = {
     firstCollectionIncludesNextMonth?: boolean;
     /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır. */
     enrollmentId?: string;
-  }) => Promise<{ data: AppData; paymentId: string }>;
+  }) => Promise<{ paymentId: string }>;
   /**
    * FEATURE A — bir `StudentContract`'ın SABİT SAYIDA taksitini gerçek
    * `Payment` satırları olarak TEK seferde ekler (contractId/
@@ -220,7 +220,7 @@ type StoreApi = {
     reuseFirstPaymentId?: string;
     /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına aynen yazılır. */
     enrollmentId?: string;
-  }) => Promise<{ data: AppData; installments: ContractInstallmentView[] }>;
+  }) => Promise<{ installments: ContractInstallmentView[] }>;
   /** P0 dedup fix (2026-08-30) — bir öğrencinin kayıt anında tahsil edilen ilk ödeme satırını bulur (bkz. addRegistrationFirstPayment). Sözleşme oluşturmanın bunu YENİDEN yaratması yerine BULUP yeniden kullanması için. */
   getRegistrationFirstPayment: (studentId: string, scope?: import("./student-enrollments").EnrollmentScope) => Promise<Payment | null>;
   /** 2026-10-09 — bağsız (NULL) kayıtları tek branş kaydına bağlar (bkz. store-db.ts). */
@@ -254,6 +254,7 @@ type StoreApi = {
    * tüm dersleri + öğretmen/odanın verilen günlerdeki (±1) dersleri (bkz. lesson-scope.ts `narrowSlotScope`).
    */
   readLessonSeriesForStudent: (studentId: string) => Promise<import("./types").LessonSeries[]>;
+  readLessonSeriesByIds: (seriesIds: string[]) => Promise<import("./types").LessonSeries[]>;
   readSlotScopeData: (target: import("./lesson-scope").SlotScopeTarget, days?: Date[]) => Promise<AppData>;
   readStudentById: (studentId: string) => Promise<Student | undefined>;
   readLessonById: (lessonId: string) => Promise<import("./types").Lesson | undefined>;
@@ -271,8 +272,8 @@ type StoreApi = {
   readStudentScope: (studentId: string) => Promise<StudentScopeData>;
   /** Dar okuma — referans veri + [from, to] penceresindeki dersler (Ders Programı). */
   readLessonWindow: (fromIso: string, toIso: string) => Promise<LessonWindowData>;
-  /** Dar okuma — referans veri + tüm dersler + tüm telafi talepleri (Telafi Merkezi). */
-  readMakeupCenterData: () => Promise<MakeupCenterData>;
+  /** Dar okuma — referans veri + tüm dersler (`linked`: yalnız taleplerin dersleri) + tüm telafi talepleri. */
+  readMakeupCenterData: (opts?: import("./reference-data").MakeupCenterOptions) => Promise<MakeupCenterData>;
   /** Dar okuma — referans veri + ödeme durum alanları (Öğrenciler listesi). */
   readStudentListData: () => Promise<StudentListData>;
   /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
@@ -559,11 +560,11 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
 }
 
 /** DB egress (2026-10-16) — Telafi Merkezi; `readData()` ile aynı telafi süre-dolumu türetmesi uygulanır. */
-export async function readMakeupCenterData(): Promise<MakeupCenterData> {
+export async function readMakeupCenterData(opts?: import("./reference-data").MakeupCenterOptions): Promise<MakeupCenterData> {
   return applyMakeupExpiry(
     await withTenantScope(async () => {
       await store.commitMakeupPlanningExpiry(new Date());
-      return store.readMakeupCenterData();
+      return store.readMakeupCenterData(opts);
     })
   );
 }
@@ -929,7 +930,7 @@ export async function addContractInstallments(input: {
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
   enrollmentId?: string;
-}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+}): Promise<{ installments: ContractInstallmentView[] }> {
   return withTenantScope(() => store.addContractInstallments(input));
 }
 
@@ -960,7 +961,7 @@ export async function upsertMonthlyPlanPayment(input: {
   method?: string;
   enrollmentId?: string;
   includeUnlinked?: boolean;
-}): Promise<{ data: AppData; paymentId: string }> {
+}): Promise<{ paymentId: string }> {
   return withTenantScope(() => store.upsertMonthlyPlanPayment(input));
 }
 
@@ -977,7 +978,7 @@ export async function addRegistrationFirstPayment(input: {
   firstCollectionIncludesNextMonth?: boolean;
   /** 2026-10-09 — branş kaydı. */
   enrollmentId?: string;
-}): Promise<{ data: AppData; paymentId: string }> {
+}): Promise<{ paymentId: string }> {
   return withTenantScope(() => store.addRegistrationFirstPayment(input));
 }
 
@@ -993,6 +994,12 @@ export async function updateLessonSchedule(input: {
 export async function readLessonSeriesForStudent(studentId: string): Promise<import("./types").LessonSeries[]> {
   if (!studentId) return [];
   return withTenantScope(() => store.readLessonSeriesForStudent(studentId));
+}
+
+/** DB egress (2026-10-18) — verilen kimliklerin ders serileri (`readData().lessonSeries` süzgeciyle aynı satırlar). */
+export async function readLessonSeriesByIds(seriesIds: string[]): Promise<import("./types").LessonSeries[]> {
+  if (seriesIds.length === 0) return [];
+  return withTenantScope(() => store.readLessonSeriesByIds(seriesIds));
 }
 
 /** DB egress (2026-10-17) — bkz. StoreApi.readSlotScopeData (seri önizleme/oluşturma, uygun saat önerisi). */

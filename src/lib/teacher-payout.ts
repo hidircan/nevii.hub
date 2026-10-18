@@ -620,7 +620,7 @@ function calendarWeeksInPeriod(periodStart: string, periodEnd: string): number {
  * Öğretmen bulunamazsa `null` döner.
  */
 export function computeTeacherPayoutPaymentMethodInfo(
-  data: AppData,
+  data: PayoutComputationData & Pick<AppData, "teachers">,
   teacherId: string,
   periodStart: string,
   periodEnd: string

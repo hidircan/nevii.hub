@@ -50,6 +50,7 @@ import {
   narrowToDashboard,
   narrowToLessonWindow,
   narrowToMakeupCenter,
+  type MakeupCenterOptions,
   type MakeupCenterData,
   narrowToPaymentsPage,
   narrowToPayoutWindow,
@@ -248,8 +249,8 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToMakeupCenter`. */
-export async function readMakeupCenterData(): Promise<MakeupCenterData> {
-  return narrowToMakeupCenter(await readData());
+export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<MakeupCenterData> {
+  return narrowToMakeupCenter(await readData(), opts);
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
@@ -307,6 +308,12 @@ export async function readSchoolBranding() {
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);
+}
+
+/** Bkz. store-db.readLessonSeriesByIds. */
+export async function readLessonSeriesByIds(seriesIds: string[]): Promise<AppData["lessonSeries"]> {
+  const ids = new Set(seriesIds);
+  return (await readData()).lessonSeries.filter((s) => ids.has(s.id));
 }
 
 /** Bkz. store-db.readLessonSeriesForStudent. */

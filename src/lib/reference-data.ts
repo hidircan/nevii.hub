@@ -77,8 +77,24 @@ export function narrowToLessonWindow(data: AppData, from: Date, to: Date): Lesso
  */
 export type MakeupCenterData = ReferenceData & Pick<AppData, "lessons" | "makeupRequests">;
 
-export function narrowToMakeupCenter(data: AppData): MakeupCenterData {
-  return { ...toReferenceData(data), lessons: data.lessons, makeupRequests: data.makeupRequests };
+/**
+ * DB egress (2026-10-18) — `"linked"`: yalnız taleplerin kaynak/onaylı dersleri (mobil telafi listesi yalnız bu
+ * derslerin saatini gösterir; sanal süre dolumu da yalnız kaynak derse bakar). Telafi Merkezi öneri slotlarını
+ * yeniden doğruladığı için TÜM dersleri okur — varsayılan.
+ */
+export type MakeupCenterOptions = { lessons?: "all" | "linked" };
+
+export function makeupLinkedLessonIds(makeupRequests: { sourceLessonId: string; confirmedLessonId?: string | null }[]): string[] {
+  return [...new Set(makeupRequests.flatMap((m) => (m.confirmedLessonId ? [m.sourceLessonId, m.confirmedLessonId] : [m.sourceLessonId])))];
+}
+
+export function narrowToMakeupCenter(data: AppData, opts?: MakeupCenterOptions): MakeupCenterData {
+  const linked = opts?.lessons === "linked" ? new Set(makeupLinkedLessonIds(data.makeupRequests)) : null;
+  return {
+    ...toReferenceData(data),
+    lessons: linked ? data.lessons.filter((l) => linked.has(l.id)) : data.lessons,
+    makeupRequests: data.makeupRequests,
+  };
 }
 
 /**

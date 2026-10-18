@@ -40,9 +40,9 @@ export async function listMakeupRequestsTool(
   const auth = requireRole(ctx, ["TEACHER", "STUDENT", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok || isMobileExcluded(ctx)) return fail("FORBIDDEN", "Bu hesap telafi listesine erişemez.");
 
-  // DB egress (2026-10-17) — ödeme/yoklama/seri/hakediş satırları gerekmez (Telafi Merkezi ile aynı dilim ve
-  // aynı telafi süre-dolumu türetmesi).
-  const data = await readMakeupCenterData();
+  // DB egress (2026-10-17) — ödeme/yoklama/seri/hakediş satırları gerekmez (Telafi Merkezi ile aynı telafi
+  // süre-dolumu türetmesi). 2026-10-18: liste yalnız kaynak/onaylı dersin saatini gösterir → yalnız o dersler.
+  const data = await readMakeupCenterData({ lessons: "linked" });
   let rows: MakeupRequest[];
   if (ctx.role === "TEACHER") {
     if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
