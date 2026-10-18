@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Link from "@/components/link";
 import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
@@ -289,6 +289,24 @@ export function StudentsTable({
     searchParamsRef.current = searchParams;
   }, [searchParams]);
 
+  /**
+   * DB egress (2026-10-18, canlı ölçüm: 8 saatte 375 GET `/panel/ogrenciler`, referrer `?q=A`, `?q=se`…): her filtre/arama
+   * URL yazımı `router.replace` ile SUNUCU turuydu → her seferinde tüm öğrenci + ödeme + sözleşme okuması. Filtreleme
+   * tamamen istemcide; sunucu sayfası yalnız `silinenler`'i okur. O değişmiyorsa URL native history ile yazılır
+   * (Next `useSearchParams` ile senkron, sunucuya istek YOK — node_modules/next/dist/docs "Native History API").
+   */
+  const replaceUrl = useCallback(
+    (url: string) => {
+      const deleted = (search: string) => new URLSearchParams(search).get("silinenler");
+      if (deleted(new URL(url, window.location.href).search) !== deleted(window.location.search)) {
+        router.replace(url, { scroll: false });
+      } else {
+        window.history.replaceState(null, "", url);
+      }
+    },
+    [router]
+  );
+
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {
     if (searchInput === urlSearch && selectedStudentId === urlStudentId) return;
@@ -298,10 +316,10 @@ export function StudentsTable({
       else params.delete("q");
       if (selectedStudentId) params.set("studentId", selectedStudentId);
       else params.delete("studentId");
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      replaceUrl(`${pathname}?${params.toString()}`);
     }, 250);
     return () => clearTimeout(id);
-  }, [searchInput, urlSearch, selectedStudentId, urlStudentId, router, pathname]);
+  }, [searchInput, urlSearch, selectedStudentId, urlStudentId, replaceUrl, pathname]);
 
   /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
   const search = searchInput;
@@ -332,7 +350,7 @@ export function StudentsTable({
   function updateParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    replaceUrl(`${pathname}?${params.toString()}`);
   }
 
   function setSingle(key: string, value: string) {
@@ -392,7 +410,7 @@ export function StudentsTable({
     setLastUrlSearch("");
     setSelectedStudentId("");
     setLastUrlStudentId("");
-    router.replace(pathname, { scroll: false });
+    replaceUrl(pathname);
   }
 
   useEffect(() => {

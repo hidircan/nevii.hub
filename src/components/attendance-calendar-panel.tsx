@@ -19,7 +19,7 @@ import { useCurrentPath } from "@/lib/use-current-path";
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "@/components/link";
 import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
@@ -417,7 +417,6 @@ export function AttendanceCalendarPanel({
    */
   showWeekdayLabels?: boolean;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const multiBranch = branches.length > 1;
@@ -447,9 +446,11 @@ export function AttendanceCalendarPanel({
       const params = new URLSearchParams(searchParams.toString());
       params.set("attTerm", nextTerm);
       params.set("attYear", String(nextYear));
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      // DB egress (2026-10-18): attTerm/attYear'ı sunucu okumaz (veri /api/v1/attendance-calendar/term'den) — native
+      // history, sayfanın sunucu turu YOK (bkz. students-table).
+      window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
     },
-    [pathname, router, searchParams]
+    [pathname, searchParams]
   );
 
   function changeTerm(nextTerm: AttendanceTerm) {

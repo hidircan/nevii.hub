@@ -100,6 +100,11 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    dışındaki her hata gerçek okumadır (`Pick<Student,…>` opsiyonel alanı sessizce `undefined` alır, `notes` koruması yakalamaz).
 23. **Özet yeterse satır taşıma.** Liste rozeti/toplamı için tüm satırları okuma — SQL'de grupla (`groupBy` + alan
    referansı `prisma.payment.fields.paidAmount`), json/memory aynı saf fonksiyonla (`toPaymentStatusRows`) özetlesin.
+24. **İstemci filtresinin URL'i = native history.** Filtre/arama/sıralama istemcide çalışıyorsa URL'i `router.replace/push`
+   ile YAZMA — `force-dynamic` sayfada her yazım sunucu turu = sayfanın tüm okuması (2026-10-18 canlı: Öğrenciler
+   GET'lerinin %73'ü kendi filtre yazımlarıydı). `window.history.replaceState(null, "", url)` Next ile senkron
+   (`useSearchParams` güncellenir). Yalnız sunucu sayfasının OKUDUĞU parametre değişiyorsa router kullan
+   (ör. `silinenler`, evraklarda `studentId`). Bul: `grep -rnE 'router\.(replace|push)\(`\$\{pathname\}' src`.
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).
@@ -117,6 +122,13 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
   Deploy saati: `list_deployments target=production` (`created` ms) — "önce/sonra" penceresini ona göre seç. Env için
   `filter_project_envs decrypt=false` → yalnız ad/hedef ayrıştır, değer yazma. `list_deployments target=production`
   ile "merge ≠ deploy" kontrol et.
+- **Sayfa başına okuma sayısı:** `vercel.function_invocation.count --group-by referrerUrl --filter "route eq '/panel/x'
+  and requestMethod eq 'GET'"` — referrer aynı sayfaysa (?q=…) istek filtre/arama yazımıdır (kural 24). Log satırı
+  sayısı istek sayısı DEĞİL (yalnız log basan istekler görünür).
+- **Skew protection ölçümü bozar:** açık sekmeler eski deployment'a bağlı kalır (`get_runtime_logs group_by=deploymentId`).
+  Deploy sonrası yeni sorgu metni `pg_stat_statements`'ta görünmüyorsa eski sürüm çalışıyordur; owner sekmeleri yenilesin.
+  Sıfırlamak yerine `\copy (select now(),queryid,calls,rows,query from pg_stat_statements)` anlık görüntüsü al
+  (`~/NeviiHub-Backups/2026-10-18-oct/egress-snapshots/`), sonra fark al.
 - Canlı DB'ye ops betiği gerekirse: port 5432 / `BEGIN TRANSACTION READ ONLY`; `:6543`'te asla session `SET`.
   Canlıda load test, toplu export, dump, `pg_stat_statements_reset` YOK.
 - Tel düzeyinde SQL görmek: `scripts/_x.tmp.ts` içinde `pg.Client.prototype.query`'yi sarıp log'la, çalıştır, SİL.
