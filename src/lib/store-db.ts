@@ -112,6 +112,8 @@ import {
   narrowToDashboard,
   narrowToLessonWindow,
   narrowToMakeupCenter,
+  makeupLinkedLessonIds,
+  type MakeupCenterOptions,
   type MakeupCenterData,
   narrowToPaymentsPage,
   narrowToPayoutWindow,
@@ -1482,15 +1484,21 @@ export async function readLessonWindow(fromIso: string, toIso: string): Promise<
 }
 
 /** DB egress (2026-10-16) — Telafi Merkezi: referans veri + tüm dersler + tüm telafi talepleri (bkz. reference-data.ts). */
-export async function readMakeupCenterData(): Promise<MakeupCenterData> {
+export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<MakeupCenterData> {
   const tid = tenantId();
+  const linkedIds =
+    opts?.lessons === "linked"
+      ? makeupLinkedLessonIds(
+          await prisma.makeupRequest.findMany({ where: { tenantId: tid }, select: { sourceLessonId: true, confirmedLessonId: true } })
+        )
+      : null;
   const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({
       where: { tenantId: tid },
       omit: { logoUrl: true },
       include: {
         ...referenceSchoolInclude,
-        lessons: { where: { tenantId: tid } },
+        lessons: { where: { tenantId: tid, ...(linkedIds ? { id: { in: linkedIds } } : {}) } },
         makeupRequests: { where: { tenantId: tid } },
       },
     }),
@@ -1499,7 +1507,7 @@ export async function readMakeupCenterData(): Promise<MakeupCenterData> {
     readTeacherPayoutPolicies(tid),
     listClosedDays(tid).catch(() => []),
   ]);
-  if (!school) return narrowToMakeupCenter(await readData());
+  if (!school) return narrowToMakeupCenter(await readData(), opts);
   const mapped = mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] });
   return narrowToMakeupCenter({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
 }
@@ -3177,6 +3185,14 @@ export async function readLessonSeriesForStudent(studentId: string): Promise<imp
   return rows.map(mapDbLessonSeries);
 }
 
+/** DB egress (2026-10-18) — verilen kimliklerin ders serileri (hakediş kalemi demo etiketi). */
+export async function readLessonSeriesByIds(seriesIds: string[]): Promise<import("./types").LessonSeries[]> {
+  if (seriesIds.length === 0) return [];
+  const tid = requireTenantId();
+  const rows = await prisma.lessonSeries.findMany({ where: { tenantId: tid, id: { in: seriesIds }, school: { tenantId: tid } } });
+  return rows.map(mapDbLessonSeries);
+}
+
 /** Bkz. StoreApi.readSlotScopeData — okul yoksa tam okumaya düşer (seed davranışı readData'da). */
 export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
   return (await readSlotScope(requireTenantId(), target, days)) ?? readData();
@@ -4552,7 +4568,7 @@ export async function addContractInstallments(input: {
   reuseFirstPaymentId?: string;
   /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına (ve bağlanan kayıt ödemesine) aynen yazılır. */
   enrollmentId?: string;
-}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+}): Promise<{ installments: ContractInstallmentView[] }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
   if (!student) throw new Error("Öğrenci bulunamadı");
@@ -4643,7 +4659,6 @@ export async function addContractInstallments(input: {
       installmentNote: updated.installmentNote,
     };
   }
-  const data = await readData();
   const installmentRows = reusedRow
     ? [reusedRow, ...rows.map((r) => ({ ...r, sequence: r.installmentSequence }))]
     : rows.map((r) => ({ ...r, sequence: r.installmentSequence }));
@@ -4661,7 +4676,8 @@ export async function addContractInstallments(input: {
     computationSource: (r.installmentComputationSource as "auto" | "manual" | null | undefined) ?? undefined,
     note: r.installmentNote ?? undefined,
   }));
-  return { data, installments };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıran (contracts.ts) yalnız installments kullanır.
+  return { installments };
 }
 
 /** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
@@ -4716,7 +4732,7 @@ export async function upsertMonthlyPlanPayment(input: {
   /** 2026-10-09 — branş kaydı: dönem ayı satırı BRANŞ başınadır (Keman Ekim ≠ Piyano Ekim). */
   enrollmentId?: string;
   includeUnlinked?: boolean;
-}): Promise<{ data: AppData; paymentId: string }> {
+}): Promise<{ paymentId: string }> {
   logger.info("upsertMonthlyPlanPayment", input.studentId, input.month, input.amount);
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({
@@ -4783,8 +4799,8 @@ export async function upsertMonthlyPlanPayment(input: {
       },
     });
   }
-  const data = await readData();
-  return { data, paymentId };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıranlar yalnız paymentId kullanır (aylık tahakkuk cron'u öğrenci başına çağırır).
+  return { paymentId };
 }
 
 /** Bkz. store-json.ts addRegistrationFirstPayment — aynı davranış/idempotency (mode parity). */
@@ -4804,7 +4820,7 @@ export async function addRegistrationFirstPayment(input: {
   firstCollectionIncludesNextMonth?: boolean;
   /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır (ikinci branşın ilk tahsilatı ayrı satır). */
   enrollmentId?: string;
-}): Promise<{ data: AppData; paymentId: string }> {
+}): Promise<{ paymentId: string }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
   if (!student) throw new Error("Öğrenci bulunamadı");
@@ -4844,8 +4860,8 @@ export async function addRegistrationFirstPayment(input: {
       },
     });
   }
-  const data = await readData();
-  return { data, paymentId };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıranlar yalnız paymentId kullanır (aylık tahakkuk cron'u öğrenci başına çağırır).
+  return { paymentId };
 }
 
 /**

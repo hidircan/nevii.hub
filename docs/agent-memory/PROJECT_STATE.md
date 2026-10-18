@@ -4,7 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-18 (Supabase egress 4. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+## Güncel snapshot — 2026-10-18 öğle (Supabase egress 5. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
+- #61 merge + canlı. Worktree `../nevii-hub-egress-p5`, dal `perf/egress-p5`. Rapor `DB_EGRESS_2026_10_18.md` §6.
+- Uçtan uca akış sayacı (`scripts/bench/bench-flow-full-reads.ts`) iki gizli tam okuma buldu: ders taşıma sonrası mesaj
+  taslağı kancası ve gece tahakkuk cron'unun öğrenci başına plan satırı yazımı. + hakediş ekranı, finans özeti, mobil telafi.
+- Açık: canlı log sayımı (ilk iş günü, eylem adlı); kalanlar: hakediş revize/ödeme, içe aktarma, raporlar, Telafi Merkezi sayfası.
+
+## Snapshot — 2026-10-18 (Supabase egress 4. dalga; PR açık, MERGE/CANLI YOK, migration/env YOK)
 - #60 merge + canlı (10-17 20:20Z). Worktree `../nevii-hub-egress-p4`, dal `perf/egress-p4`. Rapor `docs/performance/DB_EGRESS_2026_10_18.md`.
 - Ders sil/revize/değişim/seri iptal, öğrenci kaydı, sözleşmeler, e-postalar, mobil ana sayfa/öğretmenler/Hakedişlerim,
   Telafi oluştur/öneri, öğretmen Özet/Program/Yoklama, ödeme yazımları dar okumaya (yerel −59…−100 %). tools.ts 93→62 tam okuma.

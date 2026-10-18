@@ -633,9 +633,9 @@ export async function listLessonCommunicationMessagesTool(
     // Öğretmen ctx'i tenant'a bağlıdır; sahiplik teacherId eşleşmesidir
     // (canAccessStudent TEACHER dalıyla aynı kural). Satırlar zaten
     // tenant kapsamlı listelenir (aşağıda).
-    const { readData } = await import("../store");
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === input.lessonId);
+    // DB egress (2026-10-18) — sahiplik için tek ders satırı yeter (tam kurum okuması değil).
+    const { readLessonById } = await import("../store");
+    const lesson = await readLessonById(input.lessonId);
     if (!lesson || lesson.teacherId !== ctx.teacherId) {
       return fail("FORBIDDEN", "Bu dersin bilgilendirme geçmişini görme yetkiniz yok.");
     }
@@ -962,9 +962,10 @@ export async function queueLessonUpdateDraftsBestEffort(input: {
   previous: { startAt: string; teacherId: string; roomId: string; branchId: string; durationMinutes?: number };
 }): Promise<void> {
   try {
-    const { readData } = await import("../store");
-    const data = await readData();
-    const lesson = data.lessons.find((l) => l.id === input.lessonId);
+    // DB egress (2026-10-18) — her ders taşıma/atama sonrası çalışır: tek ders satırı + referans veri (öğrenci,
+    // öğretmen, oda, şube, kurum adı) yeter; önceden tam kurum verisi okunuyordu.
+    const { readLessonById, readReferenceData } = await import("../store");
+    const [lesson, data] = await Promise.all([readLessonById(input.lessonId), readReferenceData()]);
     if (!lesson) return;
     const student = data.students.find((s) => s.id === lesson.studentId);
     if (!student) return;

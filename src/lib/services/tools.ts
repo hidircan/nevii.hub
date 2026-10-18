@@ -80,7 +80,10 @@ import {
   readStudentById,
   readLessonById,
   readLessonSeriesForStudent,
+  readLessonSeriesByIds,
+  readMakeupCenterData,
   readLessonsForTeacher,
+  readPaymentsPageData,
   readSlotScopeData,
   readTeacherPayoutsForTeacher,
   readPaymentById,
@@ -981,7 +984,8 @@ export async function confirmMakeupLessonTool(
   }
 
   if (ctx.role === "BRANCH_MANAGER") {
-    const gateData = await readData();
+    // DB egress (2026-10-18) — kapı yalnız talebin şubesine ve odalara bakar (tam kurum okuması değil).
+    const gateData = await readMakeupCenterData({ lessons: "linked" });
     const req = gateData.makeupRequests.find((m) => m.id === v.data.requestId);
     if (!req) return fail("NOT_FOUND", "Telafi talebi bulunamadı");
     const gate = await assertBranchOperation(ctx, "makeup", "update", req.branchId);
@@ -6781,7 +6785,10 @@ export async function getFinanceSummaryTool(
     input ?? {}
   );
   if (!v.ok) return v;
-  const data = await readData();
+  // DB egress (2026-10-18) — özet yalnız ödemeleri, kayıtlı hakedişleri ve referans veriyi okur. Hakediş penceresi
+  // boş aralıkla çağrılır: ders satırı gelmez, TÜM kayıtlı hakedişler gelir (aynı tazelik; cache yok).
+  const [paymentsData, payoutData] = await Promise.all([readPaymentsPageData(), readPayoutWindow(new Date(0).toISOString(), new Date(0).toISOString())]);
+  const data = { ...paymentsData, teacherPayouts: payoutData.teacherPayouts };
   const staff = await listStaff(ctx.tenantId);
   const payroll = await listPayroll(ctx.tenantId);
   const expenses = await listExpenses(ctx.tenantId);
@@ -9526,7 +9533,11 @@ export async function computeTeacherPayoutTool(
   const v = parseOrFail(computeTeacherPayoutSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-18) — dönem penceresi (döküm aracıyla aynı ±2 gün pay; kesin kesim gün anahtarıyla hesapta).
+  // Hesap, kayıtlı hakedişler ve fark yalnız dönemin derslerine bakar; kalem kaynağı aşağıda tamamlanır.
+  const windowFrom = new Date(Date.parse(`${payoutPeriodDayKey(v.data.periodStart)}T00:00:00Z`) - 2 * 86_400_000).toISOString();
+  const windowTo = new Date(Date.parse(`${payoutPeriodDayKey(v.data.periodEnd)}T23:59:59Z`) + 2 * 86_400_000).toISOString();
+  const data = await readPayoutWindow(windowFrom, windowTo);
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) {
     return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   }
@@ -9553,7 +9564,7 @@ export async function computeTeacherPayoutTool(
   const cancelled = samePeriod.find((p) => p.status === "cancelled");
   // Ekran = kayıt: kayıt varsa donmuş kalemler + satır düzeltmeleri; yoksa canlı hesap.
   const shown = applyPayoutLineOverrides(existing ? payoutBaseEarnings(data, existing) : result, existing?.lineOverrides);
-  const lineSources = describeLineSources(data, shown.lines.map((l) => l.lessonId));
+  const lineSources = await describeLineSources(data, shown.lines.map((l) => l.lessonId));
   const { resolveActorLabels } = await import("../contract-payment-plan-view");
   const actorLabels = existing
     ? await resolveActorLabels({
@@ -9698,12 +9709,22 @@ export type PayoutLineSource = {
   lessonType?: string;
 };
 
-function describeLineSources(data: AppData, lessonIds: string[]): Record<string, PayoutLineSource> {
+async function describeLineSources(
+  data: Pick<AppData, "lessons" | "teacherPayoutExclusions">,
+  lessonIds: string[]
+): Promise<Record<string, PayoutLineSource>> {
   const excluded = new Set((data.teacherPayoutExclusions ?? []).map((x) => x.lessonId));
+  // DB egress (2026-10-18) — dersler dönem penceresinden gelir; donmuş kalemin dersi sonradan pencere dışına
+  // taşınmışsa tek satır okunur (yoksa silinmiştir). Demo etiketi yalnız kalem derslerinin serilerinden okunur.
+  const byId = new Map(data.lessons.map((l) => [l.id, l]));
+  const outside = await Promise.all(lessonIds.filter((id) => !byId.has(id)).map((id) => readLessonById(id)));
+  for (const l of outside) if (l) byId.set(l.id, l);
+  const seriesIds = [...new Set(lessonIds.map((id) => byId.get(id)?.seriesId).filter((s): s is string => Boolean(s)))];
+  const seriesById = new Map((await readLessonSeriesByIds(seriesIds)).map((s) => [s.id, s]));
   const out: Record<string, PayoutLineSource> = {};
   for (const id of lessonIds) {
-    const lesson = data.lessons.find((l) => l.id === id);
-    const series = lesson?.seriesId ? data.lessonSeries.find((s) => s.id === lesson.seriesId) : undefined;
+    const lesson = byId.get(id);
+    const series = lesson?.seriesId ? seriesById.get(lesson.seriesId) : undefined;
     out[id] = {
       state: !lesson ? "missing" : isLessonProcessedForPayout(lesson) ? "ok" : "not_processed",
       demo: Boolean(series?.demoTag),

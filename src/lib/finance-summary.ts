@@ -75,7 +75,7 @@ function monthKey(dateIso: string): string {
 }
 
 export function computeFinanceSummary(
-  data: AppData,
+  data: Pick<AppData, "settings" | "payments" | "teacherPayouts">,
   staff: { id: string; name: string; branchId?: string }[],
   payroll: PayrollRecord[],
   expenses: ExpenseRecord[],
