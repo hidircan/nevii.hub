@@ -12,6 +12,7 @@ import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import { listNotificationsForUser, NOTIFICATIONS_FILE } from "../notifications";
 import { createLessonTool } from "../services/tools";
+import { listCommunicationMessages } from "../communications/store";
 import { findOpenLessonSlot } from "./helpers/lesson-slot";
 import type { ServiceContext } from "../services/context";
 import type { AppData, Lesson } from "../types";
@@ -277,6 +278,16 @@ describe("createLessonTool — İş 4A tekil ders bildirimi", () => {
 
     const notifications = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: "user_teacher_t1" });
     expect(notifications.filter((n) => n.kind === "lesson_planned")).toHaveLength(1);
+  });
+
+  it("ders planlama İletişim Merkezi'nde mesaj taslağı oluşturmaz (sahip kararı 2026-10-18)", async () => {
+    const data = await readData();
+    const startAt = await findOpenLessonSlot(data, "s1", "t1", "r1");
+    const res = await createLessonTool(ctx(), { studentId: "s1", teacherId: "t1", roomId: "r1", instrument: "Piyano", startAt });
+    expect(res.ok).toBe(true);
+    const lessonId = res.ok ? res.data.lessonId : "";
+    const messages = await listCommunicationMessages(DEFAULT_TENANT_ID);
+    expect(messages.filter((m) => m.resourceType === "lesson" && m.resourceId === lessonId)).toHaveLength(0);
   });
 
   it("başarısız ders oluşturmada (oda çakışması) bildirim gitmez", async () => {

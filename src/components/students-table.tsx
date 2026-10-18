@@ -80,9 +80,16 @@ export type StudentRow = {
 };
 
 /** Satır alanından okunan basit çoklu seçim filtreleri (URL anahtarı → etiket + değer). */
-const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[] }[] = [
-  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []) },
-  { key: "photo", label: "Fotoğraf paylaşım izni", chip: "Fotoğraf izni", value: (r) => (r.photoConsent ? [r.photoConsent] : []) },
+/** `options` sabitse filtre veride o değer olmasa da tüm seçenekleri sunar (izinler: "var" da "yok" da seçilebilir). */
+const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[]; options?: string[] }[] = [
+  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []), options: ["Var", "Yok"] },
+  {
+    key: "photo",
+    label: "Fotoğraf paylaşım izni",
+    chip: "Fotoğraf izni",
+    value: (r) => (r.photoConsent ? [r.photoConsent] : []),
+    options: ["Veriyor", "Vermiyor", "Kayıt yok"],
+  },
   { key: "instrument", label: "Enstrüman", chip: "Enstrüman", value: (r) => r.instruments },
   { key: "exam", label: "Hedef sınav", chip: "Hedef sınav", value: (r) => (r.targetExam ? [r.targetExam] : []) },
   { key: "source", label: "Kayıt kaynağı", chip: "Kaynak", value: (r) => [r.fromTrial ? "Denemeden dönüşen" : "Doğrudan kayıt"] },
@@ -434,12 +441,15 @@ export function StudentsTable({
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
     { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
-    ...extraFilters.map((f): FilterGroup => ({
-      key: f.key,
-      label: f.label,
-      type: "multi",
-      options: uniqueSorted(rows.flatMap(f.value)),
-    })),
+    // İzin alanı hiç dolmamışsa (merged kurum görünümü) sabit seçenekler hep 0 döndürürdü — grup gizlenir.
+    ...extraFilters
+      .filter((f) => !f.options || rows.some((r) => f.value(r).length > 0))
+      .map((f): FilterGroup => ({
+        key: f.key,
+        label: f.label,
+        type: "multi",
+        options: f.options ?? uniqueSorted(rows.flatMap(f.value)),
+      })),
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
     { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
     { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
@@ -546,6 +556,13 @@ export function StudentsTable({
     return true;
   };
   const baseRows = rows.filter(matchesExceptContract);
+  // Durum (varsayılan "Aktif") bir filtre değil listenin KAPSAMIDIR: tüm sayaçlar bu kümeden türer.
+  // Eskiden alt satır `rows.length` (pasifler dahil) sayıyordu → "Filtrelere uyan 145" / "Toplam 147" çelişkisi.
+  const scopeRows = rows.filter(
+    (r) => statusFilter === "all" || (statusFilter === "active" ? r.active : !r.active)
+  );
+  const scopeNoun = deletedView ? "silinen öğrenci" : statusFilter === "all" ? "öğrenci" : `${STATUS_LABELS[statusFilter].toLocaleLowerCase("tr")} öğrenci`;
+  const inactiveOutsideScope = !deletedView && statusFilter === "active" ? rows.length - scopeRows.length : 0;
   const filtered = contractFilter.length
     ? baseRows.filter((row) => contractFilter.includes(resolveContractFilterKey(row, today)))
     : baseRows;
@@ -554,6 +571,9 @@ export function StudentsTable({
   const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
   const anyFilterActive = Boolean(search) || Boolean(selectedStudentId) || activeGroupCount > 0 || tcMatch !== null;
+  /** Durum dışındaki gerçek daraltmalar (sözleşme chip'i dahil) — "Filtrelere uyan" yalnız bunlar varsa söylenir. */
+  const anyNarrowing =
+    Boolean(search) || Boolean(selectedStudentId) || tcMatch !== null || activeGroupCount > (statusFilter !== "active" ? 1 : 0);
   // Dropdown: mevcut filtrelere (durum/şube/öğretmen/sözleşme…) ve kapsamdaki TÜM satırlara uyan öğrenciler — tablonun
   // yalnız yüklü sayfası değil. Sunucu isteği yok: `rows` kullanıcının yetkili olduğu kapsamın tamamıdır.
   const searchOptions = rows
@@ -682,7 +702,9 @@ export function StudentsTable({
                 ? "Liste seçilen öğrenciye göre süzüldü"
                 : search
                   ? `${searchOptions.length} öğrenci eşleşiyor`
-                  : `Filtrelere uyan ${searchOptions.length} öğrenci`
+                  : anyNarrowing
+                    ? `Filtrelere uyan ${searchOptions.length} öğrenci`
+                    : `${searchOptions.length} ${scopeNoun}`
             }
           />
 
@@ -1001,7 +1023,10 @@ export function StudentsTable({
 
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-[var(--color-text-muted)]">
           <span>
-            {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+            {anyNarrowing
+              ? `${scopeRows.length} ${scopeNoun} içinden ${filtered.length} öğrenci gösteriliyor`
+              : `Toplam ${scopeRows.length} ${scopeNoun}`}
+            {inactiveOutsideScope > 0 ? ` · ${inactiveOutsideScope} pasif öğrenci Arşiv'de` : ""}
           </span>
           {canBulk && selectedIds.size > 0 && selectedIds.size < sorted.length ? (
             <button

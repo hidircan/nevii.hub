@@ -7,7 +7,7 @@ import { effectiveEnrollments, enrollmentLabel, studentBranchIds, type Enrollmen
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Loader2, Pencil, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Loader2, Pencil, Sparkles, TriangleAlert, X } from "lucide-react";
 import { addDays as addDaysDate, addMinutes, differenceInMinutes, format, isSameDay, parseISO, startOfDay } from "date-fns";
 import Link from "@/components/link";
 import { tr } from "date-fns/locale";
@@ -18,7 +18,6 @@ import {
   actionSuggestLessonSlots,
   actionUpdateLessonSchedule,
 } from "@/lib/actions";
-import type { LessonCommunicationMessage } from "@/lib/whatsapp-templates";
 import type { LessonSlotSuggestion } from "@/lib/lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "@/lib/lesson-series";
 import { LessonDeleteAction, LessonScopeEditor } from "@/components/lesson-scope-editor";
@@ -831,10 +830,8 @@ export function ProgramStudio({
   const [availabilityOverrideReason, setAvailabilityOverrideReason] = useState("");
   const [availabilityWarningSlot, setAvailabilityWarningSlot] = useState<{ teacherId: string; startAt: string; durationMinutes: number } | null>(null);
   const pendingLessonFormData = useRef<FormData | null>(null);
-  const [notices, setNotices] = useState(() =>
-    emptyProgramNotices<{ parent: LessonCommunicationMessage; teacher: LessonCommunicationMessage }>()
-  );
-  const { gridError, actionSuccess, lastCreated, seriesSuccess } = notices;
+  const [notices, setNotices] = useState(() => emptyProgramNotices<never>());
+  const { gridError, actionSuccess, seriesSuccess } = notices;
   const clearNotices = () => setNotices(emptyProgramNotices());
 
   const [suggestLoading, setSuggestLoading] = useState(false);
@@ -1330,9 +1327,7 @@ export function ProgramStudio({
       setFormError(result.message);
       return;
     }
-    setNotices(
-      result.communication ? onlyNotice({ lastCreated: result.communication }) : onlyNotice({ actionSuccess: "Ders planlandı." })
-    );
+    setNotices(onlyNotice({ actionSuccess: "Ders planlandı." }));
     setActivePanel("none");
     setSuggestions(null);
     setAvailabilityWarningOpen(false);
@@ -2099,29 +2094,6 @@ export function ProgramStudio({
 
   return (
     <div>
-      {lastCreated ? (
-        <Card className="mb-4 border-emerald-200 bg-emerald-50/50">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="font-semibold text-emerald-900">Ders planlandı. İletişim taslakları hazır.</p>
-            <button
-              type="button"
-              onClick={() => clearNotices()}
-              className="text-emerald-700 hover:text-emerald-900"
-              aria-label="Kapat"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <p className="mb-3 text-xs text-emerald-800">
-            Hiçbir mesaj otomatik gönderilmedi. Aşağıdaki taslakları inceleyip isterseniz WhatsApp&apos;ta açabilirsiniz.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <CommunicationDraftCard label="Veliye taslak" msg={lastCreated.parent} />
-            <CommunicationDraftCard label="Öğretmene taslak" msg={lastCreated.teacher} />
-          </div>
-        </Card>
-      ) : null}
-
       {seriesSuccess ? (
         <Card className="mb-4 border-emerald-200 bg-emerald-50/50">
           <div className="flex items-start justify-between gap-3">
@@ -2937,41 +2909,6 @@ function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (m
           {error}
         </p>
       ) : null}
-    </div>
-  );
-}
-
-function CommunicationDraftCard({ label, msg }: { label: string; msg: LessonCommunicationMessage }) {
-  return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 dark:border-slate-700 dark:bg-slate-900">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{label}</p>
-      <p className="mt-1 text-sm font-medium text-[var(--color-text)] dark:text-slate-50">
-        {msg.toName}
-        {msg.toPhone ? ` · ${msg.toPhone}` : ""}
-      </p>
-      <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[var(--color-surface-muted)] p-2 text-[11px] leading-relaxed text-[var(--color-text-muted)] dark:text-slate-300">
-        {msg.body}
-      </pre>
-      {msg.waLink ? (
-        <a href={msg.waLink} target="_blank" rel="noreferrer">
-          <Button className="mt-2 bg-emerald-600 !py-1.5 text-xs hover:bg-emerald-700">
-            <ExternalLink className="h-3.5 w-3.5" />
-            WhatsApp&apos;ta aç
-          </Button>
-        </a>
-      ) : (
-        <p className="mt-2 text-xs text-rose-600">{msg.missingPhoneReason ?? "Telefon numarası eksik."}</p>
-      )}
-      <p className="mt-2 text-[11px] leading-relaxed text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-        Gönderim ve “gönderdim” işareti İletişim Merkezi&apos;nden yapılır — kim/ne zaman bilgisi orada
-        kalıcı kaydedilir.
-      </p>
-      <Link
-        href="/panel/iletisim-merkezi"
-        className="mt-1.5 inline-block text-[11px] font-semibold text-[var(--color-primary)] underline"
-      >
-        İletişim Merkezi&apos;nde aç
-      </Link>
     </div>
   );
 }
