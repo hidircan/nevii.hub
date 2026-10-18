@@ -16,14 +16,9 @@ import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { listLatestSocialMediaConsentsByStudent } from "@/lib/social-media-consent";
 import { listKvkkConsentedSubjectIds } from "@/lib/kvkk-consent";
+import { photoConsentLabel } from "@/lib/student-consent-labels";
 
 export const dynamic = "force-dynamic";
-
-/** Fotoğraf paylaşım izni: en güncel kayıt "verildi" VE kapsamında fotoğraf varsa "Veriyor". */
-function photoConsentLabel(c: { status: string; scopes: string[] } | undefined): StudentRow["photoConsent"] {
-  if (!c) return "Kayıt yok";
-  return c.status === "granted" && c.scopes.includes("photo") ? "Veriyor" : "Vermiyor";
-}
 
 export default async function OgrencilerPage({
   searchParams,

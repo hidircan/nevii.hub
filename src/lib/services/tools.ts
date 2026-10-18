@@ -4231,10 +4231,17 @@ export async function updateStudentProfileTool(
       });
       if (!repriced.ok) return repriced;
     }
+    // Minimal fark (2026-10-19): ham yama (`...patch` — formun TÜM alanları, telefon/adres gibi kişisel veri dahil)
+    // artık meta'ya yazılmaz; yalnız gerçekten değişen alanlar `changes`'ta. Kaydedilmemiş sorumluluk = varsayılanı.
     audit(ctx, "student.profile_update", "Student", studentId, {
-      ...patch,
+      entityName: patch.name ?? before?.name,
       ...(target ? { enrollmentId: target.view.id, instrument: target.view.instrument } : {}),
-      changes: before ? diffRecordFields(before as unknown as Record<string, unknown>, patch as Record<string, unknown>) : [],
+      changes: before
+        ? diffRecordFields(
+            { ...before, accountResponsibility: before.accountResponsibility ?? "PARENT_MANAGED" } as unknown as Record<string, unknown>,
+            patch as Record<string, unknown>
+          )
+        : [],
     });
     return ok({ studentId });
   } catch (e) {
@@ -5872,7 +5879,10 @@ export async function updateTeacherProfileTool(
     }
     const updated = await updateTeacherProfile(teacherId, patch);
     if (!updated) return fail("NOT_FOUND", "Öğretmen bulunamadı");
-    audit(ctx, "teacher.profile_update", "Teacher", teacherId, patch);
+    audit(ctx, "teacher.profile_update", "Teacher", teacherId, {
+      entityName: patch.name ?? teacher.name,
+      changes: diffRecordFields(teacher as unknown as Record<string, unknown>, patch as Record<string, unknown>),
+    });
     return ok({ teacherId });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "updateTeacherProfile failed");
