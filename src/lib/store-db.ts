@@ -207,9 +207,25 @@ type PrismaSchoolWithAllRelations = Prisma.SchoolGetPayload<{
     teacherPayouts: true;
   };
 }>;
+/**
+ * DB egress (2026-10-19) — sıcak okuma dilimleri ders/ödeme/yoklama/telafi satırında kurum kolonlarını
+ * (`tenantId`, `schoolId`) taşımaz: eşlemeler bunları okumaz, sorgu zaten kuruma süzülü (~54 B/satır,
+ * ders satırının ~%12'si). Tam okuma ve yazım yolları satırı olduğu gibi okur.
+ */
+const HOT_ROW_OMIT = { tenantId: true, schoolId: true } as const;
+type HotRow<T> = Omit<T, keyof typeof HOT_ROW_OMIT>;
+type AllRel<K extends keyof PrismaSchoolWithAllRelations> = PrismaSchoolWithAllRelations[K] extends (infer R)[] ? R : never;
+
 /** Çok-öğrencili dilimler öğrenci satırını `referenceStudentOmit` kolonları olmadan okur (eşleme eksikleri `undefined` yapar). */
-type PrismaSchoolWithRelations = Omit<PrismaSchoolWithAllRelations, "students"> & {
-  students: Partial<PrismaSchoolWithAllRelations["students"][number]>[];
+type PrismaSchoolWithRelations = Omit<
+  PrismaSchoolWithAllRelations,
+  "students" | "lessons" | "payments" | "attendances" | "makeupRequests"
+> & {
+  students: Partial<AllRel<"students">>[];
+  lessons: HotRow<AllRel<"lessons">>[];
+  payments: HotRow<AllRel<"payments">>[];
+  attendances: HotRow<AllRel<"attendances">>[];
+  makeupRequests: HotRow<AllRel<"makeupRequests">>[];
 };
 
 function sleepMs(ms: number) {
@@ -477,7 +493,7 @@ function mapDbLessonSeries(series: Prisma.LessonSeriesGetPayload<object>): impor
 }
 
 /** Prisma `Lesson` satırı → `AppData.lessons` öğesi (tam okuma ve hedefli okumalar AYNI eşlemeyi kullanır). */
-function mapDbLesson(lesson: Prisma.LessonGetPayload<object>): import("./types").Lesson {
+function mapDbLesson(lesson: HotRow<Prisma.LessonGetPayload<object>>): import("./types").Lesson {
   return {
     id: lesson.id,
     studentId: lesson.studentId,
@@ -1167,7 +1183,7 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
  * Prisma `Payment` satırı → `AppData.payments` öğesi. JSON/memory store'ların taşıdığı TÜM alanlar
  * burada da olmalı (mode parity) — bkz. `payment-db-mapping.test.ts`.
  */
-export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import("./types").Payment {
+export function mapDbPayment(payment: HotRow<Prisma.PaymentGetPayload<object>>): import("./types").Payment {
   return {
     id: payment.id,
     studentId: payment.studentId,
@@ -1344,6 +1360,7 @@ export async function readLessonsStartingBetween(fromIso: string, toIso: string)
   const tid = tenantId();
   const rows = await prisma.lesson.findMany({
     where: { tenantId: tid, school: { tenantId: tid }, startAt: { gte: new Date(fromIso), lte: new Date(toIso) } },
+    omit: HOT_ROW_OMIT,
   });
   return rows.map(mapDbLesson);
 }
@@ -1352,7 +1369,7 @@ export async function readLessonsStartingBetween(fromIso: string, toIso: string)
 export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
   if (!teacherId) return [];
   const tid = tenantId();
-  const rows = await prisma.lesson.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } } });
+  const rows = await prisma.lesson.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } }, omit: HOT_ROW_OMIT });
   return rows.map(mapDbLesson);
 }
 
@@ -1562,11 +1579,11 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
       include: {
         ...referenceSchoolInclude,
         students: { where: { tenantId: tid, id: studentId } },
-        lessons: { where: own },
+        lessons: { where: own, omit: HOT_ROW_OMIT },
         lessonSeries: { where: own },
-        attendances: { where: own },
-        makeupRequests: { where: own },
-        payments: { where: own },
+        attendances: { where: own, omit: HOT_ROW_OMIT },
+        makeupRequests: { where: own, omit: HOT_ROW_OMIT },
+        payments: { where: own, omit: HOT_ROW_OMIT },
       },
     }),
     readPackages(tid),
@@ -1590,7 +1607,10 @@ export async function readLessonWindow(fromIso: string, toIso: string, opts?: Cl
       omit: { logoUrl: true },
       include: {
         ...referenceSchoolInclude,
-        lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to }, ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}) } },
+        lessons: {
+          where: { tenantId: tid, startAt: { gte: from, lte: to }, ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}) },
+          omit: HOT_ROW_OMIT,
+        },
       },
     }),
     readPackages(tid),
@@ -1649,8 +1669,8 @@ export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<
       omit: { logoUrl: true },
       include: {
         ...referenceSchoolInclude,
-        lessons: { where: { tenantId: tid, ...lessonsWhere } },
-        makeupRequests: { where: { tenantId: tid } },
+        lessons: { where: { tenantId: tid, ...lessonsWhere }, omit: HOT_ROW_OMIT },
+        makeupRequests: { where: { tenantId: tid }, omit: HOT_ROW_OMIT },
       },
     }),
     readPackages(tid),
@@ -1684,7 +1704,7 @@ export async function readPayoutWindow(fromIso: string, toIso: string): Promise<
         omit: { logoUrl: true },
         include: {
           ...referenceSchoolInclude,
-          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } },
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } }, omit: HOT_ROW_OMIT },
           teacherPayouts: true,
         },
       }),
@@ -1726,9 +1746,9 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
         omit: { logoUrl: true },
         include: {
           ...referenceSchoolInclude,
-          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } } },
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } }, omit: HOT_ROW_OMIT },
           teacherPayouts: true,
-          makeupRequests: true,
+          makeupRequests: { omit: HOT_ROW_OMIT },
           payments: {
             select: { id: true, studentId: true, amount: true, paidAmount: true, status: true, dueDate: true, paidAt: true, contractId: true },
           },
@@ -1776,7 +1796,7 @@ export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<Paym
     findSchoolWithCachedRefs(tid, {
       where: { tenantId: tid },
       omit: { logoUrl: true },
-      include: { ...referenceSchoolInclude, payments: opts?.clubOnly ? { where: { source: "club" } } : true },
+      include: { ...referenceSchoolInclude, payments: { ...(opts?.clubOnly ? { where: { source: "club" } } : {}), omit: HOT_ROW_OMIT } },
     }),
     readPackages(tid),
     readDiscountCampaigns(tid),
@@ -1786,7 +1806,7 @@ export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<Paym
   if (!school) return narrowToPaymentsPage(await readData(), opts);
   const lessonIds = [...new Set(school.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
   const lessons = lessonIds.length
-    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } } })
+    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } }, omit: HOT_ROW_OMIT })
     : [];
   const mapped = mapSchoolToAppData({
     ...school,
@@ -2033,8 +2053,9 @@ async function readMakeupRequestWindowData(
             tenantId: tid,
             OR: [{ startAt: { gte: from, lte: to } }, { id: request.sourceLessonId }, { makeupRequestId: requestId }],
           },
+          omit: HOT_ROW_OMIT,
         },
-        makeupRequests: { where: { tenantId: tid, id: requestId } },
+        makeupRequests: { where: { tenantId: tid, id: requestId }, omit: HOT_ROW_OMIT },
       },
     }),
     readPackages(tid),
@@ -3319,8 +3340,8 @@ export async function readSlotScope(
       teachers: { where: { tenantId: tid, id: target.teacherId } },
       students: { where: { tenantId: tid, id: target.studentId } },
       rooms: { where: { tenantId: tid, id: target.roomId } },
-      lessons: { where: scopeLessonsWhere(tid, target, days) },
-      makeupRequests: { where: { tenantId: tid, studentId: target.studentId } },
+      lessons: { where: scopeLessonsWhere(tid, target, days), omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: target.studentId }, omit: HOT_ROW_OMIT },
     },
   });
   if (!school) return null;
@@ -3396,10 +3417,10 @@ export async function readLessonScope(
       teachers: { where: { tenantId: tid, id: lessonRow.teacherId } },
       students: { where: { tenantId: tid, id: lessonRow.studentId } },
       rooms: { where: { tenantId: tid, id: lessonRow.roomId } },
-      lessons: { where: scopeLessonsWhere(tid, lessonRow, days) },
-      attendances: { where: { tenantId: tid, lessonId: lessonRow.id } },
-      makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId } },
-      payments: { where: { tenantId: tid, lessonId: lessonRow.id } },
+      lessons: { where: scopeLessonsWhere(tid, lessonRow, days), omit: HOT_ROW_OMIT },
+      attendances: { where: { tenantId: tid, lessonId: lessonRow.id }, omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId }, omit: HOT_ROW_OMIT },
+      payments: { where: { tenantId: tid, lessonId: lessonRow.id }, omit: HOT_ROW_OMIT },
     },
   });
   if (!school) return null;
@@ -3693,7 +3714,7 @@ async function persistLessonOpsResult(
           createsMakeupCredit: att.createsMakeupCredit,
           // Tenant kapsamı: bu sorgu daha önce tenantId taşımıyordu (bkz. CLAUDE.md
           // "Multi-tenancy — the security boundary"); eklendi.
-          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid } }))!.schoolId,
+          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid }, select: { schoolId: true } }))!.schoolId,
         },
       });
     }
@@ -3899,6 +3920,7 @@ export async function readLessonEditScope(
         ...windows.map((w) => ({ roomId: { in: win.roomIds }, ...w })),
       ],
     },
+    omit: HOT_ROW_OMIT,
   });
   return { ...scope, lessons: [...scope.lessons, ...rows.map(mapDbLesson)] };
 }
@@ -5228,9 +5250,9 @@ async function readMakeupBundleDb(op: MakeupLifecycleOp): Promise<AppData | null
       teachers: { where: { tenantId: tid, id: { in: teacherIds } } },
       students: { where: { tenantId: tid, id: request.studentId } },
       rooms: { where: { tenantId: tid, id: { in: roomIds.length ? roomIds : ["__none__"] } } },
-      lessons: { where: { tenantId: tid, OR: lessonOr } },
-      makeupRequests: { where: { tenantId: tid, studentId: request.studentId } },
-      attendances: { where: { tenantId: tid, lesson: { studentId: request.studentId } } },
+      lessons: { where: { tenantId: tid, OR: lessonOr }, omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: request.studentId }, omit: HOT_ROW_OMIT },
+      attendances: { where: { tenantId: tid, lesson: { studentId: request.studentId } }, omit: HOT_ROW_OMIT },
       lessonSeries: { where: { id: "__none__" } },
       payments: { where: { id: "__none__" } },
       teacherFeeRules: { where: { id: "__none__" } },

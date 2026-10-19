@@ -16,6 +16,7 @@ import { fail, ok, type ServiceResult } from "./services/result";
 import { requireRole, type ServiceContext } from "./services/context";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 import type { Payment, Student } from "./types";
+import type { LessonWindowData } from "./reference-data";
 
 import { CLUB_AUDIENCE_LABEL, isClubAudience, type ClubAudience } from "./club-audience";
 // Yaş grubu tek kaynağı `club-audience.ts` (istemci bileşenleri de okur; 2026-10-07 "Genç" eklendi).
@@ -999,6 +1000,26 @@ async function readClubRows() {
   return { students: pay.students, payments: pay.payments, lessons: win.lessons };
 }
 
+/** DB egress (2026-10-19) — oturum araçları: referans veri + TÜM zamanların TÜM kulüp satırları (oturum bulma, mükerrer/seri). */
+async function readClubLessonData(): Promise<LessonWindowData> {
+  const { readLessonWindow } = await import("./store");
+  return readLessonWindow("1970-01-01T00:00:00.000Z", "2100-01-01T00:00:00.000Z", { clubOnly: true });
+}
+
+/**
+ * Çakışma denetimi için hedef başlangıçların [en erken − 1 gün, en geç + 1 gün] penceresindeki TÜM dersler eklenir.
+ * `findSlotConflict` yalnız saatle örtüşen derse bakar ve ders 1 günden kısadır: pencere dışındaki ders çakışamaz.
+ * ponytail: 52 haftalık planda pencere ~1 yıl olur (yine ödeme/yoklama/telafi okunmaz); gerekirse hafta başına pencere.
+ */
+async function withConflictWindow(base: LessonWindowData, starts: Date[]): Promise<LessonWindowData> {
+  if (!starts.length) return base;
+  const { readLessonWindow } = await import("./store");
+  const t = starts.map((d) => d.getTime());
+  const win = await readLessonWindow(new Date(Math.min(...t) - 86_400_000).toISOString(), new Date(Math.max(...t) + 86_400_000).toISOString());
+  const seen = new Set(win.lessons.map((l) => l.id));
+  return { ...base, lessons: [...win.lessons, ...base.lessons.filter((l) => !seen.has(l.id))] };
+}
+
 export function clubMembershipDeleteBlocker(
   m: ClubMembership,
   payments: Payment[],
@@ -1448,7 +1469,7 @@ type ScheduleCheck = { ok: true; rows: import("./types").Lesson[] } | { ok: fals
 async function buildSessionRows(
   ctx: ServiceContext,
   input: { club: Club; teacherId: string; roomId: string; startAt: Date; members: string[]; sessionId: string },
-  data: import("./types").AppData,
+  data: LessonWindowData,
   trials: Array<{ teacherId: string; startAt: string; endAt: string; status: string }>,
   extraLessons: import("./types").Lesson[] = []
 ): Promise<ScheduleCheck> {
@@ -1511,12 +1532,12 @@ function activeMemberIdsOn(memberships: ClubMembership[], clubId: string, dayYmd
     });
 }
 
-async function loadClubAndData(ctx: ServiceContext, clubId: string) {
-  const [{ readData }, { listTrialLessons }] = await Promise.all([import("./store"), import("./trial-lessons")]);
+async function loadClubAndData(ctx: ServiceContext, clubId: string, starts: Date[]) {
+  const { listTrialLessons } = await import("./trial-lessons");
   const [clubs, memberships, data, trials] = await Promise.all([
     listClubs(ctx.tenantId),
     listClubMemberships(ctx.tenantId),
-    readData(),
+    readClubLessonData().then((base) => withConflictWindow(base, starts)),
     listTrialLessons(ctx.tenantId),
   ]);
   return { club: clubs.find((c) => c.id === clubId), memberships, data, trials };
@@ -1533,7 +1554,15 @@ export async function scheduleClubSessionsTool(ctx: ServiceContext, input: unkno
 }
 
 async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof scheduleSchema>): Promise<ServiceResult<{ sessionIds: string[] }>> {
-  const { club, memberships, data, trials } = await loadClubAndData(ctx, v.clubId);
+  const { zonedWallTimeToUtc } = await import("./timezone");
+  const [ymd0, hm] = v.startLocal.split("T") as [string, string];
+  const weekYmd = (w: number) => {
+    const day = new Date(`${ymd0}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + 7 * w);
+    return day.toISOString().slice(0, 10);
+  };
+  const starts = Array.from({ length: v.weeks }, (_, w) => zonedWallTimeToUtc(weekYmd(w), hm));
+  const { club, memberships, data, trials } = await loadClubAndData(ctx, v.clubId, starts);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı. Sayfayı yenileyin.");
   if (!club.active) return fail("VALIDATION_ERROR", `${club.name} pasif; oturum planlamak için önce aktif yapın.`);
   if (!club.teacherIds.includes(v.teacherId) || !data.teachers.some((t) => t.id === v.teacherId && t.active)) {
@@ -1543,17 +1572,13 @@ async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof
   const room = data.rooms.find((r) => r.id === v.roomId);
   if (!room || !isRoomSchedulable(room)) return fail("VALIDATION_ERROR", "Seçilen oda bulunamadı veya pasif. Aktif bir oda seçin.");
   if (club.branchId && room.branchId !== club.branchId) return fail("VALIDATION_ERROR", "Oda kulübün şubesinde değil. Kulübün şubesindeki bir odayı seçin.");
-  const { zonedWallTimeToUtc } = await import("./timezone");
-  const [ymd0, hm] = v.startLocal.split("T") as [string, string];
   const rows: import("./types").Lesson[] = [];
   const sessionIds: string[] = [];
   const existing = groupClubSessions(data.lessons, club.id).filter((x) => !x.cancelled && !x.postponed);
   const { formatDateTime } = await import("./utils");
   for (let w = 0; w < v.weeks; w++) {
-    const day = new Date(`${ymd0}T12:00:00Z`);
-    day.setUTCDate(day.getUTCDate() + 7 * w);
-    const ymd = day.toISOString().slice(0, 10);
-    const startAt = zonedWallTimeToUtc(ymd, hm);
+    const ymd = weekYmd(w);
+    const startAt = starts[w]!;
     if (startAt.getTime() < Date.now() - 60 * 60_000) return fail("VALIDATION_ERROR", "Geçmiş bir zamana oturum planlanamaz. Bugün veya ileri bir tarih seçin.");
     // Aynı planı yeniden kaydetmek mükerrer oturum açmaz: bu kulübün aynı başlangıçlı oturumu varsa hiçbiri yazılmaz.
     const dup = existing.find((x) => Date.parse(x.startAt) === startAt.getTime());
@@ -1587,9 +1612,9 @@ async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof
   return ok({ sessionIds });
 }
 
+/** Oturumu kulüp satırlarından bulur; çakışma denetimi yapan araç `withConflictWindow` ile hedef saati ekler. */
 async function loadSession(ctx: ServiceContext, sessionId: string) {
-  const { readData } = await import("./store");
-  const data = await readData();
+  const data = await readClubLessonData();
   const session = groupClubSessions(data.lessons).find((s) => s.sessionId === sessionId);
   return { data, session };
 }
@@ -1669,7 +1694,7 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
     ctx,
     { club, teacherId: session.teacherId, roomId, startAt, members: session.rows.map((r) => r.studentId), sessionId: newSessionId },
     // Ertelenen oturumun kendi satırları yeni saatle çakışma saymasın (aynı üyeler/öğretmen).
-    { ...data, lessons: data.lessons.filter((l) => l.clubSessionId !== session.sessionId) },
+    await withConflictWindow(data, [startAt]).then((d) => ({ ...d, lessons: d.lessons.filter((l) => l.clubSessionId !== session.sessionId) })),
     await listTrialLessons(ctx.tenantId)
   );
   if (!built.ok) return fail("CONFLICT", built.message);
@@ -1780,7 +1805,8 @@ export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unkn
     );
   }
   const movingIds = new Set(targets.map((x) => x.sessionId));
-  const others = { ...data, lessons: data.lessons.filter((l) => !l.clubSessionId || !movingIds.has(l.clubSessionId)) };
+  const wide = await withConflictWindow(data, targets.map((x) => new Date(Date.parse(x.startAt) + delta)));
+  const others = { ...wide, lessons: wide.lessons.filter((l) => !l.clubSessionId || !movingIds.has(l.clubSessionId)) };
   const { listTrialLessons } = await import("./trial-lessons");
   const trials = await listTrialLessons(ctx.tenantId);
   const planned: import("./types").Lesson[] = [];
@@ -1825,10 +1851,14 @@ export async function syncFutureSessionsForMember(
   m: ClubMembership,
   mode: "join" | "leave"
 ): Promise<string[]> {
-  const { readData, addClubSessionLessons, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { readStudentScope, addClubSessionLessons, patchClubLessons } = await import("./store");
+  // DB egress (2026-10-19) — kulüp satırları + (katılımda) üyenin kendi dersleri; çakışma yalnız öğrenci kaynağında aranır.
+  const club0 = await readClubLessonData();
+  const own = mode === "join" ? (await readStudentScope(m.studentId)).lessons : [];
+  const seen = new Set(club0.lessons.map((l) => l.id));
+  const lessons = [...club0.lessons, ...own.filter((l) => !seen.has(l.id))];
   const now = Date.now();
-  const sessions = groupClubSessions(data.lessons, m.clubId).filter((s) => !s.cancelled && !s.postponed && Date.parse(s.startAt) > now);
+  const sessions = groupClubSessions(lessons, m.clubId).filter((s) => !s.cancelled && !s.postponed && Date.parse(s.startAt) > now);
   if (mode === "leave") {
     // Bitişten sonraki ve (başlangıç düzeltildiyse) başlangıçtan önceki gelecek satırlar; yoklama girilmiş satıra dokunulmaz.
     const outside = (ymd: string) => !membershipCoversDay(m, ymd);
@@ -1848,7 +1878,7 @@ export async function syncFutureSessionsForMember(
     if (s.rows.some((r) => r.studentId === m.studentId)) continue;
     const ymd = toZonedYmd(new Date(s.startAt), DEFAULT_APP_TIMEZONE);
     if (!membershipCoversDay(m, ymd)) continue;
-    const clash = findSlotConflict(data.lessons, {
+    const clash = findSlotConflict(lessons, {
       teacherId: "__club_none__",
       roomId: "__club_none__",
       studentId: m.studentId,
