@@ -90,7 +90,7 @@ export type TahsilatQueueRow = {
  * mevcut verilerden okunabilir bir görünüm üretir.
  */
 export function buildTahsilatQueue(
-  data: AppData,
+  data: Pick<AppData, "payments"> & { students: Pick<AppData["students"][number], "id" | "name" | "parentName" | "parentPhone">[] },
   cases: FollowUpCase[],
   now: Date = new Date(),
   studentFilter?: string,

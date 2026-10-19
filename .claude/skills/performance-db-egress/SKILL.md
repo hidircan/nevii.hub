@@ -117,9 +117,19 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    1 numaralı kalemi. Dilime seçenek ekle (`readLessonWindow(…, { clubOnly: true })`, `readPaymentsPageData({ clubOnly })`),
    db'de `where`, json/memory'de aynı kural (`narrowTo*` içinde). Yüklemi kimlik değil SINIF yap (tüm kulüpler): dahil
    solfej üyeliği BAŞKA kulübün satırına bakar — `clubId = X` silme engelini sessizce kaçırır. Çakışma denetimi
-   (`findSlotConflict`) alan araçları DARALTMA: hedef saatteki tüm öğretmen/oda/öğrenci dersleri gerekir.
+   (`findSlotConflict`) alan araçlar SINIFA daraltılmaz; hedef saatin TÜM dersleri gerekir → sınıf satırları + hedef
+   başlangıçların ±1 gün `readLessonWindow`'u (`clubs.ts` `withConflictWindow`; çakışma = zaman örtüşmesi, ders < 1 gün).
+   Hedef saati okumadan önce hesapla (planla: haftalar; taşı: yeni başlangıçlar). Çakışma yapmayan "oturumu bul" araçları
+   (öğretmen yoklaması, iptal) yalnız sınıf satırını okur.
    Bul: `grep -rn "readLessonWindow(" src | grep -E "[0-9]{3} \* 86_400_000"` (≥100 günlük pencere). Kontrol
    `scripts/bench/check-club-slices.ts` (süzgeçli = süzgeçsiz+aynı kural).
+27. **Satırda sabit kolon taşıma — ama istemci düzeyinde DEĞİL** (2026-10-19). Ders/ödeme/yoklama/telafi satırının
+   `tenantId`+`schoolId`'si (~54 B + 8 B çerçeve; ders satırının ~%14'ü) sorgu zaten kuruma süzülü olduğundan gereksiz:
+   `store-db.ts` `HOT_ROW_OMIT` yalnız SALT OKUMA dilim include'larına (`{ where, omit: HOT_ROW_OMIT }`) ve eşleme
+   tiplerine (`HotRow<…>`) eklenir. `new PrismaClient({ omit })` (global) YAPMA: tsc yalnız tipli okumaları yakalar,
+   `(row as {…})` dökümleri ve satırı `data:`'ya yayan kopya/geri-alma (person-purge) yolları sessizce alanı kaybeder.
+   Probe olarak kullanılabilir (global omit → tsc → hatalar = gerçek kullanımlar), sonra geri al. Tam okuma/yazım yolları
+   dokunulmaz. Doğrulama: aynı dilimin çıktısı md5 eşit + bayt düşüşü (bench'te kimlikler kısa → %5–6; prod ~%14).
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).
