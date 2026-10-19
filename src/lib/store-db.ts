@@ -119,6 +119,9 @@ import {
   type MakeupCenterOptions,
   type MakeupCenterData,
   narrowToPaymentsPage,
+  narrowToPaymentsList,
+  toPaymentListRow,
+  PAYMENT_LIST_FIELDS,
   narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRows,
@@ -126,6 +129,7 @@ import {
   type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PaymentsListData,
   type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
@@ -1818,6 +1822,49 @@ export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<Paym
     teacherPayouts: [],
   });
   return narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, opts);
+}
+
+const PAYMENT_LIST_SELECT = Object.fromEntries(PAYMENT_LIST_FIELDS.map((key) => [key, true])) as Record<
+  (typeof PAYMENT_LIST_FIELDS)[number],
+  true
+>;
+
+/** DB egress (2026-10-19) — Ödemeler listesi / Tahsilat: ödemelerin yalnız liste kolonları (bkz. `PAYMENT_LIST_FIELDS`). */
+export async function readPaymentsListData(): Promise<PaymentsListData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: { ...referenceSchoolInclude, payments: { select: PAYMENT_LIST_SELECT } },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToPaymentsList(await readData());
+  const { payments, ...rest } = school;
+  const lessonIds = [...new Set(payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
+  const lessons = lessonIds.length
+    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } }, omit: HOT_ROW_OMIT })
+    : [];
+  const mapped = mapSchoolToAppData({
+    ...rest,
+    logoUrl: "",
+    lessons,
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    teacherPayouts: [],
+    payments: [],
+  });
+  return {
+    ...narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
+    // Seçilmeyen kolonlar eşlemede `undefined` olur; `toPaymentListRow` yalnız liste kolonlarını bırakır.
+    payments: payments.map((p) => toPaymentListRow(mapDbPayment(p as Parameters<typeof mapDbPayment>[0]))),
+    lessons: mapped.lessons,
+  };
 }
 
 /** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */

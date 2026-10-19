@@ -43,6 +43,7 @@ import {
   type MakeupCenterOptions,
   type MakeupCenterData,
   narrowToPaymentsPage,
+  narrowToPaymentsList,
   narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRows,
@@ -50,6 +51,7 @@ import {
   type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PaymentsListData,
   type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
@@ -318,6 +320,11 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
 /** Bkz. src/lib/reference-data.ts `narrowToPaymentsPage`. */
 export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<PaymentsPageData> {
   return narrowToPaymentsPage(await readData(), opts);
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToPaymentsList`. */
+export async function readPaymentsListData(): Promise<PaymentsListData> {
+  return narrowToPaymentsList(await readData());
 }
 
 /** Bkz. src/lib/reference-data.ts `StudentListData`. */

@@ -281,6 +281,7 @@ type StoreApi = {
   readStudentListData: () => Promise<StudentListData>;
   /** Dar okuma — referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler (Ödemeler). */
   readPaymentsPageData: (opts?: import("./reference-data").ClubOnlyOptions) => Promise<PaymentsPageData>;
+  readPaymentsListData: () => Promise<import("./reference-data").PaymentsListData>;
   /** Dar okuma — hakediş penceresi: [from, to] dersleri + kayıtlı hakedişler + hariç tutmalar. */
   readPayoutWindow: (fromIso: string, toIso: string) => Promise<PayoutWindowData>;
   /** Dar okuma — Panel özeti (bkz. reference-data.ts `DashboardData`). */
@@ -600,6 +601,11 @@ export async function readStudentListData(): Promise<StudentListData> {
 /** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
 export async function readPaymentsPageData(opts?: import("./reference-data").ClubOnlyOptions): Promise<PaymentsPageData> {
   return withTenantScope(() => store.readPaymentsPageData(opts));
+}
+
+/** DB egress (2026-10-19) — Ödemeler listesi / Tahsilat (bkz. reference-data.ts `PaymentsListData`). */
+export async function readPaymentsListData(): Promise<import("./reference-data").PaymentsListData> {
+  return withTenantScope(() => store.readPaymentsListData());
 }
 
 /** DB egress (2026-09-30) — Hakedişler / ay hakediş özeti (bkz. reference-data.ts `PayoutWindowData`). */

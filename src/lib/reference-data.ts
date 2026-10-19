@@ -182,6 +182,30 @@ export function narrowToPaymentsPage(data: AppData, opts?: ClubOnlyOptions): Pay
 }
 
 /**
+ * DB egress (2026-10-19) — Ödemeler LİSTESİ / Tahsilat kuyruğu: ödeme satırının bu ekranların okuduğu 17 kolonu
+ * (31'in; taksit/düzeltme ayrıntıları ödeme detayında ayrıca okunur). Satır prod'da ~351 B → ~208 B. Dışarıda kalan
+ * kolonların hepsi `Payment`'ta isteğe bağlı: tüketici parametresini `PaymentListRow` yazmalı ki eksik alan derlenmesin.
+ */
+export const PAYMENT_LIST_FIELDS = [
+  "id", "studentId", "description", "method", "dueDate", "amount", "paidAmount", "status", "lessonId", "paymentNote",
+  "paidAt", "createdAt", "source", "receivedByUserId", "contractId", "enrollmentId", "clubMembershipId",
+] as const satisfies readonly (keyof Payment)[];
+export type PaymentListRow = Pick<Payment, (typeof PAYMENT_LIST_FIELDS)[number]>;
+export type PaymentsListData = ReferenceData & { payments: PaymentListRow[]; lessons: AppData["lessons"] };
+
+/** Tanımsız alanlar yazılmaz (db eşlemesi ile json/memory aynı şekli versin). */
+export function toPaymentListRow(p: PaymentListRow): PaymentListRow {
+  const row: Record<string, unknown> = {};
+  for (const key of PAYMENT_LIST_FIELDS) if (p[key] !== undefined) row[key] = p[key];
+  return row as PaymentListRow;
+}
+
+export function narrowToPaymentsList(data: AppData): PaymentsListData {
+  const page = narrowToPaymentsPage(data);
+  return { ...page, payments: page.payments.map(toPaymentListRow) };
+}
+
+/**
  * HAKEDİŞ PENCERESİ dilimi: ders penceresi (TÜM öğretmenlerin dersleri) + TÜM kayıtlı hakedişler +
  * hariç tutmalar. Hakediş hesabı (`computeTeacherEarningsForPeriod`, kayıtlı/canlı fark) dersleri
  * dönemin gün anahtarlarıyla kendisi süzer; çağıran pencereyi dönemden ±2 gün GENİŞ verir.
