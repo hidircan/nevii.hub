@@ -1,4 +1,5 @@
 import { parseISO } from "date-fns";
+import type { PaymentListRow } from "../reference-data";
 import { isLiveObligation } from "../payment-profile";
 import type { AppData, Payment } from "../types";
 import { formatMoney } from "../utils";
@@ -90,7 +91,7 @@ export type TahsilatQueueRow = {
  * mevcut verilerden okunabilir bir görünüm üretir.
  */
 export function buildTahsilatQueue(
-  data: Pick<AppData, "payments"> & { students: Pick<AppData["students"][number], "id" | "name" | "parentName" | "parentPhone">[] },
+  data: { payments: PaymentListRow[]; students: Pick<AppData["students"][number], "id" | "name" | "parentName" | "parentPhone">[] },
   cases: FollowUpCase[],
   now: Date = new Date(),
   studentFilter?: string,

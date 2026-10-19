@@ -130,6 +130,12 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    `(row as {…})` dökümleri ve satırı `data:`'ya yayan kopya/geri-alma (person-purge) yolları sessizce alanı kaybeder.
    Probe olarak kullanılabilir (global omit → tsc → hatalar = gerçek kullanımlar), sonra geri al. Tam okuma/yazım yolları
    dokunulmaz. Doğrulama: aynı dilimin çıktısı md5 eşit + bayt düşüşü (bench'te kimlikler kısa → %5–6; prod ~%14).
+28. **Sayfalama egress'i yalnız şu iki koşulda düşürür** (2026-10-19): ekran tüm satırlar üzerinden toplam/sayı
+   göstermiyordur ve süzgeçleri sunucu turuna dönüşmez. Öbür durumda önce kolonları daralt. Ödemeler'de kartlar ve sekme
+   sayıları tüm satırları ister; süzgeçler tarayıcıda çalışır. Sunucu sayfalaması her süzgeç ve sayfa tıklamasını yeniden
+   okuma yapar (#68 çarpanı). Tarayıcı sayfalaması (`usePagination`) DB okumasını değiştirmez. Yapılan:
+   ekranın okuduğu kolonlar (`PAYMENT_LIST_FIELDS` + `select`), tüketici parametresi o `Pick` ile. `Payment` alanlarının çoğu isteğe
+   bağlı: tam tip parametre eksik kolonu derleme hatası vermeden `undefined` okur.
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).

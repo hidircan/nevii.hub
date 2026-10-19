@@ -4,6 +4,7 @@ import type { ServiceContext } from "../services/context";
 import {
   readData,
   readDashboardData,
+  readPaymentsListData,
   readLessonWindow,
   readMakeupCenterData,
   readPaymentsPageData,
@@ -21,6 +22,7 @@ import {
   narrowToMakeupCenter,
   type MakeupCenterData,
   narrowToPaymentsPage,
+  narrowToPaymentsList,
   narrowToPayoutWindow,
   narrowToStudentScope,
   toPaymentStatusRows,
@@ -28,6 +30,7 @@ import {
   type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PaymentsListData,
   type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
@@ -240,6 +243,18 @@ const readScopedPaymentsPageDataByKey = cache(async (key: string): Promise<Payme
 /** DB egress (2026-09-30) — Ödemeler (bkz. reference-data.ts `PaymentsPageData`). */
 export async function readScopedPaymentsPageData(scope: InstitutionScope): Promise<PaymentsPageData> {
   return readScopedPaymentsPageDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedPaymentsListDataByKey = cache(async (key: string): Promise<PaymentsListData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readPaymentsListData());
+  }
+  return narrowToPaymentsList(await readScopedDataByKey(key));
+});
+
+/** DB egress (2026-10-19) — Ödemeler listesi / Tahsilat (bkz. reference-data.ts `PaymentsListData`). */
+export async function readScopedPaymentsListData(scope: InstitutionScope): Promise<PaymentsListData> {
+  return readScopedPaymentsListDataByKey(scopeCacheKey(scope));
 }
 
 const readScopedPayoutWindowByKey = cache(async (key: string, fromIso: string, toIso: string): Promise<PayoutWindowData> => {
