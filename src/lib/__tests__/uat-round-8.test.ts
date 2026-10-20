@@ -203,10 +203,9 @@ describe("8. tur — sözleşmesiz öğrencinin ödeme planı yoklama takviminde
     expect(plan.paymentIds).toEqual(["pay_reg"]);
     expect(plan.amount).toBe(4470);
     expect(plan.remaining).toBe(0);
-    expect(plan.monthlyFee).toBe(5950);
   });
 
-  it("satırı olmayan ayda borç uydurulmaz; yalnız aylık ücret bilgi olarak taşınır", () => {
+  it("satırı olmayan ayda borç uydurulmaz, aylık ücret gösterilmez", () => {
     const plan = resolveContractPlanForMonth({ contracts: [], installments: [reg], year: 2026, month: 10, studentMonthlyFee: 5950 });
     expect(plan.state).toBe("student_plan");
     if (plan.state !== "student_plan") return;

@@ -146,7 +146,7 @@ export type CalendarMonthPlan =
        * 8. tur — sözleşme YOK ama öğrencinin kendi ödeme planı var (sözleşme 2026-09-22'den
        * beri kayıtta opsiyonel; tanışma paketi / sözleşme bekleyen öğrenci). Tutarlar yalnız
        * o aya ait gerçek Payment satırlarından toplanır; satır yoksa borç UYDURULMAZ
-       * (`paymentIds` boş, `amount` 0) — yalnız anlaşılan aylık ücret bilgi olarak taşınır.
+       * (`paymentIds` boş, `amount` 0) ve aylık ücret ay kutusunda gösterilmez.
        */
       state: "student_plan";
       paymentIds: string[];
@@ -154,7 +154,6 @@ export type CalendarMonthPlan =
       paidAmount: number;
       remaining: number;
       status?: PaymentStatus;
-      monthlyFee?: number;
       message: string;
       collections: CalendarMonthCollection[];
       /**
@@ -311,7 +310,7 @@ export function resolveContractPlanForMonth(input: {
   year: number;
   month: number;
   now?: Date;
-  /** Öğrencinin anlaşılan aylık ücreti — sözleşmesiz plan bilgisi için (tutar türetmez). */
+  /** Öğrencinin anlaşılan aylık ücreti — yalnız sözleşmesi hiç olmayan öğrencide tahsilat akışını açar (tutar türetmez). */
   studentMonthlyFee?: number;
 }): CalendarMonthPlan {
   const monthKey = `${input.year}-${String(input.month).padStart(2, "0")}`;
@@ -326,10 +325,16 @@ export function resolveContractPlanForMonth(input: {
       monthKey
     );
     const fee = input.studentMonthlyFee && input.studentMonthlyFee > 0 ? input.studentMonthlyFee : undefined;
-    if (own.length === 0 && !fee) {
+    // 2026-10-20 — ay kutusu yalnız o aya ait GERÇEK yükümlülüğü gösterir. Sözleşmesi olan öğrencinin sözleşme dönemi
+    // dışındaki ayı (başlamadan önce / bittikten sonra) o aya ait satır yoksa boştur; karttaki aylık ücret her aya
+    // "sözleşmesiz plan" olarak yayılmaz (Arcan Ü. / Faruk L. — Eylül kutusunda ücret görünüyordu).
+    const hasOtherContract = input.contracts.some((c) => isPlanEligibleContractStatus(c.status));
+    if (own.length === 0 && (!fee || hasOtherContract)) {
       return {
         state: "no_active_contract",
-        message: "Bu ay için aktif ödeme planı bulunmuyor.",
+        message: hasOtherContract
+          ? "Bu ay sözleşme dönemi dışında — bu aya ait ödeme kaydı yok."
+          : "Bu ay için aktif ödeme planı bulunmuyor.",
       };
     }
     const amount = own.reduce((sum, r) => sum + r.share.amount, 0);
@@ -343,7 +348,6 @@ export function resolveContractPlanForMonth(input: {
       paidAmount,
       remaining: remainingAmount(amount, paidAmount),
       status: earliestDue ? resolveCollectionStatus({ amount, paidAmount, dueDate: earliestDue, now: input.now }) : undefined,
-      monthlyFee: fee,
       collections: collectionsOf(own),
       ...(combined ? { coveredByCombinedFirstCollection: { paymentId: combined.row.id, ...(combined.row.paidAt ? { paidAt: combined.row.paidAt } : {}) } } : {}),
       message:
