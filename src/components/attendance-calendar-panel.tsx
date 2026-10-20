@@ -360,7 +360,7 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
   }
   if (plan.state === "student_plan") {
     // 8. tur — sözleşmesiz öğrencinin kendi planı: gerçek satırlar varsa onların toplamı,
-    // yoksa yalnız anlaşılan aylık ücret bilgi olarak (borç gibi gösterilmez).
+    // yoksa tutar GÖSTERİLMEZ (karttaki aylık ücret o aya ait borç değildir).
     const combined = plan.coveredByCombinedFirstCollection;
     if (combined && plan.amount === 0) {
       // 2026-10-14 — kayıtta "takip eden ayı da ekle" ile peşin alınmış ay: borç değil, ikinci tahsilat istenmez.
@@ -388,7 +388,6 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
           </>
         ) : null}
         Sözleşmesiz aylık plan
-        {plan.monthlyFee ? ` (aylık ${formatMoneyTL(plan.monthlyFee)})` : ""}
         {plan.paymentIds.length === 0 ? " — bu ay henüz ödeme kaydı yok" : ""}
       </p>
     );
