@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -24,10 +24,20 @@ beforeEach(async () => {
 const row = (p: Partial<Payment> & Pick<Payment, "id" | "amount" | "status">): Payment => ({
   studentId: "s",
   paidAmount: 0,
-  dueDate: "2026-10-05",
+  dueDate: p.status === "overdue" ? "2026-09-05" : "2026-10-05",
   description: "x",
   ...p,
 });
+
+// 2026-10-20 — "gecikmiş" artık vade gününden türetilir (payments/status.ts); sabit fixture tarihleri için saat sabit.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-20T09:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 
 describe("summarizeStudentDebt — sözleşmesiz öğrenci dışlanmaz, iptal/yenilenmiş sayılmaz (2026-10-04)", () => {
   it("bağımsız borçlar sayılır; voided ve iptal edilmiş sözleşmenin kalanı sayılmaz; çift sayım yok", () => {

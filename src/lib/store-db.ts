@@ -1,4 +1,6 @@
 import { collectedAmountOf } from "./payment-profile";
+import { todayYmdInstitution } from "./payments/status";
+import { zonedWallTimeToUtc } from "./timezone";
 import {
   applyLessonRevision,
   revisionConflictWindow,
@@ -1391,7 +1393,8 @@ export async function readTeacherAttendanceRows(): Promise<TeacherAttendanceRow[
 export async function readMobileDashboardCounts(now: Date): Promise<MobileDashboardCounts> {
   const tid = tenantId();
   const own = { tenantId: tid, school: { tenantId: tid } };
-  const todayStart = new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  // 2026-10-20 — canonical gecikmiş (payments/status.ts): kurum saatinde bugünün başı, kalanı olan canlı satır.
+  const todayStart = zonedWallTimeToUtc(todayYmdInstitution(now), "00:00");
   const [pendingAttendanceCount, overduePaymentCount, openMakeups] = await Promise.all([
     prisma.lesson.count({
       where: {
@@ -1406,7 +1409,7 @@ export async function readMobileDashboardCounts(now: Date): Promise<MobileDashbo
       },
     }),
     prisma.payment.count({
-      where: { ...own, status: { notIn: ["paid", "voided"] }, OR: [{ status: "overdue" }, { dueDate: { lt: todayStart } }] },
+      where: { ...own, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount }, dueDate: { lt: todayStart } },
     }),
     prisma.makeupRequest.findMany({
       where: { ...own, status: { in: OPEN_MAKEUP_STATUSES } },
@@ -1871,7 +1874,11 @@ export async function readPaymentsListData(): Promise<PaymentsListData> {
 export async function readStudentListData(): Promise<StudentListData> {
   const tid = tenantId();
   const tenantPayments = { tenantId: tid, school: { tenantId: tid } };
-  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, openGroups, paidStudents] = await Promise.all([
+  // 2026-10-20 — canonical "gecikmiş" (payments/status.ts): vade günü kurum saatinde geçmiş canlı borç. Saklanan
+  // statü bayat olabileceği için grup vadeye göre ikiye ayrılır; geçmiş vadeli grup "overdue" sayılır.
+  const todayStart = zonedWallTimeToUtc(todayYmdInstitution(), "00:00");
+  const openWhere = { ...tenantPayments, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount } };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, pastDueGroups, currentGroups, paidStudents] = await Promise.all([
     findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
@@ -1879,8 +1886,13 @@ export async function readStudentListData(): Promise<StudentListData> {
     listClosedDays(tid).catch(() => []),
     // DB egress (2026-10-18) — `toPaymentStatusRows` ile aynı gruplama SQL'de: kalanı olan canlı satırlar grup başına tek satır.
     prisma.payment.groupBy({
+      by: ["studentId", "contractId"],
+      where: { ...openWhere, dueDate: { lt: todayStart } },
+      _sum: { amount: true, paidAmount: true },
+    }),
+    prisma.payment.groupBy({
       by: ["studentId", "status", "contractId"],
-      where: { ...tenantPayments, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount } },
+      where: { ...openWhere, dueDate: { gte: todayStart } },
       _sum: { amount: true, paidAmount: true },
     }),
     prisma.payment.groupBy({ by: ["studentId"], where: { ...tenantPayments, status: "paid" } }),
@@ -1903,7 +1915,14 @@ export async function readStudentListData(): Promise<StudentListData> {
     ...toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
     payments: toPaymentStatusRows([
       ...paidStudents.map((p) => ({ studentId: p.studentId, status: "paid" as const, contractId: undefined, amount: 0, paidAmount: 0 })),
-      ...openGroups.map((g) => ({
+      ...pastDueGroups.map((g) => ({
+        studentId: g.studentId,
+        status: "overdue" as const,
+        contractId: g.contractId ?? undefined,
+        amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+        paidAmount: 0,
+      })),
+      ...currentGroups.map((g) => ({
         studentId: g.studentId,
         status: g.status as import("./types").PaymentStatus,
         contractId: g.contractId ?? undefined,
@@ -4691,7 +4710,12 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
   const tid = requireTenantId();
-  await prisma.school.update({ where: { tenantId: tid }, data: { makeupWindowDays } });
+  await prisma.$transaction([
+    prisma.school.update({ where: { tenantId: tid }, data: { makeupWindowDays } }),
+    // expiresAtForPolicyWindow ile AYNI kural (makeup-deadline.ts): açık/planlı talebin son günü
+    // createdAt + yeni pencere; GREATEST → asla kısalmaz.
+    prisma.$executeRaw`UPDATE "MakeupRequest" SET "expiresAt" = GREATEST("expiresAt", "createdAt" + make_interval(days => ${makeupWindowDays}::int)) WHERE "tenantId" = ${tid} AND "status" IN ('pending', 'suggested', 'awaiting_info', 'confirmed')`,
+  ]);
   return readData();
 }
 

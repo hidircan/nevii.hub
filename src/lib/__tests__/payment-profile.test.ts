@@ -28,7 +28,8 @@ describe("computeStudentPaymentSummary", () => {
       totalBilled: 3000,
       totalCollected: 1500,
       remaining: 1500,
-      overdueRemaining: 0,
+      // 2026-10-20 — vadesi (2 gün önce) geçmiş kısmi ödemenin kalanı gecikmiştir (payments/status.ts).
+      overdueRemaining: 1500,
       openCount: 1,
     });
   });

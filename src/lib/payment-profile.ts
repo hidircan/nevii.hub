@@ -1,5 +1,15 @@
 import type { Payment } from "./types";
 import { isTerminalContractStatus, selectCurrentContract } from "./contract-list-helpers";
+import { isPaymentOverdue } from "./payments/status";
+
+/**
+ * 2026-10-20 — "gecikmiş" TEK kuraldan (`payments/status.ts`): vade günü (kurum saati) geçmiş canlı borç. Ham
+ * `status === "overdue"` yalnız oluşturulurken damgalandığı için bayattır; vade bilgisi olmayan özet satırlarda
+ * (öğrenci listesi SQL grubu, orada zaten canonical'a çevrilmiş) saklanan statü kullanılır.
+ */
+function overdueOf(p: Pick<Payment, "status" | "amount" | "paidAmount"> & { dueDate?: string }): boolean {
+  return p.dueDate ? isPaymentOverdue({ ...p, dueDate: p.dueDate }) : p.status === "overdue";
+}
 
 export type StudentPaymentSummary = {
   /** Geçerli tahakkuk: iptal/yenilenmiş sözleşme satırlarından yalnız fiilen tahsil edilen kısım. */
@@ -51,7 +61,7 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
     totalBilled += p.amount;
     const due = Math.max(p.amount - p.paidAmount, 0);
     remaining += due;
-    if (p.status === "overdue") overdueRemaining += due;
+    if (overdueOf(p)) overdueRemaining += due;
     if (p.status !== "paid") openCount += 1;
   }
 
@@ -154,7 +164,7 @@ export type StudentDebtSummary = {
  * bağımsız borcu (aylık plan, elle borç, ders bazlı) aynen sayılır; sözleşme yok diye dışlanmaz.
  */
 export function summarizeStudentDebt(
-  payments: Pick<Payment, "status" | "contractId" | "amount" | "paidAmount">[],
+  payments: (Pick<Payment, "status" | "contractId" | "amount" | "paidAmount"> & { dueDate?: string })[],
   terminalContractIds: ReadonlySet<string>
 ): StudentDebtSummary {
   let openTotal = 0;
@@ -169,8 +179,8 @@ export function summarizeStudentDebt(
     if (due <= 0) continue;
     openTotal += due;
     openCount += 1;
-    if (p.status === "overdue") overdueTotal += due;
-    if (p.status === "partial") anyPartial = true;
+    if (overdueOf(p)) overdueTotal += due;
+    else if (p.status === "partial" || p.paidAmount > 0) anyPartial = true;
   }
   const status: StudentDebtSummary["status"] =
     overdueTotal > 0 ? "overdue" : anyPartial ? "partial" : openCount > 0 ? "pending" : anyPaid ? "paid" : "none";
@@ -197,7 +207,7 @@ export function splitStudentDebt(payments: Payment[], terminalContractIds: Reado
   return {
     open,
     openTotal: open.reduce((s, p) => s + due(p), 0),
-    overdueTotal: open.filter((p) => p.status === "overdue").reduce((s, p) => s + due(p), 0),
+    overdueTotal: open.filter((p) => overdueOf(p)).reduce((s, p) => s + due(p), 0),
     movements: payments
       .filter((p) => p.status !== "voided" && p.paidAmount > 0)
       .sort((a, b) => (b.paidAt ?? b.dueDate).localeCompare(a.paidAt ?? a.dueDate)),
@@ -264,7 +274,7 @@ export function computeBranchPaymentBreakdown(input: {
     if (!isLiveObligation(p, terminalIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     r.openTotal += due;
-    if (p.status === "overdue") r.overdueTotal += due;
+    if (overdueOf(p)) r.overdueTotal += due;
   }
   return [...rows.values()];
 }

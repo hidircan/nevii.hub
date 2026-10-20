@@ -9,7 +9,11 @@ import { AddPaymentForm } from "@/components/add-payment-form";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
-import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
+import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
+import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
+import { remainingAmount, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
+import { PaymentsMonthBoard } from "@/components/payments-month-board";
+import type { MonthPaymentRow } from "@/lib/payment-month-view";
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
@@ -104,6 +108,34 @@ export default async function StudentPaymentProfilePage({
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
     branchLabel: branchOf(p),
   }));
+  // 2026-10-20 — Ödemeler dış listesiyle AYNI durum çözücüsü: açık (canlı) borçlar burada da görünür; iptal/yenilenmiş
+  // sözleşmenin ödenmemiş taksitleri ayrıca "borç değil" diye açıklanır (eskiden dışarıda "Bekliyor", içeride yoktu).
+  const todayYmd = todayYmdInstitution();
+  const terminalIds = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const debt = splitStudentDebt(payments, terminalIds);
+  const openRows: MonthPaymentRow[] = debt.open
+    .filter((p) => remainingAmount(p.amount, p.paidAmount) > 0)
+    .map((p) => ({
+      id: p.id,
+      studentId: p.studentId,
+      studentName: student.name,
+      branchLabel: branchOf(p),
+      description: p.description,
+      expected: p.amount,
+      collected: p.paidAmount,
+      remaining: remainingAmount(p.amount, p.paidAmount),
+      rowAmount: p.amount,
+      rowPaidAmount: p.paidAmount,
+      spansMonths: false,
+      dueDate: p.dueDate,
+      status: resolvePaymentDisplayStatus(p, terminalIds, todayYmd),
+      month: p.dueDate.slice(0, 7),
+      method: p.method,
+      paidAt: p.paidAt,
+      paymentNote: p.paymentNote,
+      source: p.source,
+      lessonId: p.lessonId,
+    }));
   const activeBranches = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
   const branchOptions = activeBranches.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, activeBranches, data.teachers) }));
 
@@ -214,6 +246,21 @@ export default async function StudentPaymentProfilePage({
           gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
         />
       </details>
+
+      <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Açık borçlar</h2>
+      <div className="mb-6">
+        <PaymentsMonthBoard
+          monthLabel="Açık borçlar"
+          empty={{ title: "Açık borç yok", hint: "Bu öğrencinin tahsil edilmeyi bekleyen canlı bir borç satırı bulunmuyor." }}
+          rows={openRows} carryover={[]} canWrite={canWrite} canDelete={canWrite} />
+        {debt.closedByContract.length > 0 ? (
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            {debt.closedByContract.length} taksit iptal edilen / yenilenen sözleşmeden kaldı (toplam{" "}
+            {formatMoney(debt.closedByContract.reduce((t, p) => t + remainingAmount(p.amount, p.paidAmount), 0))}): kayıt korunur
+            ama borç sayılmaz. Ödemeler ekranında da &quot;Sözleşme kapandı&quot; olarak görünür, aylık beklentiye girmez.
+          </p>
+        ) : null}
+      </div>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Ödeme geçmişi</h2>
       {/*

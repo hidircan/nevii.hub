@@ -38,7 +38,7 @@ describe("installmentMonthShares — tek tahsilatın dönemlere dağılımı", (
       const plan = resolveContractPlanForMonth({ contracts: [], installments: [fp], year: 2026, month: m, studentMonthlyFee: 3000 });
       expect(plan.state === "student_plan" && [plan.amount, plan.paidAmount, plan.remaining]).toEqual([3000, 3000, 0]);
       // Tahsilat satırı gerçek işlem tarihiyle, yalnız o aya mahsup edilen tutarla.
-      expect(plan.state === "student_plan" && plan.collections).toEqual([{ paidAt: "2026-10-03T09:00:00.000Z", method: "cash", amount: 3000 }]);
+      expect(plan.state === "student_plan" && plan.collections).toEqual([{ paidAt: "2026-10-03T09:00:00.000Z", method: "cash", amount: 3000, paymentId: "fp", rowPaidAmount: 6000 }]);
     }
   });
 

@@ -58,6 +58,28 @@ export function isPastMakeupPlanningDeadline(expiresAtIso: string, now: Date, ti
   return now.getTime() >= makeupPlanningDeadline(expiresAtIso, timeZone).getTime();
 }
 
+/**
+ * 2026-10-20 — POLİTİKA PENCERESİ TEK KURAL. Pencere değişince henüz kullanılmamış (açık veya planlı) taleplerin son
+ * günü yeni pencereye göre yeniden hesaplanır: hakkın açıldığı an (`createdAt`) + pencere. Asla KISALTMAZ (yöneticinin
+ * elle uzattığı son gün ve eski, daha uzun pencere korunur). Kök neden: pencere yalnız ayarı değiştiriyordu; öneri
+ * motoru yeni pencereyle slot önerirken form/sunucu doğrulaması talebin eski pencereyle donmuş `expiresAt`'ini
+ * kullanıyor, "hakkı var ama tarih yüzünden planlanamaz" çelişkisi doğuyordu. Üç store modu bu fonksiyonu
+ * (DB modu aynı kuralı tek SQL ile) uygular.
+ */
+export const MAKEUP_WINDOW_FOLLOWING_STATUSES = ["pending", "suggested", "awaiting_info", "confirmed"] as const;
+
+export function expiresAtForPolicyWindow(
+  request: Pick<MakeupRequest, "status" | "createdAt" | "expiresAt">,
+  windowDays: number
+): string {
+  if (!(MAKEUP_WINDOW_FOLLOWING_STATUSES as readonly string[]).includes(request.status)) return request.expiresAt;
+  const created = new Date(request.createdAt).getTime();
+  const current = new Date(request.expiresAt).getTime();
+  if (Number.isNaN(created)) return request.expiresAt;
+  const byPolicy = created + windowDays * 86_400_000;
+  return Number.isNaN(current) || byPolicy > current ? new Date(byPolicy).toISOString() : request.expiresAt;
+}
+
 /** Seçilen yyyy-MM-dd o yerel günün öğleni olarak saklanır; sınır bir gün daha uzamasın. */
 export function expiresAtForLastLocalDay(ymd: string, timeZone = resolveAppTimezone()): string {
   return zonedWallTimeToUtc(ymd, "12:00", timeZone).toISOString();

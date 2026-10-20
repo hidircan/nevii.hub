@@ -1557,3 +1557,12 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
 - Düzeltme: aynı kural SQL'de (`hasRecentNotification`: kind + createdAt ≥ since + body contains, `select id`).
 - Ders: döngü içinde çağrılan yardımcıda "listele + bellekte ara" yasak; bir işi düzeltip ilk kez çalışır hale getirince
   çağırdığı okumaların döngü başına maliyetini hesapla. Actions kotası tick'in sağlıklı çalıştığını kanıtlamaz.
+
+## 2026-10-20 — Saklanan türetilmiş statü bayatladı; ayar değişikliği mevcut kayıtlara yansımadı
+- `Payment.status = "overdue"` yalnız satır oluşturulurken damgalanıyordu; vadesi geçen satır "Bekliyor" kaldı. Ekranların bir
+  kısmı ham statüyü, bir kısmı kendi vade karşılaştırmasını (UTC/anlık) kullandı → dış liste ile öğrenci detayı çelişti.
+  Düzeltme: `payments/status.ts` `resolvePaymentDisplayStatus` (kurum saatinde gün bazlı, türetilir, DB'ye yazılmaz).
+- Telafi politika penceresi yalnız ayarı değiştiriyordu; öneri motoru yeni pencereyi, doğrulama talebin donmuş `expiresAt`'ini
+  kullandı ("hakkı var ama planlanamaz"). Düzeltme: `expiresAtForPolicyWindow` (asla kısaltmaz), üç store modunda.
+- Ders: zamana bağlı bir statüyü kolonda saklama; okurken türet. Bir politika ayarı değişince "bu kural mevcut kayıtları
+  nerede okuyor?" diye grep et — iki okuyucu farklı kaynağa bakıyorsa çelişki kaçınılmaz.

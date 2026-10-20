@@ -5,7 +5,7 @@ import { useCurrentPath } from "@/lib/use-current-path";
 import Link from "@/components/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
-import { Badge, Button, Card } from "@/components/ui";
+import { Button, Card } from "@/components/ui";
 import {
   formatDate,
   formatDateTime,
@@ -18,6 +18,8 @@ import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import { PaymentDeleteDialog } from "@/components/payment-delete-dialog";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
+import type { PaymentDisplayStatus } from "@/lib/payments/status";
+import { PaymentStatusBadge } from "@/components/payment-status-badge";
 import { filterAndSortPayments, type PaymentSortKey } from "@/lib/payment-table-filter";
 
 export type PaymentRow = {
@@ -29,7 +31,10 @@ export type PaymentRow = {
   dueDate: string;
   amount: number;
   paidAmount: number;
+  /** Filtre için canonical statü ailesi (`canonicalPaymentStatus`) — ham, bayat DB statüsü DEĞİL. */
   status: PaymentStatus;
+  /** Rozet: tek çözücüden (payments/status.ts) — ay panosu ve öğrenci detayıyla aynı. */
+  displayStatus: PaymentDisplayStatus;
   /** ÖNCELİK 3 — otomatik ders bazlı tahsilatın kaynak dersi; manuel/paket ödemelerde yok. */
   lessonId?: string;
   lessonDate?: string;
@@ -250,7 +255,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">{p.receivedByName ?? "—"}</td>
                   <td className="px-4 py-3">
-                    <Badge status={p.status} />
+                    <PaymentStatusBadge status={p.displayStatus} />
                   </td>
                   <td className="px-4 py-3">
                     {p.status === "voided" ? (
