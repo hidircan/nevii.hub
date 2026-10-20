@@ -136,6 +136,12 @@ yeniden doğrula: en yeni `docs/performance/DB_EGRESS_*.md` (şu an `DB_EGRESS_2
    okuma yapar (#68 çarpanı). Tarayıcı sayfalaması (`usePagination`) DB okumasını değiştirmez. Yapılan:
    ekranın okuduğu kolonlar (`PAYMENT_LIST_FIELDS` + `select`), tüketici parametresi o `Pick` ile. `Payment` alanlarının çoğu isteğe
    bağlı: tam tip parametre eksik kolonu derleme hatası vermeden `undefined` okur.
+29. **Bildirim taramaları adayı SQL'de seçer, tekilleştirme "aşama" iledir** (2026-10-20): ödeme taraması `createdAt + 7 gün`
+   ile seçiyordu → gelecek yıl vadeli taksitler dahil tur başına ~2.300 bildirim (insert + dedupe + tercih + yönetici sorgusu
+   ≈ 6.800 sorgu). Kural tek yerde (`payment-reminder-policy.ts`), aday = canlı borç + `dueDate <= bugün + erkenPencere`,
+   tekilleştirme penceresi = aşama başı (24 saat değil). Yeni tarama yazarken: vade/olay tarihine göre SQL `where`, `select`
+   ile birkaç kolon, iki tur üst üste çalışınca 0 yeni satır (DB modunda smoke). **Log Query ≠ egress**: Supabase Log Query
+   kotası Studio Logs/MCP `query_logs`/CLI log okumasıdır, uygulama kodu tetiklemez; prod ölçümü için pgss kullan, `query_logs` değil.
 
 ## 3. Kanıt toplama (erişim sınırları)
 - **2026-10-18'den beri canlı DB `ddskhtirzywbuucxeovz`** (org NeviiHub-October; `wsbucz…` donmuş geri dönüş, DOKUNMA).

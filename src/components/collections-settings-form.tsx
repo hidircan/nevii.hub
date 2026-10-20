@@ -4,23 +4,27 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import { actionUpdateCollectionsSettings } from "@/lib/actions";
+import type { PaymentReminderSettings } from "@/lib/payment-reminder-policy";
 
 export function CollectionsSettingsForm({
   frequencyLimitDays,
   autoSendEnabled,
   vakifbankIban,
   halkbankIban,
+  reminder,
 }: {
   frequencyLimitDays: number;
   autoSendEnabled: boolean;
   vakifbankIban?: string;
   halkbankIban?: string;
+  reminder: PaymentReminderSettings;
 }) {
   const router = useRouter();
   const [days, setDays] = useState(frequencyLimitDays);
   const [autoSend, setAutoSend] = useState(autoSendEnabled);
   const [vakifIban, setVakifIban] = useState(vakifbankIban ?? "");
   const [halkIban, setHalkIban] = useState(halkbankIban ?? "");
+  const [rem, setRem] = useState(reminder);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -35,6 +39,10 @@ export function CollectionsSettingsForm({
       autoSendEnabled: autoSend,
       vakifbankIban: vakifIban.trim() || undefined,
       halkbankIban: halkIban.trim() || undefined,
+      paymentReminderEnabled: rem.enabled,
+      paymentReminderDaysBefore: rem.daysBefore,
+      paymentReminderRepeatDays: rem.repeatDays,
+      paymentReminderMaxRepeats: rem.maxRepeats,
     });
     setBusy(false);
     if (!result.ok) {
@@ -100,6 +108,41 @@ export function CollectionsSettingsForm({
       <p className="text-xs text-[var(--color-text-muted)]">
         Boş bırakılan IBAN, ödeme hatırlatması taslağına eklenmez.
       </p>
+      <fieldset className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+        <legend className="px-1 text-xs font-semibold text-[var(--color-text)]">Ödeme hatırlatmaları (yönetici bildirimi)</legend>
+        <label className="flex items-center gap-2 text-sm text-[var(--color-text-muted)] dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={rem.enabled}
+            onChange={(event) => setRem({ ...rem, enabled: event.target.checked })}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          Ödeme hatırlatmalarını aç
+        </label>
+        {(
+          [
+            ["daysBefore", "Vadeden kaç gün önce haber verilsin (0 = yalnız vade günü ve sonrası)", 30],
+            ["repeatDays", "Vade geçtikten sonra kaç günde bir tekrar hatırlatılsın (0 = tekrar yok)", 60],
+            ["maxRepeats", "En fazla kaç tekrar", 12],
+          ] as const
+        ).map(([key, label, max]) => (
+          <label key={key} className="flex items-center justify-between gap-3 text-xs text-[var(--color-text-muted)]">
+            {label}
+            <input
+              type="number"
+              min={0}
+              max={max}
+              disabled={!rem.enabled}
+              value={rem[key]}
+              onChange={(event) => setRem({ ...rem, [key]: Math.max(0, Math.min(max, Number(event.target.value) || 0)) })}
+              className="w-24 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            />
+          </label>
+        ))}
+        <p className="text-xs text-[var(--color-text-muted)]">
+          Gelecek taksitler yalnız seçilen gün penceresine girince bildirilir; her ödeme için aşama başına tek bildirim.
+        </p>
+      </fieldset>
       <Button type="submit" variant="secondary" disabled={busy}>
         {busy ? "Kaydediliyor..." : "Ayarları kaydet"}
       </Button>

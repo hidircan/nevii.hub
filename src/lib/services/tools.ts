@@ -10988,14 +10988,28 @@ export async function updateCollectionsSettingsTool(
   if (!v.ok) return v;
 
   try {
-    await updateCollectionsSettings(v.data);
+    // 2026-10-20 — kayıtlı ayarla BİRLEŞTİR: form yalnız kendi alanlarını gönderir; eskiden tüm JSON üzerine yazıldığı
+    // için formda olmayan alanlar (sözleşme ödeme penceresi, KDV, ilk tahsilat eşiği) her kayıtta siliniyordu.
+    const current = (await readReferenceData()).settings.collectionsSettings;
+    // IBAN boş bırakılınca silinir (form boşu `undefined` gönderir; birleştirme eskisini tutmasın).
+    const merged: CollectionsSettings = {
+      ...current,
+      ...v.data,
+      vakifbankIban: v.data.vakifbankIban,
+      halkbankIban: v.data.halkbankIban,
+    };
+    await updateCollectionsSettings(merged);
     audit(ctx, "school.collections_settings_update", "School", ctx.tenantId, {
-      frequencyLimitDays: v.data.frequencyLimitDays,
-      autoSendEnabled: v.data.autoSendEnabled,
-      vakifbankIbanSet: !!v.data.vakifbankIban,
-      halkbankIbanSet: !!v.data.halkbankIban,
+      frequencyLimitDays: merged.frequencyLimitDays,
+      autoSendEnabled: merged.autoSendEnabled,
+      vakifbankIbanSet: !!merged.vakifbankIban,
+      halkbankIbanSet: !!merged.halkbankIban,
+      paymentReminderEnabled: merged.paymentReminderEnabled,
+      paymentReminderDaysBefore: merged.paymentReminderDaysBefore,
+      paymentReminderRepeatDays: merged.paymentReminderRepeatDays,
+      paymentReminderMaxRepeats: merged.paymentReminderMaxRepeats,
     });
-    return ok({ collectionsSettings: v.data });
+    return ok({ collectionsSettings: merged });
   } catch (e) {
     return fail(
       "INTERNAL_ERROR",

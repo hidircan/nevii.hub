@@ -2861,6 +2861,10 @@ export async function actionUpdateCollectionsSettings(input: {
   autoSendEnabled: boolean;
   vakifbankIban?: string;
   halkbankIban?: string;
+  paymentReminderEnabled?: boolean;
+  paymentReminderDaysBefore?: number;
+  paymentReminderRepeatDays?: number;
+  paymentReminderMaxRepeats?: number;
 }): Promise<UpdateCollectionsSettingsActionResult> {
   try {
     const result = await withAuthContext("actionUpdateCollectionsSettings", (ctx) =>
