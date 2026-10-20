@@ -30,6 +30,7 @@ import { LessonStatusBadge } from "./lesson-status-badge";
 import { PlannedMakeupMarker } from "./planned-makeup-marker";
 import { ATTENDED_PLANNED_MAKEUP_LABEL } from "@/lib/lesson-live-status";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
+import { PaymentCorrectionForm } from "./payment-correction-form";
 import {
   currentAcademicAnchorYear,
   resolveDayFillSegments,
@@ -244,15 +245,17 @@ const PLAN_STATUS_LABEL: Record<string, string> = {
  * gösterilir. Plan yoksa tutar UYDURULMAZ, açık durum yazılır.
  */
 /** 2026-10-05 — ayın tahsilatı sabit görünür: "Ödendi · 05.10.2026 · Nakit" (birden çok tahsilatta her biri). */
-function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
+function MonthCollections({ plan, onCorrected }: { plan: CalendarMonthPlan; onCorrected?: (paymentId: string) => void }) {
+  // 2026-10-20 — "Düzelt" MEVCUT tahsilat satırını açar (PATCH); "Yeni tahsilat" formundan ayrıdır.
+  const [editing, setEditing] = useState<string | null>(null);
   if (plan.state !== "ok" && plan.state !== "student_plan") return null;
   if (plan.collections.length === 0) return null;
   const fullyPaid = plan.remaining <= 0;
   return (
     <ul className="mt-1 space-y-0.5" aria-label="Bu ayın tahsilatları">
       {plan.collections.map((c, i) => (
-        <li
-          key={`${c.paidAt}-${i}`}
+        <li key={`${c.paymentId}-${i}`}>
+        <div
           className="flex flex-wrap items-center gap-x-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums"
           style={{
             background: fullyPaid ? "var(--color-success-soft)" : "var(--color-warning-soft)",
@@ -266,7 +269,28 @@ function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
           </span>
           <span>· {c.method ? PAYMENT_METHOD_LABEL[c.method] ?? c.method : "Şekil belirtilmemiş"}</span>
           {plan.collections.length > 1 || !fullyPaid ? <span className="ml-auto">{formatMoneyTL(c.amount)}</span> : null}
+          {onCorrected && editing !== c.paymentId ? (
+            <button
+              type="button"
+              onClick={() => setEditing(c.paymentId)}
+              className={cn("font-semibold underline-offset-2 hover:underline", plan.collections.length > 1 || !fullyPaid ? "" : "ml-auto")}
+              aria-label={`${formatMoneyTL(c.rowPaidAmount)} tahsilatını düzelt`}
+            >
+              Düzelt
+            </button>
+          ) : null}
           {c.note ? <span className="basis-full truncate font-normal" title={c.note}>Not: {c.note}</span> : null}
+        </div>
+        {onCorrected && editing === c.paymentId ? (
+          <PaymentCorrectionForm
+            payment={{ paymentId: c.paymentId, paidAmount: c.rowPaidAmount, paidAt: c.paidAt, method: c.method, note: c.note }}
+            onCancel={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              onCorrected(c.paymentId);
+            }}
+          />
+        ) : null}
         </li>
       ))}
     </ul>
@@ -279,7 +303,7 @@ function PaidMonthEntry({ collapsed, children }: { collapsed: boolean; children:
   return (
     <details className="mt-1 text-[11px]">
       <summary className="cursor-pointer select-none text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
-        Yeni tahsilat / düzelt
+        + Yeni tahsilat ekle
       </summary>
       {children}
     </details>
@@ -655,6 +679,26 @@ export function AttendanceCalendarPanel({
     }
   }
 
+  function monthsWithPayment(paymentId: string): string[] {
+    return Object.entries(byMonth)
+      .filter(([, m]) => (m.plan.state === "ok" || m.plan.state === "student_plan") && m.plan.collections.some((c) => c.paymentId === paymentId))
+      .map(([k]) => k);
+  }
+
+  /** Ayı (ve tahsilatın mahsup edildiği sonraki ayları) sunucudan tazeler. */
+  async function refreshMonths(monthKeys: string[]) {
+    for (const k of monthKeys) {
+      const [ty, tm] = k.split("-").map(Number) as [number, number];
+      try {
+        const res2 = await apiFetch(`/api/v1/attendance-calendar/month?studentId=${studentId}&year=${ty}&month=${tm}${branchQuery}`);
+        const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
+        if (json2.ok && json2.data) setByMonth((prev) => ({ ...prev, [k]: json2.data! }));
+      } catch {
+        setError("Bağlantı hatası — sayfayı yenileyin.");
+      }
+    }
+  }
+
   async function onSaveAmount(key: string) {
     if (!canEdit || readOnly) return;
     const raw = amounts[key];
@@ -923,7 +967,13 @@ export function AttendanceCalendarPanel({
                   {MONTH_LABELS[m.month - 1]} {m.year}
                 </h3>
                 {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
-                {data ? <MonthCollections plan={data.plan} /> : null}
+                {data ? (
+                  <MonthCollections
+                    plan={data.plan}
+                    // Tek satır birden çok aya mahsup edilmiş olabilir → yalnız bu satırı içeren yüklü aylar tazelenir.
+                    onCorrected={canEdit && !readOnly ? (paymentId) => void refreshMonths(monthsWithPayment(paymentId)) : undefined}
+                  />
+                ) : null}
                 {data ? <MonthClubFees fees={data.clubFees} /> : null}
                 {canEdit && !readOnly ? (
                   <PaidMonthEntry
@@ -1163,6 +1213,7 @@ function DayDetail({
   onLessonOpsSettled: (lessonId: string) => void;
 }) {
   const currentPath = useCurrentPath();
+  const [correcting, setCorrecting] = useState<string | null>(null);
   // Takvimden tahsilat: yoklama statüsüyle (Geldi/İşlendi/Telafi) ZORLA
   // bağlanmaz — ayrı bir kavramdır. Ancak mevcut iş kuralı gereği tahsilat
   // yalnızca kapalı OLMAYAN bir günde, aktif bir öğrenci için, admin/yönetici
@@ -1271,6 +1322,22 @@ function DayDetail({
                     </div>
                     {p.paidAt ? (
                       <p className="text-[var(--color-text-muted)]">Tahsilat tarihi: {formatRecordedAt(p.paidAt)}</p>
+                    ) : null}
+                    {canEdit && !readOnly ? (
+                      correcting === p.paymentId ? (
+                        <PaymentCorrectionForm
+                          payment={{ paymentId: p.paymentId, paidAmount: p.paidAmount, paidAt: p.paidAt, method: p.method }}
+                          onCancel={() => setCorrecting(null)}
+                          onSaved={() => {
+                            setCorrecting(null);
+                            onLessonOpsSettled(p.lessonId);
+                          }}
+                        />
+                      ) : (
+                        <button type="button" onClick={() => setCorrecting(p.paymentId)} className="font-medium text-[var(--color-primary)] hover:underline">
+                          Düzelt
+                        </button>
+                      )
                     ) : null}
                   </div>
                 ) : (

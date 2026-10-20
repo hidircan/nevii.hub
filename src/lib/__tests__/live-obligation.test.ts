@@ -2,7 +2,7 @@
  * UAT 2026-09-25 (Öncelik 2) — iptal/yenilenmiş sözleşmenin tahsil edilmemiş taksitleri borç, gecikme,
  * tahsilat kuyruğu ve otomatik hatırlatmaya GİRMEZ; tahsil edilmiş kısmı hareket olarak görünür kalır.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -41,6 +41,16 @@ beforeEach(async () => {
   await fs.rm(path.join(DIR, "store.json"), { force: true });
   await fs.rm(FOLLOW_UP_CASES_FILE, { force: true });
   terminal.ids = new Set();
+});
+
+
+// 2026-10-20 — "gecikmiş" artık vade gününden türetilir (payments/status.ts); sabit fixture tarihleri için saat sabit.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-20T09:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("isLiveObligation / splitStudentDebt", () => {

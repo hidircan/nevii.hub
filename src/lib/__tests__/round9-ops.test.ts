@@ -3,7 +3,7 @@
  * tanımı, güvenli geri dönüş, paket/iş silme, oda düzenleme, iptal/telafi kaynağı,
  * öğretmen yoklama raporu. Kök nedenler ilgili modüllerin başındaki yorumlarda.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -114,13 +114,21 @@ describe("haftalık program hücresi", () => {
 
 // ─── 3. Ödemeler kapsamı + tek tahsilat tanımı ─────────────────────────
 describe("ödeme kapsamı ve tahsil edilen tanımı", () => {
+  // 2026-10-20 — gecikmiş vade gününden türetilir; "overdue" satırlar geçmiş, diğerleri gelecek vadeli.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-15T09:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const students = [
     { id: "act", active: true },
     { id: "pas", active: false },
     { id: "del", active: false, deletedAt: "2026-09-01" },
   ] as Student[];
   const pay = (over: Partial<Payment>) =>
-    ({ id: Math.random().toString(), studentId: "act", status: "pending", amount: 1000, paidAmount: 0, dueDate: "2026-09-01", ...over }) as Payment;
+    ({ id: Math.random().toString(), studentId: "act", status: "pending", amount: 1000, paidAmount: 0, dueDate: over.status === "overdue" ? "2026-08-01" : "2026-09-01", ...over }) as Payment;
   const payments = [
     pay({ status: "paid", paidAmount: 1000 }),
     pay({ status: "partial", paidAmount: 400 }),

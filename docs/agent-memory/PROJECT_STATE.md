@@ -4,7 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-18 sabah (CANLI DB YENİ SUPABASE PROJESİNE TAŞINDI)
+## Güncel snapshot — 2026-10-20 (P0/P1: Yoklama Düzelt, AI buton sürükleme, Telafi pencere, Ödemeler redesign; PR açık, MERGE/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-p0-redesign`, dal `fix/p0-yoklama-telafi-odemeler` (taban origin/main 73a8e1a).
+- Yoklama Takvimi: her tahsilat satırında "Düzelt" (`PaymentCorrectionForm` → PATCH /payments/:id), "Yeni tahsilat ekle" ayrı;
+  sözleşme taksitinin dondurulmuş tutarı düzeltmeyle değişmez. AI başlatıcı sürüklenir (Pointer Events, sessionStorage).
+- Telafi: pencere değişince açık/planlı taleplerin son günü `createdAt + pencere`ye uzar (asla kısalmaz; `expiresAtForPolicyWindow`).
+- Ödeme durumu tek çözücü `payments/status.ts`; Ödemeler ay panosu (`?ay=`), öğrenci detayında "Açık borçlar".
+- Açık: owner UAT; mevcut açık telafiler için Politika'da bir kez "Kaydet"; Pırıl Akdağ satırlarının canlı SQL ile doğrulanması.
+
+## Snapshot — 2026-10-18 sabah (CANLI DB YENİ SUPABASE PROJESİNE TAŞINDI)
 - Neden: eski org `neviihub-prod-org` egress 15.83/5.5 GB, 19 Ekim'den sonra 402; transfer grace period'da reddedildi.
 - 07:04Z eski `wsbucz…` donduruldu → kilitli son dump (106 tablo, 37 518 satır) → yeni `ddskhtirzywbuucxeovz`
   (org NeviiHub-October, eu-central-1, PG17) yükleme 71 sn, özet/parmak izi/iş kontrolleri EŞİT, RLS 106/106, anon 0.

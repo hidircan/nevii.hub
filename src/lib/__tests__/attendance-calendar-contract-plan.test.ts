@@ -6,7 +6,7 @@
  * gerçek zinciri doğrular: createStudentContractTool → dondurulmuş taksit
  * satırları → getAttendanceCalendarMonthTool → collectAttendanceCalendarPaymentTool.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, onTestFinished, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -191,6 +191,12 @@ describe("Senaryo 4 — plan satırı olmayan ay", () => {
 
 describe("Senaryo 5 — tahsilat AYNI plan satırına yazılır; ödenen/kalan/durum doğru", () => {
   it("kısmi tahsilat sonrası takvim partial + kalan borcu gösterir", async () => {
+    // 2026-10-20 — durum vade gününden türetilir (payments/status.ts): Ekim taksidinin vadesi henüz gelmemişken kısmi.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T09:00:00Z"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const created = await createContractFor(5950);
     expect(created.ok).toBe(true);
     if (!created.ok) return;

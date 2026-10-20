@@ -1,3 +1,4 @@
+import { isPaymentOverdue, todayYmdInstitution } from "../payments/status";
 import type { AppData, MakeupRequest } from "../types";
 import { isPastMakeupPlanningDeadline, isUnplannedMakeup } from "../makeup-deadline";
 
@@ -22,7 +23,6 @@ export function mobileDashboardCounts(
   now: Date
 ): MobileDashboardCounts {
   const nowMs = now.getTime();
-  const today = now.toISOString().slice(0, 10);
   return {
     pendingAttendanceCount: data.lessons.filter(
       (l) =>
@@ -35,7 +35,8 @@ export function mobileDashboardCounts(
         !l.opsMakeupFlag
     ).length,
     overduePaymentCount: data.payments.filter(
-      (p) => p.status !== "paid" && p.status !== "voided" && (p.status === "overdue" || p.dueDate.slice(0, 10) < today)
+      // 2026-10-20 — tek kural (payments/status.ts): kurum saatinde gün bazlı vade.
+      (p) => isPaymentOverdue(p, todayYmdInstitution(now))
     ).length,
     openMakeupCount: (data.makeupRequests ?? []).filter((m) => isOpenMakeupInView(m, now)).length,
   };

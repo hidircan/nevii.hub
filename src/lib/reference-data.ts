@@ -15,6 +15,7 @@
  * `store-db` bu dilimi filtreli Prisma sorgusuyla ÜRETİR; json/memory tam veriden bu
  * fonksiyonla TÜRETİR — üç mod aynı şekli görür.
  */
+import { canonicalPaymentStatus } from "./payments/status";
 import type { AppData, Payment, StudentRef } from "./types";
 import { REFERENCE_STUDENT_OMIT } from "./types";
 import type { DashboardPaymentRow } from "./dashboard/daily-summary";
@@ -151,9 +152,13 @@ export function toPaymentStatusRow(p: PaymentStatusRow): PaymentStatusRow {
  * (`openCount` grup sayısıdır — listede yalnız > 0 olup olmadığı kullanılır). Prod'da 1.445 satır → ~200. İdempotenttir;
  * store-db aynı gruplamayı SQL'de yapar, json/memory bunu çağırır.
  */
-export function toPaymentStatusRows(payments: readonly PaymentStatusRow[]): PaymentStatusRow[] {
+export function toPaymentStatusRows(payments: readonly (PaymentStatusRow & { dueDate?: string })[]): PaymentStatusRow[] {
   const groups = new Map<string, PaymentStatusRow>();
-  for (const p of payments) {
+  for (const raw of payments) {
+    // 2026-10-20 — gruplamadan önce canonical statü (vadesi geçmiş "pending" → "overdue"); DB yolu aynısını SQL'de yapar.
+    const p = raw.dueDate && raw.status !== "paid" && raw.status !== "voided"
+      ? { ...raw, status: canonicalPaymentStatus({ ...raw, dueDate: raw.dueDate }) }
+      : raw;
     if (p.status === "paid") {
       const key = `${p.studentId}|paid`;
       if (!groups.has(key)) groups.set(key, { studentId: p.studentId, status: "paid", contractId: undefined, amount: 0, paidAmount: 0 });
@@ -189,6 +194,8 @@ export function narrowToPaymentsPage(data: AppData, opts?: ClubOnlyOptions): Pay
 export const PAYMENT_LIST_FIELDS = [
   "id", "studentId", "description", "method", "dueDate", "amount", "paidAmount", "status", "lessonId", "paymentNote",
   "paidAt", "createdAt", "source", "receivedByUserId", "contractId", "enrollmentId", "clubMembershipId",
+  // 2026-10-20 — ay görünümü dönem ayını takvimle AYNI kuraldan (`installmentMonthShares`) çıkarır.
+  "installmentPeriodLabel", "installmentBreakdown", "firstCollectionIncludesNextMonth",
 ] as const satisfies readonly (keyof Payment)[];
 export type PaymentListRow = Pick<Payment, (typeof PAYMENT_LIST_FIELDS)[number]>;
 export type PaymentsListData = ReferenceData & { payments: PaymentListRow[]; lessons: AppData["lessons"] };

@@ -2159,9 +2159,11 @@ export async function updatePaymentTool(
     // kayıtlarda amount+paidAmount birlikte güncellenir. Kısmi ödemede
     // (paidAmount < amount) yalnız tahsilat tutarı değişir — taksit anaparası
     // korunur.
+    // 2026-10-20 — sözleşme taksidinin DONDURULMUŞ tutarı tahsilat düzeltmesiyle değişmez (Yoklama Takvimi
+    // "Düzelt"): 3000 → 2500 düzeltmesi taksidi 2500'e çekip 500 TL'lik açığı gizlememeli; satır kısmiye döner.
     const reviseBilledAmount =
       v.data.amount !== undefined &&
-      (existing.source === "registration_first_payment" || existing.paidAmount === existing.amount);
+      (existing.source === "registration_first_payment" || (!existing.contractId && existing.paidAmount === existing.amount));
 
     const { collectPayment } = await import("../payments/collect");
     await collectPayment(v.data.paymentId, {
@@ -10728,8 +10730,9 @@ export async function importSchoolLogoFromCurrentUrlTool(
 
 /**
  * Telafi Merkezi politika penceresi (kaç gün içinde telafi hakkı kullanılmalı).
- * Yalnızca ileri yönlü etkilidir — zaten oluşturulmuş `MakeupRequest.expiresAt`
- * değerlerini yeniden hesaplamaz (bkz. buildMakeupRequest, store-json.ts).
+ * 2026-10-20 — açık/planlı taleplerin son günü de yeni pencereye göre uzar (asla kısalmaz; bkz.
+ * `expiresAtForPolicyWindow`). Eskiden yalnız ileri yönlüydü: öneri yeni pencereyle, doğrulama eski
+ * `expiresAt` ile çalışıp "hakkı var ama planlanamaz" çelişkisi üretiyordu.
  */
 export async function updateMakeupWindowDaysTool(
   ctx: ServiceContext,

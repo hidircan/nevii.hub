@@ -1,3 +1,4 @@
+import { expiresAtForPolicyWindow } from "./makeup-deadline";
 import { collectedAmountOf } from "./payment-profile";
 import { mergeImportRowIntoStudent } from "./import/student-merge";
 import {
@@ -1195,7 +1196,11 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
   const data = load();
-  return save({ ...data, settings: { ...data.settings, makeupWindowDays } });
+  return save({
+    ...data,
+    settings: { ...data.settings, makeupWindowDays },
+    makeupRequests: data.makeupRequests.map((m) => ({ ...m, expiresAt: expiresAtForPolicyWindow(m, makeupWindowDays) })),
+  });
 }
 
 export async function updateCollectionsSettings(

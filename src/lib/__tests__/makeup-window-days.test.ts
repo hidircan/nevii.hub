@@ -69,3 +69,40 @@ describe("Aylık telafi hakkı (monthlyMakeupAllowance)", () => {
     if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
   });
 });
+
+describe("2026-10-20 — pencere artırımı açık talebin son gününü de uzatır (hak ↔ planlama tek kural)", () => {
+  it("eski pencereyle reddedilen tarih, pencere artırılınca planlanabilir; iptal edilmiş talep uzamaz; asla kısalmaz", async () => {
+    const { writeData } = await import("../store-json");
+    const { makeupPlanningDeadline, expiresAtForPolicyWindow } = await import("../makeup-deadline");
+    const now = Date.now();
+    const day = 86_400_000;
+    const createdAt = new Date(now - 20 * day).toISOString();
+    const oldExpires = new Date(now + 10 * day).toISOString(); // 30 günlük eski pencere
+    const base = await readData();
+    const [a, b] = base.makeupRequests;
+    expect(a && b).toBeTruthy();
+    await writeData({
+      ...base,
+      makeupRequests: base.makeupRequests.map((m) =>
+        m.id === a!.id
+          ? { ...m, status: "pending", createdAt, expiresAt: oldExpires, confirmedLessonId: undefined }
+          : m.id === b!.id
+            ? { ...m, status: "cancelled", createdAt, expiresAt: oldExpires }
+            : m
+      ),
+    });
+    const slotEnd = now + 25 * day;
+    expect(slotEnd > makeupPlanningDeadline(oldExpires).getTime()).toBe(true); // AFTER_EXPIRY
+
+    expect((await updateMakeupWindowDaysTool(ctx(), { makeupWindowDays: 60 })).ok).toBe(true);
+    const after = await readData();
+    const open = after.makeupRequests.find((m) => m.id === a!.id)!;
+    const cancelled = after.makeupRequests.find((m) => m.id === b!.id)!;
+    expect(open.status).toBe("pending");
+    expect(slotEnd < makeupPlanningDeadline(open.expiresAt).getTime()).toBe(true); // artık planlanabilir
+    expect(cancelled.expiresAt).toBe(oldExpires); // hakkı olmayan iki yerde de yok
+
+    // Kısaltma mevcut son günü (ör. yöneticinin elle uzattığı) geri almaz.
+    expect(expiresAtForPolicyWindow(open, 5)).toBe(open.expiresAt);
+  });
+});

@@ -20,6 +20,7 @@
  *    satırlar gösterilir.
  */
 import { collectedAmountOf, isLiveObligation } from "./payment-profile";
+import { isPaymentOverdue } from "./payments/status";
 import type { Payment, Student } from "./types";
 
 export type PaymentScope = "aktif" | "pasif" | "tum";
@@ -63,7 +64,7 @@ export type PaymentScopeTotals = {
 };
 
 export function computePaymentScopeTotals(
-  payments: Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId">[],
+  payments: Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId" | "dueDate">[],
   terminalContractIds: ReadonlySet<string>
 ): PaymentScopeTotals {
   let collected = 0;
@@ -75,7 +76,7 @@ export function computePaymentScopeTotals(
     if (!isLiveObligation(p, terminalContractIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     outstanding += due;
-    if (p.status === "overdue") {
+    if (isPaymentOverdue(p)) {
       overdueAmount += due;
       overdueCount += 1;
     }
@@ -91,7 +92,7 @@ export function computePaymentScopeTotals(
 }
 
 /** Kapsama göre satırları ve toplamları TEK geçişte ayırır — kartlar ve tablo aynı listeden beslenir. */
-export function scopePayments<P extends Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId">>(
+export function scopePayments<P extends Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId" | "dueDate">>(
   payments: P[],
   students: ScopeStudent[],
   scope: PaymentScope,

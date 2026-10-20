@@ -83,7 +83,15 @@ export interface CalendarPlanInstallment {
 
 /** Ayın tahsilatları: satır başına fiilen alınan tutar + tahsilat anı + şekli (en eski önce). */
 /** `paidAt` = TAHSİLAT TARİHİ (paranın alındığı gün); hangi aya sayıldığı satırın dönem ayıdır. */
-export type CalendarMonthCollection = { paidAt: string; method?: string; amount: number; note?: string };
+/** `paymentId` + `rowPaidAmount`: "Düzelt" MEVCUT satırı düzenler (çok aylı tahsilatta satır toplamı, ay payı değil). */
+export type CalendarMonthCollection = {
+  paidAt: string;
+  method?: string;
+  amount: number;
+  note?: string;
+  paymentId: string;
+  rowPaidAmount: number;
+};
 
 /** Bir satırın verilen aya düşen payı (satır + pay). */
 type RowShare = { row: CalendarPlanInstallment; share: InstallmentMonthShare };
@@ -104,6 +112,8 @@ function collectionsOf(items: RowShare[]): CalendarMonthCollection[] {
       method: row.method,
       amount: share.paidAmount,
       ...(row.paymentNote ? { note: row.paymentNote } : {}),
+      paymentId: row.id,
+      rowPaidAmount: row.paidAmount,
     }))
     .sort((a, b) => a.paidAt.localeCompare(b.paidAt));
 }
