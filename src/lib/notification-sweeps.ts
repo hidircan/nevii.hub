@@ -1,13 +1,14 @@
-import { differenceInCalendarDays, parseISO } from "date-fns";
 import { readPaymentsPageData } from "./store";
+import { isDbMode } from "./config";
+import { listTerminalContractIds } from "./contracts";
+import { PAYMENT_REMINDER_SELECT, resolvePaymentReminderSettings, shouldCreatePaymentReminder } from "./payment-reminder-policy";
+import type { CollectionsSettings, Payment } from "./types";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
 import { forEachSchoolTenant, sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
 import { formatDate, formatMoney } from "./utils";
 import { paymentTargetHref } from "./notification-href";
 import { safeErrorFields } from "./logger";
-
-const PENDING_DAYS = 7;
 
 export type NotificationSweepSummary = {
   upcoming: Awaited<ReturnType<typeof sweepUpcomingLessons>>;
@@ -33,37 +34,86 @@ export async function sweepStudentContractExpiry(now = new Date()): Promise<{ cr
   return { created, tenantErrors };
 }
 
+type ReminderCandidate = Pick<
+  Payment,
+  "id" | "studentId" | "status" | "contractId" | "dueDate" | "amount" | "paidAmount" | "description" | "installmentPeriodLabel"
+>;
+
+/**
+ * Kurumun hatırlatma ayarı + YALNIZ aday ödemeler (canlı borç, vadesi `today + daysBefore`'a kadar) ve onların öğrenci
+ * adları. DB egress (2026-10-20): eskiden tüm ödemeler × ~31 kolon + referans veri okunuyordu; artık 9 kolon, aday satır.
+ */
+async function readReminderCandidates(tenantId: string, now: Date) {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const school = await prisma.school.findFirst({ where: { tenantId }, select: { collectionsSettings: true } });
+    const settings = resolvePaymentReminderSettings(school?.collectionsSettings as CollectionsSettings | null);
+    if (!settings.enabled) return { settings, payments: [] as ReminderCandidate[], names: new Map<string, string>() };
+    const horizon = new Date(`${now.toISOString().slice(0, 10)}T23:59:59.999Z`);
+    horizon.setUTCDate(horizon.getUTCDate() + settings.daysBefore);
+    const rows = await prisma.payment.findMany({
+      where: { tenantId, status: { notIn: ["paid", "voided"] }, dueDate: { lte: horizon } },
+      select: PAYMENT_REMINDER_SELECT,
+    });
+    const payments: ReminderCandidate[] = rows.map((r) => ({
+      ...r,
+      status: r.status as Payment["status"],
+      dueDate: r.dueDate.toISOString(),
+      contractId: r.contractId ?? undefined,
+      installmentPeriodLabel: r.installmentPeriodLabel ?? undefined,
+    }));
+    const ids = [...new Set(payments.map((p) => p.studentId))];
+    const students = ids.length
+      ? await prisma.student.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    return { settings, payments, names: new Map(students.map((st) => [st.id, st.name])) };
+  }
+  const data = await readPaymentsPageData();
+  return {
+    settings: resolvePaymentReminderSettings(data.settings.collectionsSettings),
+    payments: data.payments as ReminderCandidate[],
+    names: new Map(data.students.map((st) => [st.id, st.name])),
+  };
+}
+
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
+  // Acil fren: yalnız bu kategori (diğer bildirimler sürer). Vercel'de env değişikliği yeniden deploy ister.
+  if (process.env.NEVII_PAYMENT_REMINDERS === "0") return { created: 0, tenantErrors: 0 };
+  const startedAt = Date.now();
   let created = 0;
+  let candidates = 0;
+  let suppressed = 0;
   const tenantErrors = await forEachSchoolTenant("paymentPending", async (tenantId) => {
-    // DB egress (2026-10-16): ödeme dilimi (ödemeler + referans veri); ders/yoklama/telafi okunmaz.
-    const data = await readPaymentsPageData();
-    for (const p of data.payments) {
-      if (p.status !== "pending") continue;
-      const anchor = p.createdAt || p.dueDate;
-      if (!anchor) continue;
-      const age = differenceInCalendarDays(now, parseISO(anchor));
-      if (age < PENDING_DAYS) continue;
-      const remaining = Math.max(p.amount - p.paidAmount, 0);
+    const { settings, payments, names } = await readReminderCandidates(tenantId, now);
+    if (payments.length === 0) return;
+    const terminal = await listTerminalContractIds(tenantId);
+    for (const p of payments) {
+      const decision = shouldCreatePaymentReminder(p, settings, terminal, now);
+      if (!decision) continue;
+      candidates++;
+      const { daysUntilDue: d, remaining } = decision;
       // 2026-10-15 — kimden/ne için/ne kadar/vade; teknik kimlik yalnız "Detay:" hedefinde (ekranda gizlenir,
       // tekilleştirme `body.includes(p.id)` ile aynen çalışır). Push yok — yalnız yönetici uygulama içi bildirimi.
-      const who = data.students.find((st) => st.id === p.studentId)?.name ?? "Öğrenci kaydı bulunamadı";
+      const who = names.get(p.studentId) ?? "Öğrenci kaydı bulunamadı";
       const what = p.installmentPeriodLabel ?? p.description ?? "Ödeme";
-      // Bozuk/boş vade tarihi tick'i düşürmesin (kurum hatası = tick 500): yalnız geçerliyse yazılır.
-      const due = p.dueDate && !Number.isNaN(Date.parse(p.dueDate)) ? `vade ${formatDate(p.dueDate)}, ` : "";
+      const when = d > 0 ? `vadeye ${d} gün var` : d === 0 ? "vadesi bugün" : `vade ${formatDate(p.dueDate)}, ${-d} gün gecikti`;
       const outcomes = await notifyAdmins(
         tenantId,
         "payment_failed_or_pending",
         {
-          title: "Bekleyen ödeme",
-          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (${due}${age} gündür açık). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
+          title: d > 0 ? "Yaklaşan ödeme" : "Bekleyen ödeme",
+          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (${when}). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
         },
-        { dedupeKey: p.id }
+        // Pencere = aşama başından bugüne: aynı aşamada ikinci bildirim yok (bkz. payment-reminder-policy.ts).
+        { dedupeKey: p.id, windowMs: Math.max(Date.now() - decision.since.getTime(), 0) }
       );
       // Yalnız gerçekten yazılan bildirim sayılır (eskiden yinelenen/atlanan da "created" sayılıyordu).
       if (outcomes.includes("created")) created++;
+      else suppressed++;
     }
   });
+  // Tek satır özet; ad/tutar/not gibi kişi verisi yok.
+  console.info("[notifications.payment.sweep]", { candidates, created, suppressed, tenantErrors, durationMs: Date.now() - startedAt });
   return { created, tenantErrors };
 }
 

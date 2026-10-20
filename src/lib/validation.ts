@@ -871,6 +871,11 @@ export const updateCollectionsSettingsSchema = z.object({
   /** Faz 2 — kayıt sözleşmesi ödeme penceresi (yalnız gelecek sözleşmeleri etkiler). */
   contractCardWindowEndDay: z.number().int().min(1).max(28).optional(),
   contractBankCashDueDay: z.number().int().min(1).max(28).optional(),
+  /** 2026-10-20 — ödeme hatırlatması (bkz. payment-reminder-policy.ts). */
+  paymentReminderEnabled: z.boolean().optional(),
+  paymentReminderDaysBefore: z.number().int().min(0).max(30).optional(),
+  paymentReminderRepeatDays: z.number().int().min(0).max(60).optional(),
+  paymentReminderMaxRepeats: z.number().int().min(0).max(12).optional(),
 });
 
 export const markNotificationReadSchema = z.object({

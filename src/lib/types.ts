@@ -689,6 +689,17 @@ export interface CollectionsSettings {
    * number olarak TEKRARLANMAZ.
    */
   firstCollectionMergeThresholdLessons?: number;
+  /**
+   * Ödeme hatırlatmaları (2026-10-20) — yönetici uygulama içi "Bekleyen ödeme" bildirimi. Kural ve varsayılanlar
+   * TEK yerde: src/lib/payment-reminder-policy.ts (`shouldCreatePaymentReminder`). undefined → varsayılan.
+   */
+  paymentReminderEnabled?: boolean;
+  /** Vadeden kaç gün önce haber verilsin (0 = gelecek vadeli taksit için bildirim yok). */
+  paymentReminderDaysBefore?: number;
+  /** Vade geçtikten sonra kaç günde bir tekrar hatırlatılsın (0 = tekrar yok). */
+  paymentReminderRepeatDays?: number;
+  /** En fazla kaç tekrar. */
+  paymentReminderMaxRepeats?: number;
 }
 
 export const DEFAULT_COLLECTIONS_SETTINGS: CollectionsSettings = {
