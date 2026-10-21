@@ -3272,6 +3272,14 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
       ...(patch.opsMakeupFlag !== undefined
         ? { opsMakeupFlag: patch.opsMakeupFlag, opsMakeupFlagAt: toDate(patch.opsMakeupFlagAt) ?? null, opsMakeupFlagBy: patch.opsMakeupFlagBy ?? null }
         : {}),
+      ...(patch.disruptionSource !== undefined
+        ? {
+            disruptionSource: patch.disruptionSource,
+            disruptionNote: patch.disruptionNote ?? null,
+            disruptionAt: toDate(patch.disruptionAt) ?? null,
+            disruptionBy: patch.disruptionBy ?? null,
+          }
+        : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
       // 2026-10-07 — yoklamasız oturumun tarih/oda/öğretmen düzeltmesi (rescheduleClubSessionTool).
       ...(patch.startAt ? { startAt: new Date(patch.startAt) } : {}),

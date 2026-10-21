@@ -6,6 +6,7 @@ import { Loader2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { CLUB_AUDIENCE_LABEL, CLUB_AUDIENCES } from "@/lib/club-audience";
+import { DisruptionSourceFields, type DisruptionFormValue } from "@/components/disruption-source-fields";
 import type { Club, ClubMemberCandidate } from "@/lib/clubs";
 
 const field =
@@ -854,13 +855,15 @@ export function ClubSessionPostpone({ sessionId, rooms, defaultRoomId, clubId }:
   const [startLocal, setStartLocal] = useState("");
   const [roomId, setRoomId] = useState(defaultRoomId);
   const [reason, setReason] = useState("");
+  const [source, setSource] = useState<DisruptionFormValue>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!source.source) return setError("Erteleme kaynağını seçin (Öğretmen / Kurum / Öğrenci / Diğer).");
     setBusy(true);
     setError(null);
-    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "postpone", sessionId, startLocal, roomId, reason });
+    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "postpone", sessionId, startLocal, roomId, reason, disruptionSource: source.source });
     setBusy(false);
     if (!r.ok) return setError(r.message);
     router.push(`/panel/kulupler/${clubId}/oturum/${(r.data as { newSessionId: string }).newSessionId}`);
@@ -868,6 +871,9 @@ export function ClubSessionPostpone({ sessionId, rooms, defaultRoomId, clubId }:
   }
   return (
     <form onSubmit={(e) => void submit(e)} className="grid gap-2 sm:grid-cols-4">
+      <div className="text-xs sm:col-span-4">
+        <DisruptionSourceFields idPrefix={`pp-${sessionId}`} kind="Telafi" value={source} onChange={setSource} />
+      </div>
       <div>
         <label htmlFor="pp-start" className={label}>Yeni tarih / saat</label>
         <input id="pp-start" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} className={field} required />

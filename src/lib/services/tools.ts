@@ -17479,7 +17479,7 @@ export async function setLessonOpsFlagTool(
     message: string;
     needsConfirmation?: boolean;
     currentStatus?: string | null;
-    /** Ana işlem kaydedildi ama yan kayıt (öğretmen katılımı) yazılamadı. */
+    /** Ana işlem kaydedildi ama yan kayıt (hakediş) güncellenemedi. */
     warning?: string;
   }>
 > {

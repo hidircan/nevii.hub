@@ -2,7 +2,7 @@
 
 /**
  * Faz 2 — açıklanabilir öğretmen performans raporu. 2026-09-17: "bekleyen
- * öğretmen yoklaması" işaretleme bloğu kaldırıldı (yoklama tek yetki modeli). Öğrenci yoklaması burada HİÇ gösterilmez/
+ * öğretmen yoklaması" bloğu kaldırıldı; 2026-10-21: ayrı öğretmen yoklaması tamamen kaldırıldı. Öğrenci yoklaması burada HİÇ gösterilmez/
  * kullanılmaz — skor yalnız "Öğretmen kaynaklı" iptal/telafi + öğrenci geri
  * bildirimine dayanır (bkz. src/lib/teacher-performance.ts).
  */

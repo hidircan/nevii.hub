@@ -1097,7 +1097,7 @@ export async function clearLessonOpsFlagLive(
   return withTenantScope(() => store.clearLessonOpsFlagLive(lessonId, expected, actorUserId));
 }
 
-/** 9. tur — İptal/Telafi kaynağı (öğretmen katılımından ve ders statüsünden ayrı alan). */
+/** 9. tur — İptal/Telafi kaynağı (ders statüsünden ayrı alan). */
 export async function setLessonDisruptionLive(
   lessonId: string,
   patch: import("./lesson-disruption").LessonDisruptionPatch

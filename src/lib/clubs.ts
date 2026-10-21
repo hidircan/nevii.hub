@@ -80,6 +80,10 @@ export type ClubLessonPatch = Partial<
     | "opsMakeupFlag"
     | "opsMakeupFlagAt"
     | "opsMakeupFlagBy"
+    | "disruptionSource"
+    | "disruptionNote"
+    | "disruptionAt"
+    | "disruptionBy"
     | "notes"
     // 2026-10-07 — yanlış girilen oturumun tarih/saat/oda/öğretmen düzeltmesi (yoklamasız oturum).
     | "startAt"
@@ -1615,6 +1619,25 @@ async function loadSession(ctx: ServiceContext, sessionId: string) {
 }
 
 /**
+ * 2026-10-21 — yapılmış (saati geçmiş) oturum hakedişe kendiliğinden girer; kayıtlı bir hakediş dönemine düşen
+ * oturum ertelenir/iptal edilir/taşınırsa kayıtlı hakediş sessizce değişirdi. Bu yüzden engellenir.
+ */
+async function clubPayoutLock(sessions: ClubSessionView[]): Promise<string | null> {
+  const past = sessions.filter((x) => Date.parse(x.startAt) <= Date.now());
+  if (!past.length) return null;
+  const { readTeacherPayoutsForTeacher } = await import("./store");
+  const { findPayoutCoveringLesson } = await import("./teacher-payout");
+  const { formatDateTime } = await import("./utils");
+  for (const x of past) {
+    const payout = findPayoutCoveringLesson(await readTeacherPayoutsForTeacher(x.teacherId), x);
+    if (payout) {
+      return `${formatDateTime(x.startAt)} oturumu öğretmenin ${payout.periodStart.slice(0, 10)} – ${payout.periodEnd.slice(0, 10)} kayıtlı hakedişine dahil; değiştirilirse hakediş tutarı değişir. Önce Öğretmen › Hakediş ekranından bu hakediş kaydını iptal edin, sonra tekrar deneyin.`;
+    }
+  }
+  return null;
+}
+
+/**
  * Oturumu toptan ertele (owner kararı): tüm üye satırları Telafi (bireysel telafi talebi YOK), aynı üyelerle yeni
  * tarihte yeni oturum açılır. Önce yeni oturum doğrulanır/yazılır, sonra eski satırlar işaretlenir.
  */
@@ -1627,6 +1650,10 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
       startLocal: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Yeni tarih ve saati seçin."),
       roomId: z.string().optional(),
       reason: z.string().trim().min(3, "Erteleme gerekçesini yazın (ör. öğretmen hastalandı).").max(300),
+      // Öğretmen performansının tek verisi: "teacher" seçilirse ertelenen oturum öğretmen kaynaklı aksama sayılır.
+      disruptionSource: z.enum(["teacher", "institution", "student", "other"], {
+        error: "Erteleme kaynağını seçin (Öğretmen / Kurum / Öğrenci / Diğer).",
+      }),
     })
     .safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Erteleme bilgilerini kontrol edin.");
@@ -1634,6 +1661,8 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
   const { session, data } = await loadSession(ctx, v.sessionId);
   if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya iptal edilmiş. Sayfayı yenileyin.");
   if (session.postponed) return fail("CONFLICT", "Bu oturum zaten ertelenmiş.");
+  const postponeLock = await clubPayoutLock([session]);
+  if (postponeLock) return fail("CONFLICT", postponeLock);
   const marked = session.rows.filter((r) => r.studentAttended || r.lessonProcessed || r.status === "completed");
   if (marked.length) {
     return fail("CONFLICT", `${marked.length} üyenin yoklaması Geldi/İşlendi işaretli; ertelemeden önce bu işaretleri geri alın.`);
@@ -1661,11 +1690,18 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
   if (!built.ok) return fail("CONFLICT", built.message);
   const { addClubSessionLessons, patchClubLessons } = await import("./store");
   const { formatDateTime } = await import("./utils");
+  const { buildDisruptionPatch } = await import("./lesson-disruption");
   await addClubSessionLessons(built.rows.map((r) => ({ ...r, notes: `${club.name} — ${formatDateTime(session.startAt)} oturumunun telafisi` })));
   const now = new Date().toISOString();
   await patchClubLessons(
     session.rows.map((r) => r.id),
-    { opsMakeupFlag: true, opsMakeupFlagAt: now, opsMakeupFlagBy: ctx.userId, notes: `${club.name} — ertelendi → ${formatDateTime(startAt.toISOString())} (${v.reason})` }
+    {
+      opsMakeupFlag: true,
+      opsMakeupFlagAt: now,
+      opsMakeupFlagBy: ctx.userId,
+      ...buildDisruptionPatch({ source: v.disruptionSource, note: v.reason }, ctx.userId),
+      notes: `${club.name} — ertelendi → ${formatDateTime(startAt.toISOString())} (${v.reason})`,
+    }
   );
   const { recordAuditLog } = await import("./audit/log");
   void recordAuditLog({
@@ -1676,7 +1712,7 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
     entityType: "ClubSession",
     entityId: session.sessionId,
     outcome: "success",
-    meta: { newSessionId, rows: session.rows.length },
+    meta: { newSessionId, rows: session.rows.length, disruptionSource: v.disruptionSource },
   });
   return ok({ newSessionId });
 }
@@ -1690,6 +1726,8 @@ export async function cancelClubSessionTool(ctx: ServiceContext, input: unknown)
   const { session } = await loadSession(ctx, parsed.data.sessionId);
   if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya zaten iptal edilmiş.");
   const touched = session.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || r.opsMakeupFlag);
+  const cancelLock = await clubPayoutLock([session]);
+  if (cancelLock) return fail("CONFLICT", cancelLock);
   if (touched) {
     return fail("CONFLICT", "Bu oturuma yoklama girilmiş; iptal edilemez. Yapılmadıysa 'Oturumu ertele' kullanın ya da yoklamaları geri alın.");
   }
@@ -1764,6 +1802,8 @@ export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unkn
       )
     );
   }
+  const moveLock = await clubPayoutLock(targets);
+  if (moveLock) return fail("CONFLICT", moveLock);
   const movingIds = new Set(targets.map((x) => x.sessionId));
   const wide = await withConflictWindow(data, targets.map((x) => new Date(Date.parse(x.startAt) + delta)));
   const others = { ...wide, lessons: wide.lessons.filter((l) => !l.clubSessionId || !movingIds.has(l.clubSessionId)) };

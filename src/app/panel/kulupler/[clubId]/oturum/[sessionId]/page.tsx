@@ -62,7 +62,7 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
         </p>
       ) : null}
       <p className="text-[11px] text-[var(--color-text-muted)]">
-        Öğretmen hakedişi: saati geçmiş ve ertelenmemiş oturum, süresine göre bir ders olarak sayılır. Öğretmen gelmediyse oturumu erteleyin.
+        Öğretmen hakedişi: saati geçmiş ve ertelenmemiş oturum, süresine göre bir ders olarak sayılır. Öğretmen gelmediyse oturumu “Öğretmen kaynaklı” seçerek erteleyin (performansa yazılır).
       </p>
       <Card>
         <h2 className="mb-2 text-sm font-semibold">Üyeler ve yoklama</h2>
