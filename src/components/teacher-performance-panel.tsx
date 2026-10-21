@@ -3,7 +3,7 @@
 /**
  * Faz 2 — açıklanabilir öğretmen performans raporu. 2026-09-17: "bekleyen
  * öğretmen yoklaması" işaretleme bloğu kaldırıldı (yoklama tek yetki modeli). Öğrenci yoklaması burada HİÇ gösterilmez/
- * kullanılmaz — skor yalnız öğretmenin kendi katılımı + öğrenci geri
+ * kullanılmaz — skor yalnız "Öğretmen kaynaklı" iptal/telafi + öğrenci geri
  * bildirimine dayanır (bkz. src/lib/teacher-performance.ts).
  */
 
@@ -15,10 +15,7 @@ type Report = {
   periodStart: string;
   periodEnd: string;
   plannedLessonCount: number;
-  attendedCount: number;
-  absentCount: number;
-  excusedCount: number;
-  pendingCount: number;
+  teacherCausedCount: number;
   attendanceRate: number | null;
   feedbackAverage: number | null;
   feedbackCount: number;
@@ -117,13 +114,8 @@ export function TeacherPerformancePanel({ teacherId }: { teacherId: string }) {
                   Planlanan ders: <span className="font-medium text-[var(--color-text)]">{report.plannedLessonCount}</span>
                 </div>
                 <div>
-                  Geldi: <span className="font-medium text-[var(--color-text)]">{report.attendedCount}</span>
-                </div>
-                <div>
-                  Gelmedi: <span className="font-medium text-[var(--color-text)]">{report.absentCount}</span>
-                </div>
-                <div>
-                  Mazeretli: <span className="font-medium text-[var(--color-text)]">{report.excusedCount}</span>
+                  Öğretmen kaynaklı iptal/telafi:{" "}
+                  <span className="font-medium text-[var(--color-text)]">{report.teacherCausedCount}</span>
                 </div>
               </div>
             </div>
@@ -131,12 +123,12 @@ export function TeacherPerformancePanel({ teacherId }: { teacherId: string }) {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-[var(--color-border)] p-3 text-sm">
                 <p className="font-medium text-[var(--color-text)]">
-                  Katılım oranı — ağırlık %{Math.round(report.components.attendance.weight * 100)}
+                  Ders güvenilirliği — ağırlık %{Math.round(report.components.attendance.weight * 100)}
                 </p>
                 <p className="text-[var(--color-text-muted)]">
                   {report.attendanceRate !== null
-                    ? `%${Math.round(report.attendanceRate * 100)} (${report.attendedCount}/${report.attendedCount + report.absentCount + report.excusedCount})`
-                    : "Henüz işaretlenmiş ders yok"}
+                    ? `%${Math.round(report.attendanceRate * 100)} (${report.teacherCausedCount} öğretmen kaynaklı / ${report.plannedLessonCount} ders)`
+                    : "Bu dönemde gerçekleşmiş ders yok"}
                 </p>
               </div>
               <div className="rounded-lg border border-[var(--color-border)] p-3 text-sm">

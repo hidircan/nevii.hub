@@ -114,16 +114,13 @@ export default async function OgretmenPerformansYazdirPage({
               </thead>
               <tbody>
                 <tr>
-                  <td>Yoklama</td>
+                  <td>Ders güvenilirliği</td>
                   <td className="num">%{Math.round(result.data.components.attendance.weight * 100)}</td>
                   <td className="num">{result.data.components.attendance.normalizedValue ?? "—"}</td>
                   <td className="num">{result.data.components.attendance.contribution ?? "—"}</td>
                   <td>
-                    Planlanan {result.data.components.attendance.plannedLessonCount} ders: katıldı{" "}
-                    {result.data.components.attendance.attendedCount}, gelmedi{" "}
-                    {result.data.components.attendance.absentCount}, mazeretli{" "}
-                    {result.data.components.attendance.excusedCount}, bekleyen{" "}
-                    {result.data.components.attendance.pendingCount}.
+                    {result.data.components.attendance.plannedLessonCount} ders içinde öğretmen kaynaklı iptal/telafi:{" "}
+                    {result.data.components.attendance.teacherCausedCount}.
                   </td>
                 </tr>
                 <tr>
@@ -178,9 +175,9 @@ export default async function OgretmenPerformansYazdirPage({
               </tfoot>
             </table>
 
-            <h2>Yoklama detayları</h2>
+            <h2>Öğretmen kaynaklı iptal/telafi</h2>
             {result.data.components.attendance.rows.length === 0 ? (
-              <p>Dönemde yoklama satırı yok.</p>
+              <p>Dönemde öğretmen kaynaklı iptal/telafi yok.</p>
             ) : (
               <table>
                 <thead>
@@ -188,7 +185,7 @@ export default async function OgretmenPerformansYazdirPage({
                     <th>Tarih</th>
                     <th>Öğrenci</th>
                     <th>Ders</th>
-                    <th>Durum</th>
+                    <th>Karar</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -197,7 +194,7 @@ export default async function OgretmenPerformansYazdirPage({
                       <td>{formatDate(r.startAt.slice(0, 10))}</td>
                       <td>{r.studentName}</td>
                       <td>{r.instrument}</td>
-                      <td>{r.status}</td>
+                      <td>{r.kind}</td>
                     </tr>
                   ))}
                 </tbody>

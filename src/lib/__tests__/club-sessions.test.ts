@@ -114,7 +114,7 @@ describe("kulüp oturumları — 2. aşama (2026-10-06)", () => {
     expect(groupClubSessions(data.lessons, club.id).every((s) => s.cancelled || s.postponed)).toBe(true);
   });
 
-  it("hakediş: oturum başına TEK ders (öğretmen 'geldi'), öğrenci statüsünden bağımsız; sözleşme sayımına girmez; öğrenci Telafi'si talep açmaz", async () => {
+  it("hakediş: yapılmış (geçmiş, ertelenmemiş) oturum başına TEK ders, öğrenci statüsünden bağımsız; sözleşme sayımına girmez; öğrenci Telafi'si talep açmaz", async () => {
     const { readData } = await import("../store");
     const data = await readData();
     const t = data.teachers.find((x) => x.active)!;
@@ -124,10 +124,10 @@ describe("kulüp oturumları — 2. aşama (2026-10-06)", () => {
       ...base, id, studentId: sid, clubSessionId: sess, startAt: start, endAt: new Date(Date.parse(start) + 40 * 60_000).toISOString(), ...extra,
     });
     const lessons: Lesson[] = [
-      mk("a1", students[0]!.id, "s1", "2026-09-10T10:00:00.000Z", { teacherAttendanceStatus: "geldi", studentAbsent: true }),
-      mk("a2", students[1]!.id, "s1", "2026-09-10T10:00:00.000Z", { teacherAttendanceStatus: "geldi", studentAttended: true }),
-      mk("a3", students[2]!.id, "s1", "2026-09-10T10:00:00.000Z", { teacherAttendanceStatus: "geldi" }),
-      mk("b1", students[0]!.id, "s2", "2026-09-17T10:00:00.000Z", { teacherAttendanceStatus: "gelmedi", studentAttended: true }),
+      mk("a1", students[0]!.id, "s1", "2026-09-10T10:00:00.000Z", { studentAbsent: true }),
+      mk("a2", students[1]!.id, "s1", "2026-09-10T10:00:00.000Z", { studentAttended: true }),
+      mk("a3", students[2]!.id, "s1", "2026-09-10T10:00:00.000Z"),
+      mk("b1", students[0]!.id, "s2", "2026-09-17T10:00:00.000Z", { opsMakeupFlag: true }),
     ];
     const earnings = computeTeacherEarningsForPeriod(
       { ...data, lessons, teacherPayoutPolicies: [{ id: "p", teacherId: t.id, month: "2026-09", policy: "fixed_duration", rates: { 30: 300, 40: 400, 50: 500 } } as never] },

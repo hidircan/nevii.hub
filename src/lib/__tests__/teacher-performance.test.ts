@@ -5,10 +5,9 @@ import { resolveDataDir } from "../config";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import { computeTeacherPerformanceReport } from "../teacher-performance";
-import { markTeacherAttendance } from "../teacher-attendance";
-import { markTeacherAttendanceTool, getTeacherPerformanceReportTool } from "../services/tools";
+import { getTeacherPerformanceReportTool } from "../services/tools";
 import { submitTeacherFeedback, TEACHER_FEEDBACK_FILE_PATH } from "../teacher-feedback";
-import type { AppData, Lesson } from "../types";
+import type { Lesson } from "../types";
 import type { ServiceContext } from "../services/context";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
@@ -40,18 +39,19 @@ const PERIOD_START = "2026-01-01";
 const PERIOD_END = "2026-01-31";
 
 describe("computeTeacherPerformanceReport — Faz 2 kuralı: öğrenci yoklaması skora GİRMEZ", () => {
-  it("öğrenci yoklaması (studentAttended/studentAbsent) farklı olsa bile, öğretmen katılımı aynıysa skor AYNIDIR", async () => {
+  it("öğrenci yoklaması farklı olsa bile, öğretmen kaynaklı aksamalar aynıysa skor AYNIDIR", async () => {
     const base = await readData();
+    const teacherCancel = { status: "cancelled" as const, disruptionSource: "teacher" as const };
 
     const lessonsWithStudentPresent: Lesson[] = [
-      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAttended: true }),
-      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAttended: true }),
-      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentAttended: true }),
+      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", studentAttended: true }),
+      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", studentAttended: true }),
+      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", ...teacherCancel }),
     ];
     const lessonsWithStudentAbsent: Lesson[] = [
-      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAbsent: true }),
-      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAbsent: true }),
-      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentExcused: true }),
+      lesson({ id: "perf-l1", startAt: "2026-01-05T10:00:00.000Z", studentAbsent: true }),
+      lesson({ id: "perf-l2", startAt: "2026-01-06T10:00:00.000Z", studentAbsent: true }),
+      lesson({ id: "perf-l3", startAt: "2026-01-07T10:00:00.000Z", ...teacherCancel }),
     ];
 
     const reportA = await computeTeacherPerformanceReport(
@@ -71,15 +71,17 @@ describe("computeTeacherPerformanceReport — Faz 2 kuralı: öğrenci yoklamas�
 
     expect(reportA.attendanceRate).toBe(reportB.attendanceRate);
     expect(reportA.score).toBe(reportB.score);
-    expect(reportA.attendedCount).toBe(2);
-    expect(reportA.absentCount).toBe(1);
+    expect(reportA.plannedLessonCount).toBe(3);
+    expect(reportA.teacherCausedCount).toBe(1);
   });
 
-  it("öğrenci yoklaması hiç işaretlenmemiş olsa bile öğretmen katılımı doğru sayılır", async () => {
+  it("yalnız 'Öğretmen kaynaklı' iptal/telafi sayılır; kurum/öğrenci/belirtilmemiş kaynak nötrdür", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "perf-l4", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
-      lesson({ id: "perf-l5", startAt: "2026-01-11T10:00:00.000Z", teacherAttendanceStatus: "mazeretli" }),
+      lesson({ id: "perf-l4", startAt: "2026-01-10T10:00:00.000Z" }),
+      lesson({ id: "perf-l5", startAt: "2026-01-11T10:00:00.000Z", opsMakeupFlag: true, disruptionSource: "teacher" }),
+      lesson({ id: "perf-l5b", startAt: "2026-01-12T10:00:00.000Z", status: "cancelled", disruptionSource: "institution" }),
+      lesson({ id: "perf-l5c", startAt: "2026-01-13T10:00:00.000Z", opsMakeupFlag: true }),
     ];
     const report = await computeTeacherPerformanceReport(
       { ...base, lessons },
@@ -88,8 +90,8 @@ describe("computeTeacherPerformanceReport — Faz 2 kuralı: öğrenci yoklamas�
       PERIOD_START,
       PERIOD_END
     );
-    expect(report.attendedCount).toBe(1);
-    expect(report.excusedCount).toBe(1);
+    expect(report.plannedLessonCount).toBe(2);
+    expect(report.teacherCausedCount).toBe(1);
     expect(report.attendanceRate).toBe(0.5);
   });
 });
@@ -110,7 +112,7 @@ describe("computeTeacherPerformanceReport — veri yokken güvenli davranış", 
     expect(report.score).toBeNull();
   });
 
-  it("dersler var ama hiçbiri işaretlenmemişse (hepsi Bekliyor) attendanceRate null kalır", async () => {
+  it("aksamasız gerçekleşmiş derslerde güvenilirlik %100", async () => {
     const base = await readData();
     const lessons: Lesson[] = [lesson({ id: "perf-l6", startAt: "2026-01-12T10:00:00.000Z" })];
     const report = await computeTeacherPerformanceReport(
@@ -121,8 +123,8 @@ describe("computeTeacherPerformanceReport — veri yokken güvenli davranış", 
       PERIOD_END
     );
     expect(report.plannedLessonCount).toBe(1);
-    expect(report.pendingCount).toBe(1);
-    expect(report.attendanceRate).toBeNull();
+    expect(report.teacherCausedCount).toBe(0);
+    expect(report.attendanceRate).toBe(1);
   });
 });
 
@@ -175,7 +177,7 @@ describe("computeTeacherPerformanceReport — geri bildirim bileşeni", () => {
   it("hem katılım hem geri bildirim varsa skor ağırlıklı toplamdır (%60 + %40)", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "perf-l7", startAt: "2026-01-15T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "perf-l7", startAt: "2026-01-15T10:00:00.000Z" }),
     ];
     for (const studentId of ["s1", "s2", "s3"]) {
       await submitTeacherFeedback({
@@ -196,39 +198,6 @@ describe("computeTeacherPerformanceReport — geri bildirim bileşeni", () => {
     );
     // Katılım %100 * 60 + feedback (5→100) * 40 = 60 + 40 = 100.
     expect(report.score).toBe(100);
-  });
-});
-
-describe("markTeacherAttendance (saf fonksiyon)", () => {
-  it("aynı statü + aynı not tekrar gönderilirse alreadySet:true döner", async () => {
-    const data: AppData = { ...(await readData()), lessons: [lesson({ id: "perf-l8", startAt: "2026-01-20T10:00:00.000Z" })] };
-    const first = markTeacherAttendance(data, "perf-l8", "geldi", "admin1", undefined);
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
-    const second = markTeacherAttendance(first.data, "perf-l8", "geldi", "admin1", undefined);
-    expect(second.ok && second.alreadySet).toBe(true);
-  });
-
-  it("ders bulunamazsa ok:false döner", () => {
-    const data = { lessons: [] } as unknown as AppData;
-    const result = markTeacherAttendance(data, "yok", "geldi", "admin1", undefined);
-    expect(result.ok).toBe(false);
-  });
-});
-
-describe("markTeacherAttendanceTool — RBAC", () => {
-  it("TEACHER rolü kendi katılımını kendi işaretleyemez (FORBIDDEN)", async () => {
-    const res = await markTeacherAttendanceTool(ctx({ role: "TEACHER", teacherId: "t1" }), {
-      lessonId: "l14",
-      status: "geldi",
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.code).toBe("FORBIDDEN");
-  });
-
-  it("SCHOOL_ADMIN işaretleyebilir", async () => {
-    const res = await markTeacherAttendanceTool(ctx(), { lessonId: "l14", status: "geldi" });
-    expect(res.ok).toBe(true);
   });
 });
 

@@ -457,12 +457,25 @@ export function computeTeacherEarningsForPeriod(
   const excludedLessons: NonNullable<TeacherEarningsResult["excludedLessons"]> = [];
 
   const seenClubSessions = new Set<string>();
+  // 2026-10-21 — kulüp oturumunda ayrı öğretmen yoklaması kaldırıldı: oturum, saati geçmiş, iptal edilmemiş ve
+  // ertelenmemişse (tüm canlı satırlar Telafi değilse) yapılmış sayılır. Öğretmen gelmediyse oturum ertelenir.
+  const nowMs = Date.now();
+  const heldClubSessions = new Set<string>();
+  {
+    const live = new Map<string, boolean>(); // sessionId → tüm canlı satırlar Telafi mi
+    for (const l of data.lessons) {
+      if (l.teacherId !== teacherId || l.type !== "group" || !l.clubSessionId || l.status === "cancelled") continue;
+      live.set(l.clubSessionId, (live.get(l.clubSessionId) ?? true) && l.opsMakeupFlag === true);
+      if (Date.parse(l.startAt) <= nowMs) heldClubSessions.add(l.clubSessionId);
+    }
+    for (const [id, postponed] of live) if (postponed) heldClubSessions.delete(id);
+  }
   for (const lesson of data.lessons) {
     if (lesson.teacherId !== teacherId) continue;
     if (lesson.type === "group") {
-      // 2026-10-06 (owner) — kulüp oturumu: üye satırı sayısından bağımsız, öğretmen yoklaması "geldi" olan
-      // her oturum TEK ders (süresine göre mevcut kural). Öğrenci statüsü (Geldi/Gelmedi/Telafi) etkilemez.
-      if (!lesson.clubSessionId || lesson.status === "cancelled" || lesson.teacherAttendanceStatus !== "geldi") continue;
+      // 2026-10-06 (owner) — kulüp oturumu: üye satırı sayısından bağımsız, yapılmış her oturum TEK ders (süresine
+      // göre mevcut kural). Öğrenci statüsü (Geldi/Gelmedi/Telafi) etkilemez.
+      if (!lesson.clubSessionId || lesson.status === "cancelled" || !heldClubSessions.has(lesson.clubSessionId)) continue;
       if (seenClubSessions.has(lesson.clubSessionId)) continue;
       seenClubSessions.add(lesson.clubSessionId);
     } else if (!isLessonProcessedForPayout(lesson)) continue;

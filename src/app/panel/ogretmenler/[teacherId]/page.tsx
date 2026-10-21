@@ -107,7 +107,6 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
     { href: `/panel/ogretmenler/${teacher.id}/program`, label: "Program" },
     { href: `/panel/ogretmenler/${teacher.id}/musaitlik`, label: "Müsaitlik" },
     { href: `/panel/ogretmenler/${teacher.id}/ogrenciler`, label: `Öğrenciler (${activeStudents.length})` },
-    { href: `/panel/ogretmenler/${teacher.id}/yoklama`, label: "Yoklama" },
     { href: `/panel/ogretmenler/${teacher.id}/performans`, label: "Performans" },
     { href: `/panel/ogretmenler/${teacher.id}/hakedis`, label: "Hakediş" },
     { href: `/panel/ogretmenler/${teacher.id}/odemeler`, label: "Ödemeler" },

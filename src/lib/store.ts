@@ -323,13 +323,6 @@ type StoreApi = {
     lessonId: string,
     patch: import("./lesson-disruption").LessonDisruptionPatch
   ) => Promise<import("./types").Lesson | null>;
-  /** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
-  markTeacherAttendanceLive: (
-    lessonId: string,
-    status: import("./teacher-attendance").TeacherAttendanceStatus,
-    actorUserId: string,
-    note: string | undefined
-  ) => Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>>;
   /** Faz 13 — ders öğretmeni/şube değişimi. */
   reassignLessonTeacherOrBranchLive: (
     input: import("./lesson-reassignment").ReassignLessonInput
@@ -1110,16 +1103,6 @@ export async function setLessonDisruptionLive(
   patch: import("./lesson-disruption").LessonDisruptionPatch
 ): Promise<import("./types").Lesson | null> {
   return withTenantScope(() => store.setLessonDisruptionLive(lessonId, patch));
-}
-
-/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
-export async function markTeacherAttendanceLive(
-  lessonId: string,
-  status: import("./teacher-attendance").TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof import("./teacher-attendance").markTeacherAttendance>> {
-  return withTenantScope(() => store.markTeacherAttendanceLive(lessonId, status, actorUserId, note));
 }
 
 /** Faz 13 — ders öğretmeni/şube değişimi. */

@@ -129,7 +129,6 @@ export {
   clearLessonOpsFlagTool,
   getAttendanceReportTool,
   previewPeriodBillingSimulationTool,
-  markTeacherAttendanceTool,
   setLessonDisruptionTool,
   getTeacherAttendanceReportTool,
   listDeletedTasksTool,

@@ -2701,7 +2701,6 @@ function DetailPanel({
             Yoklama girmek için üstteki kurum seçiciden bu dersin kurumunu seçin.
           </p>
         )}
-        {canCreate ? <TeacherAttendanceControl key={lesson.id} lesson={lesson} /> : null}
       </section>
 
       {canCreate ? (
@@ -2762,73 +2761,6 @@ function DetailPanel({
   );
 }
 
-/**
- * 9. tur — öğretmenin KENDİ katılımı (öğrenci yoklamasından ayrı alan). İsteğe bağlı,
- * tek tık; günlük yoklama akışını uzatmaz. Kurum kaynaklı iptal buraya otomatik yazılmaz.
- */
-const TEACHER_ATTENDANCE_OPTIONS = [
-  ["geldi", "Geldi"],
-  ["gelmedi", "Gelmedi"],
-  ["mazeretli", "Mazeretli"],
-] as const;
-
-function TeacherAttendanceControl({ lesson }: { lesson: Lesson }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // 11. tur iş #3 — iyimser yerel durum: kayıt sonrası router.refresh() ile
-  // tüm program sayfası yeniden ÇEKİLMEZ (her tıklamada ağır liste yenileme
-  // + odak kayboluyordu). Seçim anında görünür; ders değişince bileşen
-  // key={lesson.id} ile yeniden kurulduğundan prop senkronu yeterlidir.
-  const [status, setStatus] = useState(lesson.teacherAttendanceStatus ?? null);
-  async function mark(next: (typeof TEACHER_ATTENDANCE_OPTIONS)[number][0]) {
-    setBusy(next);
-    setError(null);
-    const res = await apiFetchJson(`/api/v1/lessons/${lesson.id}/teacher-attendance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: next }),
-    });
-    setBusy(null);
-    if (!res.ok) {
-      setError(friendlyApiErrorMessage(res.error, "Öğretmen katılımı kaydedilemedi; tekrar deneyin."));
-      return;
-    }
-    setStatus(next);
-  }
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--color-border)] pt-2 text-xs">
-      <span className="text-[var(--color-text-muted)]">Öğretmen katılımı:</span>
-      <div role="group" aria-label="Öğretmen katılımı" className="inline-flex gap-1">
-        {TEACHER_ATTENDANCE_OPTIONS.map(([value, label]) => {
-          const active = status === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={active}
-              disabled={busy !== null}
-              onClick={() => void mark(value)}
-              className={`rounded-md border px-2 py-1 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-focus-ring)] disabled:cursor-wait disabled:opacity-60 ${
-                active
-                  ? "border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-soft-text)]"
-                  : "border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
-              }`}
-            >
-              {busy === value ? "…" : label}
-            </button>
-          );
-        })}
-      </div>
-      {!status ? <span className="text-[var(--color-text-muted)]">(girilmedi)</span> : null}
-      {error ? (
-        <p className="basis-full font-medium text-[var(--color-danger)]" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /** 9. tur — iptal/telafi edilmiş dersin kaynağı; "Belirtilmemiş" eski kayıtlar buradan sınıflandırılır. */
 function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (message: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -2836,9 +2768,6 @@ function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (m
   const [note, setNote] = useState(lesson.disruptionNote ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const attendance = lesson.teacherAttendanceStatus
-    ? { geldi: "Geldi", gelmedi: "Gelmedi", mazeretli: "Mazeretli" }[lesson.teacherAttendanceStatus]
-    : "Girilmedi";
 
   async function save() {
     setBusy(true);
@@ -2865,7 +2794,6 @@ function DisruptionSourceEditor({ lesson, onDone }: { lesson: Lesson; onDone: (m
           <strong className={lesson.disruptionSource ? "" : "text-[var(--color-warning)]"}>
             {disruptionSourceLabel(lesson.disruptionSource)}
           </strong>
-          <span className="text-[var(--color-text-muted)]"> · Öğretmen katılımı: {attendance}</span>
         </p>
         {!open ? (
           <button

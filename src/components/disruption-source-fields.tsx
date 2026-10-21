@@ -2,38 +2,32 @@
 
 /**
  * 9. tur — İptal/Telafi seçildiğinde açılan BAĞLAMSAL kaynak sorusu (günlük
- * yoklama akışını uzatmaz: yalnız İptal/Telafi'de görünür). İptal/Telafi
- * kendiliğinden "öğretmen gelmedi" demek değildir; öğretmen katılımı yalnız
- * öğretmen kaynaklı seçildiğinde ve kullanıcı AÇIKÇA işaretlerse yazılır.
+ * yoklama akışını uzatmaz: yalnız İptal/Telafi'de görünür). "Öğretmen kaynaklı"
+ * seçimi öğretmen performansının TEK kaynağıdır (ayrı öğretmen yoklaması yok —
+ * bkz. lesson-disruption.ts `isTeacherCausedDisruption`).
  */
 
 import { DISRUPTION_SOURCE_LABEL, DISRUPTION_SOURCES, type DisruptionSource } from "@/lib/lesson-disruption";
 
 export type DisruptionFormValue = {
   source?: DisruptionSource;
-  teacherAttendance?: "gelmedi" | "mazeretli" | "none";
 };
 
 const SOURCE_HINT: Record<DisruptionSource, string> = {
-  teacher: "Öğretmen gelemedi/erteledi. Öğrencinin kişisel telafi hakkından düşmez.",
+  teacher: "Öğretmen gelemedi/erteledi. Öğretmen performansına yazılır; öğrencinin kişisel telafi hakkından düşmez.",
   institution: "Kurum kararı (tatil, oda, organizasyon). Öğretmen devamsızlığına yazılmaz, telafi hakkından düşmez.",
   student: "Öğrenci/veli talebi veya devamsızlık. Telafi, öğrencinin kişisel hakkından düşer.",
   other: "Yukarıdakilere uymayan durum — açıklamaya yazın. Telafi hakkı kuralı öğrenci kaynaklı gibi uygulanır.",
 };
 
 export function isDisruptionFormComplete(value: DisruptionFormValue): boolean {
-  if (!value.source) return false;
-  return value.source !== "teacher" || value.teacherAttendance !== undefined;
+  return !!value.source;
 }
 
 export function disruptionPayload(value: DisruptionFormValue, note?: string) {
   return {
     disruptionSource: value.source,
     disruptionNote: note?.trim() || undefined,
-    teacherAttendance:
-      value.source === "teacher" && value.teacherAttendance && value.teacherAttendance !== "none"
-        ? value.teacherAttendance
-        : undefined,
   };
 }
 
@@ -63,9 +57,7 @@ export function DisruptionSourceFields({
                 name={`${idPrefix}-source`}
                 className="mt-0.5"
                 checked={value.source === source}
-                onChange={() =>
-                  onChange({ source, teacherAttendance: source === "teacher" ? value.teacherAttendance : undefined })
-                }
+                onChange={() => onChange({ source })}
               />
               <span>
                 <span className="font-semibold text-[var(--color-text)]">{DISRUPTION_SOURCE_LABEL[source]}</span>
@@ -75,30 +67,6 @@ export function DisruptionSourceFields({
           ))}
         </div>
       </fieldset>
-      {value.source === "teacher" ? (
-        <fieldset>
-          <legend className="mb-1 font-medium text-[var(--color-text)]">Öğretmen katılımı (performans raporuna yazılır)</legend>
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {(
-              [
-                ["gelmedi", "Öğretmen derse gelmedi"],
-                ["mazeretli", "Mazeretli (önceden bildirdi)"],
-                ["none", "Şimdi girme"],
-              ] as const
-            ).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name={`${idPrefix}-teacher-attendance`}
-                  checked={value.teacherAttendance === key}
-                  onChange={() => onChange({ ...value, teacherAttendance: key })}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      ) : null}
     </div>
   );
 }

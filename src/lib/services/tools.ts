@@ -149,11 +149,10 @@ import {
 import { resolveFirstPaymentAdjustment } from "../first-payment-adjustment";
 import { derivePerLessonAmount } from "../period-lesson-billing";
 import { isMebStudent, mergeMebForUpdate, validateMebFields } from "../meb";
-import { markTeacherAttendanceLive, setLessonDisruptionLive } from "../store";
+import { setLessonDisruptionLive } from "../store";
 import { computeTeacherPerformanceReport, type TeacherPerformanceReport } from "../teacher-performance";
 import { computeTeacherPerformanceReportV2, type TeacherPerformanceReportV2 } from "../teacher-performance-v2";
 import {
-  markTeacherAttendanceSchema,
   teacherPerformanceReportSchema,
   teacherPerformanceReportV2Schema,
   reassignLessonTeacherOrBranchSchema,
@@ -8502,8 +8501,6 @@ export async function cancelLessonTool(
     const clubBlock = await clubRowGuard(ctx.tenantId, v.data.lessonId);
     if (clubBlock) return clubBlock;
   }
-  const disruptionError = disruptionInputError(v.data);
-  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
 
   try {
     const lesson = await readLessonById(v.data.lessonId);
@@ -8517,7 +8514,6 @@ export async function cancelLessonTool(
       studentId: lesson.studentId,
       disruptionSource: v.data.disruptionSource ?? null,
       note: v.data.disruptionNote,
-      teacherAttendance: v.data.teacherAttendance,
     });
     if (v.data.disruptionSource) {
       const { buildDisruptionPatch } = await import("../lesson-disruption");
@@ -8531,8 +8527,6 @@ export async function cancelLessonTool(
           "Ders iptal edildi ancak iptal kaynağı kaydedilemedi. Ders detayındaki \"Kaynağı düzenle\" ile tekrar girin."
         );
       }
-      const warning = await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, v.data.disruptionNote);
-      if (warning) return fail("INTERNAL_ERROR", warning);
     }
     if (lesson) {
       try {
@@ -8569,8 +8563,6 @@ export async function setLessonDisruptionTool(
     input
   );
   if (!v.ok) return v;
-  const disruptionError = disruptionInputError(v.data);
-  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
   const scope = await readLessonScope(v.data.lessonId);
   const lesson = scope?.lessons.find((l) => l.id === v.data.lessonId);
   if (!lesson) return fail("NOT_FOUND", "Ders bulunamadı.");
@@ -8588,11 +8580,6 @@ export async function setLessonDisruptionTool(
     to: v.data.disruptionSource,
     note: v.data.disruptionNote,
   });
-  const warning =
-    v.data.disruptionSource === "teacher"
-      ? await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, v.data.disruptionNote)
-      : null;
-  if (warning) return fail("INTERNAL_ERROR", warning);
   return ok({ lessonId: v.data.lessonId, disruptionSource: v.data.disruptionSource });
 }
 
@@ -9168,7 +9155,7 @@ export async function forceDeleteLessonTool(
         studentAbsent: lesson.studentAbsent,
         studentExcused: lesson.studentExcused,
         lessonProcessed: lesson.lessonProcessed,
-        teacherAttendanceStatus: lesson.teacherAttendanceStatus,
+        disruptionSource: lesson.disruptionSource,
       },
     },
   });
@@ -17474,35 +17461,12 @@ export async function resolveCollectionsIbanTool(
 
 /**
  * 9. tur — İptal/Telafi kaynağı girdisi (Telafi, İptal ve sonradan düzeltme ortak).
- * `teacherAttendance` yalnız öğretmen kaynaklı kararda ve kullanıcı AÇIKÇA seçtiyse yazılır;
- * iptal/telafi kendiliğinden "öğretmen gelmedi" anlamına gelmez.
+ * "teacher" kaynağı öğretmen performansının tek verisidir (ayrı öğretmen yoklaması yok).
  */
 const disruptionInputShape = {
   disruptionSource: z.enum(["teacher", "institution", "student", "other"]).optional(),
   disruptionNote: z.string().max(500).optional(),
-  teacherAttendance: z.enum(["gelmedi", "mazeretli"]).optional(),
 };
-
-function disruptionInputError(input: { disruptionSource?: string; teacherAttendance?: string }): string | null {
-  if (input.teacherAttendance && input.disruptionSource !== "teacher") {
-    return "Öğretmen katılımı yalnız öğretmen kaynaklı iptal/telafide kaydedilebilir. Kurum veya öğrenci kaynaklı karar öğretmen devamsızlığına yazılmaz.";
-  }
-  return null;
-}
-
-/** Öğretmen kaynaklı kararda kullanıcının seçtiği öğretmen katılımını ayrı alana yazar (audit'li). */
-async function recordTeacherAttendanceForDisruption(
-  ctx: ServiceContext,
-  lessonId: string,
-  status: "gelmedi" | "mazeretli" | undefined,
-  note: string | undefined
-): Promise<string | null> {
-  if (!status) return null;
-  const res = await markTeacherAttendanceLive(lessonId, status, ctx.userId, note);
-  if (!res.ok) return `Ders kaydedildi ancak öğretmen katılımı yazılamadı: ${res.message} Ders detayından tekrar deneyin.`;
-  if (!res.alreadySet) audit(ctx, "lesson.teacher_attendance", "Lesson", lessonId, { status, via: "disruption" });
-  return null;
-}
 
 export async function setLessonOpsFlagTool(
   ctx: ServiceContext,
@@ -17539,8 +17503,6 @@ export async function setLessonOpsFlagTool(
     input
   );
   if (!v.ok) return v;
-  const disruptionError = disruptionInputError(v.data);
-  if (disruptionError) return fail("VALIDATION_ERROR", disruptionError);
   // Kaynak yalnız Telafi için anlamlı (İşlendi/Geldi kaynak sorusu sormaz).
   const disruption =
     v.data.flag === "makeup" && v.data.disruptionSource
@@ -17643,16 +17605,12 @@ export async function setLessonOpsFlagTool(
         await notifyAttendanceRiskIfThresholdCrossed(ctx.tenantId, result.lesson);
       }
     }
-    const attendanceWarning =
-      disruption?.source === "teacher"
-        ? await recordTeacherAttendanceForDisruption(ctx, v.data.lessonId, v.data.teacherAttendance, disruption.note)
-        : null;
     return ok({
       lessonId: v.data.lessonId,
       flag: v.data.flag,
       alreadySet: result.alreadySet,
       message: result.message,
-      warning: [attendanceWarning, payoutWarning].filter(Boolean).join(" ") || undefined,
+      warning: payoutWarning || undefined,
     });
   } catch (e) {
     const { isMakeupQuotaExceededError } = await import("../makeup-quota");
@@ -17951,34 +17909,6 @@ export async function clearLessonOpsFlagTool(
   } catch (e) {
     logger.error("clearLessonOpsFlagTool failed", e);
     return fail("INTERNAL_ERROR", "Yoklama statüsü geri alınamadı; statü değişmedi. Sayfayı yenileyip tekrar deneyin.");
-  }
-}
-
-/**
- * Faz 2 — öğretmenin KENDİ derse gelip gelmediğini işaretler. Öğrenci
- * yoklamasından (setLessonOpsFlagTool) TAMAMEN AYRI — kasıtlı olarak
- * yalnız yönetici işaretleyebilir (öğretmen kendi katılımını kendi
- * onaylayamaz — çıkar çatışması, bkz. plan dokümanı).
- */
-export async function markTeacherAttendanceTool(
-  ctx: ServiceContext,
-  input: unknown
-): Promise<ServiceResult<{ lessonId: string; status: string; alreadySet: boolean }>> {
-  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
-  if (!auth.ok) return fail("FORBIDDEN", auth.message);
-
-  const v = parseOrFail(markTeacherAttendanceSchema, input);
-  if (!v.ok) return v;
-
-  try {
-    const result = await markTeacherAttendanceLive(v.data.lessonId, v.data.status, ctx.userId, v.data.note);
-    if (!result.ok) return fail("NOT_FOUND", result.message);
-    if (!result.alreadySet) {
-      audit(ctx, "lesson.teacher_attendance", "Lesson", v.data.lessonId, { status: v.data.status });
-    }
-    return ok({ lessonId: v.data.lessonId, status: v.data.status, alreadySet: result.alreadySet });
-  } catch (e) {
-    return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "markTeacherAttendance failed");
   }
 }
 
@@ -20404,7 +20334,7 @@ export async function listProfilePhotoMetaTool(
  * `attendance-report.ts`'teki saf fonksiyonlara devredilir.
  */
 /**
- * 9. tur — Öğretmen yoklama raporu (katılım + iptal/telafi kaynağı). Yalnız kurum yöneticileri.
+ * 9. tur — Öğretmen raporu (iptal/telafi kaynağı; öğretmen aksaması = "Öğretmen kaynaklı"). Yalnız kurum yöneticileri.
  * Hesap saf `teacher-attendance-report.ts`'de; özet ve detay aynı sınıflandırıcıdan.
  */
 export async function getTeacherAttendanceReportTool(
@@ -20437,7 +20367,7 @@ export async function getTeacherAttendanceReportTool(
       teacherId: z.string().optional(),
       branchId: z.string().optional(),
       category: z
-        .enum(["attended", "absent", "excused", "unmarked", "teacher_source", "institution_source", "student_other_source", "unspecified_source"])
+        .enum(["teacher_source", "institution_source", "student_other_source", "unspecified_source"])
         .optional(),
     }),
     input
@@ -20455,19 +20385,18 @@ export async function getTeacherAttendanceReportTool(
   );
   const data = await readData();
   const filters = { ...range, branchId: v.data.branchId, teacherId: v.data.teacherId };
-  const now = new Date();
-  const report = buildTeacherAttendanceReport(data.lessons, filters, now);
+  const report = buildTeacherAttendanceReport(data.lessons, filters);
   const teacherById = new Map(data.teachers.map((t) => [t.id, t]));
   const studentById = new Map(data.students.map((s) => [s.id, s]));
   const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName;
   const detail = v.data.category || v.data.teacherId
-    ? teacherAttendanceDetail(data.lessons, filters, v.data.category, now).map((l) => ({
+    ? teacherAttendanceDetail(data.lessons, filters, v.data.category).map((l) => ({
         lessonId: l.id,
         startAt: l.startAt,
         teacherName: teacherById.get(l.teacherId)?.name ?? "Öğretmen bulunamadı",
         studentName: studentById.get(l.studentId)?.name ?? "Öğrenci bulunamadı",
         branchName: branchName(l.branchId),
-        categories: lessonTeacherCategories(l, now),
+        categories: lessonTeacherCategories(l),
         disruptionNote: l.disruptionNote,
         isMakeupLesson: l.type === "makeup",
       }))

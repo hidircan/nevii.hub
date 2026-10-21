@@ -117,7 +117,7 @@ export default async function KulupDetayPage({ params }: { params: Promise<{ clu
         <span className="tabular-nums">{formatDateTime(x.startAt)}</span>
         <span className="text-xs text-[var(--color-text-muted)]">
           {win.rooms.find((r) => r.id === x.roomId)?.name ?? "—"} · {data.teachers.find((t) => t.id === x.teacherId)?.name ?? "—"} · {x.rows.length} üye
-          {x.postponed ? " · Ertelendi (Telafi)" : x.teacherAttendanceStatus === "geldi" ? " · Yapıldı" : x.teacherAttendanceStatus ? ` · Öğretmen ${x.teacherAttendanceStatus}` : ""}
+          {x.postponed ? " · Ertelendi (Telafi)" : Date.parse(x.startAt) <= nowMs ? " · Yapıldı" : ""}
         </span>
       </Link>
     </li>
