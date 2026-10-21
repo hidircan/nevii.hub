@@ -32,13 +32,6 @@ export const attendanceSchema = z.object({
   reason: z.string().optional(),
 });
 
-/** Faz 2 — öğretmenin KENDİ derse gelip gelmediği; öğrenci yoklamasından tamamen ayrı. */
-export const markTeacherAttendanceSchema = z.object({
-  lessonId: z.string().min(1),
-  status: z.enum(["geldi", "gelmedi", "mazeretli"]),
-  note: z.string().max(500).optional(),
-});
-
 /** Faz 13 — bir dersin öğretmeni ve/veya şubesi/odası değişimi. */
 export const reassignLessonTeacherOrBranchSchema = z
   .object({

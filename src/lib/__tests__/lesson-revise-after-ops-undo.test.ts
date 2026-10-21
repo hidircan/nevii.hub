@@ -33,7 +33,6 @@ function seriesData(): { data: AppData; first: Lesson; second: Lesson } {
       opsMakeupFlag: false,
       studentAbsent: false,
       studentExcused: false,
-      teacherAttendanceStatus: undefined,
     };
   };
   const first = mk("les_first", 60);

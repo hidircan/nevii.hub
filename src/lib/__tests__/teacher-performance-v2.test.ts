@@ -44,15 +44,15 @@ const PERIOD_START = "2026-01-01";
 const PERIOD_END = "2026-01-31";
 
 describe("computeTeacherPerformanceReportV2 — öğrenci yoklaması skora GİRMEZ", () => {
-  it("öğrenci yoklaması farklı olsa bile öğretmen katılım bileşeni aynıdır", async () => {
+  it("öğrenci yoklaması farklı olsa bile ders güvenilirliği bileşeni aynıdır", async () => {
     const base = await readData();
     const withPresent: Lesson[] = [
-      lesson({ id: "v2-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAttended: true }),
-      lesson({ id: "v2-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentAttended: true }),
+      lesson({ id: "v2-l1", startAt: "2026-01-05T10:00:00.000Z", lessonProcessed: true, studentAttended: true }),
+      lesson({ id: "v2-l2", startAt: "2026-01-06T10:00:00.000Z", studentAttended: true, status: "cancelled", disruptionSource: "teacher" }),
     ];
     const withAbsent: Lesson[] = [
-      lesson({ id: "v2-l1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi", studentAbsent: true }),
-      lesson({ id: "v2-l2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "gelmedi", studentExcused: true }),
+      lesson({ id: "v2-l1", startAt: "2026-01-05T10:00:00.000Z", lessonProcessed: true, studentAbsent: true }),
+      lesson({ id: "v2-l2", startAt: "2026-01-06T10:00:00.000Z", studentExcused: true, status: "cancelled", disruptionSource: "teacher" }),
     ];
 
     const reportA = await computeTeacherPerformanceReportV2(
@@ -71,8 +71,8 @@ describe("computeTeacherPerformanceReportV2 — öğrenci yoklaması skora GİRM
     );
 
     expect(reportA.components.attendance.rawValue).toBe(reportB.components.attendance.rawValue);
-    expect(reportA.components.attendance.attendedCount).toBe(1);
-    expect(reportA.components.attendance.absentCount).toBe(1);
+    expect(reportA.components.attendance.plannedLessonCount).toBe(2);
+    expect(reportA.components.attendance.teacherCausedCount).toBe(1);
   });
 });
 
@@ -95,10 +95,10 @@ describe("computeTeacherPerformanceReportV2 — veri yokken güvenli davranış"
 
   it("yalnızca yoklama+ödev verisi varsa (görev/geri bildirim yok), ağırlıklar bu ikisine yeniden normalize edilir", async () => {
     const base = await readData();
-    // Geçmiş, iptal edilmemiş, "geldi" işaretli ders → hem yoklama hem ödev-uygunluk bileşenini besler
+    // Geçmiş, iptal edilmemiş, "İşlendi" ders → hem yoklama hem ödev-uygunluk bileşenini besler
     // (ödev verilmediği için ödev bileşeni 0 katkı yapar, ama "veri yok" SAYILMAZ — bkz. ayrı homework testleri).
     const lessons: Lesson[] = [
-      lesson({ id: "v2-l3", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "v2-l3", startAt: "2026-01-10T10:00:00.000Z", lessonProcessed: true }),
     ];
     const report = await computeTeacherPerformanceReportV2(
       { ...base, lessons },
@@ -119,7 +119,7 @@ describe("computeTeacherPerformanceReportV2 — iş takip", () => {
   it("görev yoksa bileşen 'veri yok' sayılır, skor haksız düşmez", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "v2-l4", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "v2-l4", startAt: "2026-01-10T10:00:00.000Z", lessonProcessed: true }),
     ];
     const report = await computeTeacherPerformanceReportV2(
       { ...base, lessons },
@@ -185,8 +185,8 @@ describe("computeTeacherPerformanceReportV2 — ödev disiplini", () => {
     const base = await readData();
     const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const lessons: Lesson[] = [
-      lesson({ id: "v2-future", startAt: future, teacherAttendanceStatus: "geldi" }),
-      lesson({ id: "v2-cancelled", startAt: "2026-01-10T10:00:00.000Z", status: "cancelled", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "v2-future", startAt: future, lessonProcessed: true }),
+      lesson({ id: "v2-cancelled", startAt: "2026-01-10T10:00:00.000Z", status: "cancelled", lessonProcessed: true }),
     ];
     const report = await computeTeacherPerformanceReportV2(
       { ...base, lessons },
@@ -202,8 +202,8 @@ describe("computeTeacherPerformanceReportV2 — ödev disiplini", () => {
   it("uygun ders var ama ödev verilmemişse notAssignedCount artar ve oran düşer; ödev/görev verisi olmaması skoru haksız düşürmez", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "v2-l5", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
-      lesson({ id: "v2-l6", startAt: "2026-01-11T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "v2-l5", startAt: "2026-01-10T10:00:00.000Z", lessonProcessed: true }),
+      lesson({ id: "v2-l6", startAt: "2026-01-11T10:00:00.000Z", lessonProcessed: true }),
     ];
     await createHomework({
       tenantId: DEFAULT_TENANT_ID,
@@ -230,7 +230,7 @@ describe("computeTeacherPerformanceReportV2 — ödev disiplini", () => {
   it("öğrencinin ödevi teslim etmesi/incelenmesi doğru sayılır", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "v2-l7", startAt: "2026-01-10T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "v2-l7", startAt: "2026-01-10T10:00:00.000Z", lessonProcessed: true }),
     ];
     const hw = await createHomework({
       tenantId: DEFAULT_TENANT_ID,

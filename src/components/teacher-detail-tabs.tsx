@@ -4,7 +4,6 @@ import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
-  ClipboardCheck,
   Clock,
   CreditCard,
   LayoutDashboard,
@@ -31,7 +30,6 @@ const TABS = [
   { segment: "program", label: "Program", icon: CalendarDays },
   { segment: "musaitlik", label: "Müsaitlik", icon: Clock },
   { segment: "ogrenciler", label: "Öğrenciler", icon: Users },
-  { segment: "yoklama", label: "Yoklama", icon: ClipboardCheck },
   { segment: "performans", label: "Performans", icon: TrendingUp },
   { segment: "hakedis", label: "Hakediş", icon: Wallet },
   { segment: "odemeler", label: "Ödemeler", icon: CreditCard },

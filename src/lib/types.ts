@@ -1000,19 +1000,9 @@ export interface Lesson {
     at: string;
   };
   /**
-   * Faz 2 — öğretmenin KENDİ derse gelip gelmediği. Öğrenci yoklamasından
-   * (studentAttended/studentAbsent/studentExcused) TAMAMEN BAĞIMSIZ bir alan
-   * kümesi — öğretmen performans skoru YALNIZCA buna bakar, öğrenci
-   * yoklamasına asla bakmaz (bkz. src/lib/teacher-performance.ts). undefined
-   * = "Bekliyor" (henüz işaretlenmedi); ayrı bir enum değeri gerekmez.
-   */
-  teacherAttendanceStatus?: "geldi" | "gelmedi" | "mazeretli";
-  teacherAttendanceAt?: string;
-  teacherAttendanceBy?: string;
-  teacherAttendanceNote?: string;
-  /**
    * 9. tur — İptal/Telafi kararının kaynağı (bkz. src/lib/lesson-disruption.ts).
-   * Öğretmen katılımından ve `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş.
+   * `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş. "teacher" = öğretmen
+   * performansının TEK verisi (ayrı öğretmen yoklaması 2026-10-21'de kaldırıldı).
    */
   disruptionSource?: import("./lesson-disruption").DisruptionSource;
   disruptionNote?: string;

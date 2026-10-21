@@ -6,6 +6,7 @@ import { Loader2, X } from "lucide-react";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { CLUB_AUDIENCE_LABEL, CLUB_AUDIENCES } from "@/lib/club-audience";
+import { DisruptionSourceFields, type DisruptionFormValue } from "@/components/disruption-source-fields";
 import type { Club, ClubMemberCandidate } from "@/lib/clubs";
 
 const field =
@@ -848,64 +849,21 @@ export function ClubSessionScheduler({
   );
 }
 
-const TEACHER_OPTIONS: [string, string][] = [
-  ["geldi", "Geldi"],
-  ["gelmedi", "Gelmedi"],
-  ["mazeretli", "Mazeretli"],
-];
-
-/** Oturumun öğretmen yoklaması (tüm üye satırlarına birlikte yazılır; hakediş "Geldi" oturumu bir kez sayar). */
-export function ClubSessionTeacher({ sessionId, initial }: { sessionId: string; initial?: string }) {
-  const router = useRouter();
-  const [status, setStatus] = useState(initial ?? null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  async function mark(next: string) {
-    setBusy(next);
-    setError(null);
-    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "teacher", sessionId, status: next });
-    setBusy(null);
-    if (!r.ok) return setError(r.message);
-    setStatus(next);
-    router.refresh();
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-sm text-[var(--color-text-muted)]">Öğretmen yoklaması:</span>
-      <div role="group" aria-label="Öğretmen yoklaması" className="inline-flex gap-1">
-        {TEACHER_OPTIONS.map(([v, l]) => (
-          <button
-            key={v}
-            type="button"
-            aria-pressed={status === v}
-            disabled={busy !== null}
-            onClick={() => void mark(v)}
-            className="rounded-md border px-2.5 py-1 text-xs font-semibold disabled:opacity-60"
-            style={status === v ? { borderColor: "var(--color-primary)", background: "var(--color-primary-soft)", color: "var(--color-primary-soft-text)" } : { borderColor: "var(--color-border-strong)" }}
-          >
-            {busy === v ? "…" : l}
-          </button>
-        ))}
-      </div>
-      {!status ? <span className="text-xs text-[var(--color-text-muted)]">(girilmedi — hakedişe girmez)</span> : null}
-      {error ? <p role="alert" className="basis-full text-xs text-[var(--color-danger)]">{error}</p> : null}
-    </div>
-  );
-}
-
 /** Oturumu toptan ertele (Telafi): tüm üyeler için yeni tarihte yeni oturum; bireysel telafi girilmez. */
 export function ClubSessionPostpone({ sessionId, rooms, defaultRoomId, clubId }: { sessionId: string; rooms: { id: string; name: string }[]; defaultRoomId: string; clubId: string }) {
   const router = useRouter();
   const [startLocal, setStartLocal] = useState("");
   const [roomId, setRoomId] = useState(defaultRoomId);
   const [reason, setReason] = useState("");
+  const [source, setSource] = useState<DisruptionFormValue>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!source.source) return setError("Erteleme kaynağını seçin (Öğretmen / Kurum / Öğrenci / Diğer).");
     setBusy(true);
     setError(null);
-    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "postpone", sessionId, startLocal, roomId, reason });
+    const r = await send("/api/v1/clubs/sessions", "PATCH", { action: "postpone", sessionId, startLocal, roomId, reason, disruptionSource: source.source });
     setBusy(false);
     if (!r.ok) return setError(r.message);
     router.push(`/panel/kulupler/${clubId}/oturum/${(r.data as { newSessionId: string }).newSessionId}`);
@@ -913,6 +871,9 @@ export function ClubSessionPostpone({ sessionId, rooms, defaultRoomId, clubId }:
   }
   return (
     <form onSubmit={(e) => void submit(e)} className="grid gap-2 sm:grid-cols-4">
+      <div className="text-xs sm:col-span-4">
+        <DisruptionSourceFields idPrefix={`pp-${sessionId}`} kind="Telafi" value={source} onChange={setSource} />
+      </div>
       <div>
         <label htmlFor="pp-start" className={label}>Yeni tarih / saat</label>
         <input id="pp-start" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} className={field} required />

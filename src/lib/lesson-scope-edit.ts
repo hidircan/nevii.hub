@@ -75,7 +75,6 @@ export function lessonProtectionReason(
   if (ops) return `ders "${OPS_LABEL[ops]}" olarak işaretli. Önce dersin yoklama menüsünden "Geri al" ile statüyü kaldırın`;
   const done = LESSON_DONE_LABEL[lesson.status];
   if (done) return `ders gerçekleşmiş olarak işaretli (durum: ${done})`;
-  if (lesson.teacherAttendanceStatus) return "öğretmen yoklaması girilmiş. Önce öğretmen yoklamasını kaldırın";
   if (data.payments.some((p) => p.lessonId === lesson.id && p.status !== "voided")) {
     return "derse bağlı tahsilat var. Önce Ödemeler ekranından tahsilatı iptal edin";
   }

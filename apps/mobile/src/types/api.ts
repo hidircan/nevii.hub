@@ -527,10 +527,7 @@ export type TeacherPerformanceV2Response = {
   components: {
     attendance: PerformanceComponentV2 & {
       plannedLessonCount: number;
-      attendedCount: number;
-      absentCount: number;
-      excusedCount: number;
-      pendingCount: number;
+      teacherCausedCount: number;
     };
     feedback: PerformanceComponentV2 & {
       responseCount: number;

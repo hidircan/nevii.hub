@@ -952,14 +952,8 @@ model Lesson {
   /// override edilemez — bu iki alan yalnızca bu TEK durum için dolar.
   availabilityOverrideBy  String?
   availabilityOverrideAt  DateTime?
-  /// Faz 2 — öğretmenin KENDİ derse gelip gelmediği, öğrenci yoklamasından
-  /// bağımsız. "geldi" | "gelmedi" | "mazeretli"; NULL = Bekliyor.
-  teacherAttendanceStatus String?
-  teacherAttendanceAt     DateTime?
-  teacherAttendanceBy     String?
-  teacherAttendanceNote   String?       @db.Text
-  /// 9. tur — İptal/Telafi kararının KAYNAĞI, öğretmen katılımından ve ders
-  /// statüsünden AYRI alan: "teacher" | "institution" | "student" | "other".
+  /// 9. tur — İptal/Telafi kararının KAYNAĞI, ders statüsünden AYRI alan
+  /// ("teacher" = öğretmen performansının tek verisi; ayrı öğretmen yoklaması yok): "teacher" | "institution" | "student" | "other".
   /// NULL = belirtilmemiş (eski kayıtlar sessizce öğretmene/kuruma atanmaz).
   /// teacher/institution kaynaklı telafi öğrencinin kişisel telafi hakkından düşmez.
   disruptionSource        String?

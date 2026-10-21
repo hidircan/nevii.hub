@@ -2,7 +2,7 @@ import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import { LessonOpsActions } from "@/components/lesson-ops-actions";
-import { ClubSessionCancel, ClubSessionPostpone, ClubSessionReschedule, ClubSessionTeacher } from "@/components/club-components";
+import { ClubSessionCancel, ClubSessionPostpone, ClubSessionReschedule } from "@/components/club-components";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * 2026-10-06 — Kulüp oturumu: üyeler + öğrenci yoklaması (mevcut Geldi/Gelmedi/Mazeretli/İşlendi/Telafi; kulüpte
- * bireysel telafi talebi açılmaz), öğretmen yoklaması (hakediş oturum başına bir kez), toptan erteleme, iptal.
+ * bireysel telafi talebi açılmaz), toptan erteleme, iptal. Hakediş: yapılmış oturum başına bir kez.
  */
 export default async function KulupOturumPage({ params }: { params: Promise<{ clubId: string; sessionId: string }> }) {
   const { clubId, sessionId } = await params;
@@ -40,7 +40,7 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
     .filter((r) => r.active !== false && !r.deletedAt && (!club.branchId || r.branchId === club.branchId))
     .map((r) => ({ id: r.id, name: r.name }));
   const started = Date.parse(s.startAt) <= nowMs;
-  const touched = s.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || r.opsMakeupFlag) || !!s.teacherAttendanceStatus;
+  const touched = s.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || r.opsMakeupFlag);
   const startD = new Date(s.startAt);
   const initialLocal = `${toZonedYmd(startD, DEFAULT_APP_TIMEZONE)}T${startD.toLocaleTimeString("en-GB", { timeZone: DEFAULT_APP_TIMEZONE, hour: "2-digit", minute: "2-digit" })}`;
   const clubTeachers = club.teacherIds
@@ -61,10 +61,9 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
           Bu oturum ertelendi; tüm üyelerin satırı Telafi. {s.rows[0]?.notes ? `(${s.rows[0].notes})` : ""}
         </p>
       ) : null}
-      <Card>
-        <ClubSessionTeacher sessionId={s.sessionId} initial={s.teacherAttendanceStatus} />
-        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Öğretmen hakedişi: “Geldi” olan oturum, süresine göre bir ders olarak sayılır.</p>
-      </Card>
+      <p className="text-[11px] text-[var(--color-text-muted)]">
+        Öğretmen hakedişi: saati geçmiş ve ertelenmemiş oturum, süresine göre bir ders olarak sayılır. Öğretmen gelmediyse oturumu “Öğretmen kaynaklı” seçerek erteleyin (performansa yazılır).
+      </p>
       <Card>
         <h2 className="mb-2 text-sm font-semibold">Üyeler ve yoklama</h2>
         {!started ? <p className="mb-2 text-xs text-[var(--color-text-muted)]">Oturum henüz başlamadı; yoklama oturum saatinde/sonrasında girilir.</p> : null}
@@ -105,7 +104,7 @@ export default async function KulupOturumPage({ params }: { params: Promise<{ cl
           />
         </Card>
       ) : null}
-      {!s.postponed && s.teacherAttendanceStatus !== "geldi" ? (
+      {!s.postponed ? (
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Oturumu ertele (tüm üyeler için Telafi)</h2>
           <ClubSessionPostpone sessionId={s.sessionId} rooms={rooms} defaultRoomId={s.roomId} clubId={club.id} />

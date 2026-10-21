@@ -85,7 +85,7 @@ export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) 
           component={attendance}
           detail={
             attendance.hasData
-              ? tr("perf.attendanceDetail", { a: attendance.attendedCount, p: attendance.plannedLessonCount, b: attendance.absentCount, e: attendance.excusedCount })
+              ? tr("perf.attendanceDetail", { b: attendance.teacherCausedCount, p: attendance.plannedLessonCount })
               : tr("perf.noMarkedAttendance")
           }
         />

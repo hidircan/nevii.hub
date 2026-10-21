@@ -32,7 +32,6 @@ import {
   type RegistrationFirstPaymentRecord,
 } from "./student-enrollments";
 import { registrationFirstPaymentDescription, REGISTRATION_FIRST_PAYMENT_SOURCE } from "./registration-payment";
-import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import {
   reassignConflictWindow,
   reassignLessonTeacherOrBranch,
@@ -543,14 +542,6 @@ function mapDbLesson(lesson: HotRow<Prisma.LessonGetPayload<object>>): import(".
     opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
     term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
     academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
-    teacherAttendanceStatus:
-      ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
-        | import("./teacher-attendance").TeacherAttendanceStatus
-        | undefined) ?? undefined,
-    teacherAttendanceAt:
-      (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
-    teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
-    teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
     disruptionSource: (() => {
       const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
       return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
@@ -3269,7 +3260,7 @@ export async function addClubSessionLessons(rows: import("./types").Lesson[]): P
   });
 }
 
-/** 2026-10-06 — kulüp satırlarına (yalnız `type: "group"`) sınırlı yama: durum, telafi bayrağı, öğretmen yoklaması, not. */
+/** 2026-10-06 — kulüp satırlarına (yalnız `type: "group"`) sınırlı yama: durum, telafi bayrağı, not. */
 export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
   const tid = requireTenantId();
   if (ids.length === 0) return 0;
@@ -3281,11 +3272,12 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
       ...(patch.opsMakeupFlag !== undefined
         ? { opsMakeupFlag: patch.opsMakeupFlag, opsMakeupFlagAt: toDate(patch.opsMakeupFlagAt) ?? null, opsMakeupFlagBy: patch.opsMakeupFlagBy ?? null }
         : {}),
-      ...(patch.teacherAttendanceStatus !== undefined
+      ...(patch.disruptionSource !== undefined
         ? {
-            teacherAttendanceStatus: patch.teacherAttendanceStatus,
-            teacherAttendanceAt: toDate(patch.teacherAttendanceAt) ?? null,
-            teacherAttendanceBy: patch.teacherAttendanceBy ?? null,
+            disruptionSource: patch.disruptionSource,
+            disruptionNote: patch.disruptionNote ?? null,
+            disruptionAt: toDate(patch.disruptionAt) ?? null,
+            disruptionBy: patch.disruptionBy ?? null,
           }
         : {}),
       ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
@@ -3927,38 +3919,6 @@ export async function clearLessonOpsFlagLive(
       message: "Bu dersin yoklama statüsü az önce değişti. Sayfayı yenileyip güncel statüyü kontrol edin.",
     };
   }
-  return result;
-}
-
-/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol/tablo alanı. */
-export async function markTeacherAttendanceLive(
-  lessonId: string,
-  status: TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof markTeacherAttendance>> {
-  logger.info("markTeacherAttendanceLive", lessonId, status);
-  const tid = requireTenantId();
-  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
-  const data = await readLessonScope(lessonId);
-  if (!data) return { ok: false, message: "Ders bulunamadı." };
-  const result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
-  if (!result.ok || result.alreadySet) return result;
-
-  const updateResult = await prisma.lesson.updateMany({
-    where: { id: lessonId, tenantId: tid },
-    data: {
-      teacherAttendanceStatus: status,
-      teacherAttendanceAt: result.lesson.teacherAttendanceAt ? new Date(result.lesson.teacherAttendanceAt) : null,
-      teacherAttendanceBy: actorUserId,
-      teacherAttendanceNote: note ?? null,
-    },
-  });
-  if (updateResult.count === 0) return { ok: false, message: "Ders bulunamadı." };
-  // 11. tur iş #3 — sondaki `data: await readData()` TAM veri setini yeniden
-  // okuyordu; iki çağrıcı da (markTeacherAttendanceTool,
-  // recordTeacherAttendanceForDisruption) `.data` kullanmıyor (yalnız
-  // ok/alreadySet/message). Her yoklama tıklamasında bir tam okuma silindi.
   return result;
 }
 

@@ -210,7 +210,7 @@ export default async function OgretmenHakedisYazdirPage({
                   aylarda tutar güncel hesaptır (hakediş kaydı henüz oluşturulmadı).
                 </li>
                 <li>
-                  <b>Tür</b>: Ders · Telafi (planlanan telafi dersi) · Kulüp (öğretmen yoklaması &quot;Geldi&quot; olan oturum,
+                  <b>Tür</b>: Ders · Telafi (planlanan telafi dersi) · Kulüp (saati geçmiş, ertelenmemiş oturum,
                   oturum başına bir kalem) · Deneme. <span className="t-mark" aria-hidden="true">T</span>{" "}
                   {ATTENDED_PLANNED_MAKEUP_LABEL}. Telafi dersi bir kez sayılır; kaçırılan (Telafi işaretli) asıl ders
                   hakedişe girmez.

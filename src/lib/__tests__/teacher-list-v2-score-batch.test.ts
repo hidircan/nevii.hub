@@ -47,8 +47,8 @@ describe("Öğretmen listesi — batch v2 skor hesabı (Promise.all)", () => {
   it("her öğretmen kendi 'teacher-performance-v2' raporunu ve skorunu alır, karışmaz", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "batch-l1", teacherId: "t1", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
-      lesson({ id: "batch-l2", teacherId: "t2", startAt: "2026-01-06T10:00:00.000Z", teacherAttendanceStatus: "gelmedi" }),
+      lesson({ id: "batch-l1", teacherId: "t1", startAt: "2026-01-05T10:00:00.000Z", lessonProcessed: true }),
+      lesson({ id: "batch-l2", teacherId: "t2", startAt: "2026-01-06T10:00:00.000Z", status: "cancelled", disruptionSource: "teacher" }),
     ];
     const data = { ...base, lessons };
 
@@ -57,20 +57,18 @@ describe("Öğretmen listesi — batch v2 skor hesabı (Promise.all)", () => {
       computeTeacherPerformanceReportV2(data, DEFAULT_TENANT_ID, "t2", PERIOD_START, PERIOD_END),
     ]);
 
-    expect(reportT1.version).toBe("teacher-performance-v2");
-    expect(reportT2.version).toBe("teacher-performance-v2");
+    expect(reportT1.version).toBe("teacher-performance-v2.1");
+    expect(reportT2.version).toBe("teacher-performance-v2.1");
     expect(reportT1.teacherId).toBe("t1");
     expect(reportT2.teacherId).toBe("t2");
-    expect(reportT1.components.attendance.attendedCount).toBe(1);
-    expect(reportT1.components.attendance.absentCount).toBe(0);
-    expect(reportT2.components.attendance.attendedCount).toBe(0);
-    expect(reportT2.components.attendance.absentCount).toBe(1);
+    expect(reportT1.components.attendance.teacherCausedCount).toBe(0);
+    expect(reportT2.components.attendance.teacherCausedCount).toBe(1);
   });
 
   it("bir öğretmenin verisi yoksa (Yetersiz veri) diğerinin skorunu etkilemez", async () => {
     const base = await readData();
     const lessons: Lesson[] = [
-      lesson({ id: "batch-l3", teacherId: "t3", startAt: "2026-01-05T10:00:00.000Z", teacherAttendanceStatus: "geldi" }),
+      lesson({ id: "batch-l3", teacherId: "t3", startAt: "2026-01-05T10:00:00.000Z", lessonProcessed: true }),
     ];
     const data = { ...base, lessons };
 

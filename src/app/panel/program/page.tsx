@@ -271,7 +271,7 @@ async function weekClubCardsFor(tenantId: string, lessons: import("@/lib/types")
         kind: "club" as const,
         href: `/panel/kulupler/${x.clubId}/oturum/${x.sessionId}`,
         studentIds: x.rows.map((r) => r.studentId),
-        note: x.postponed ? "Ertelendi" : x.teacherAttendanceStatus === "geldi" ? "Yapıldı" : undefined,
+        note: x.postponed ? "Ertelendi" : undefined,
       };
     });
 }

@@ -110,25 +110,23 @@ function ComponentHeader({
 }
 
 function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["components"]["attendance"]; teacherId: string }) {
-  const flagged = c.rows.filter((r) => r.status === "gelmedi" || r.status === "mazeretli");
   return (
     <Card id="detay-yoklama">
-      <ComponentHeader title="Öğretmen Yoklaması" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-yoklama" />
+      <ComponentHeader title="Ders Güvenilirliği" weightPercent={Math.round(c.weight * 100)} c={c} anchor="detay-yoklama" />
       <p className="mb-3 text-xs text-[var(--color-text-muted)]">
-        Yalnızca öğretmenin kendi ders katılımı sayılır; öğrenci devamsızlığı bu skoru asla etkilemez. İptal edilen dersler hariç tutulur.
+        Yalnız iptal/telafide &quot;Öğretmen kaynaklı&quot; seçilen dersler skoru düşürür. Kurum/öğrenci kaynaklı kararlar ve öğrenci
+        yoklaması bu skoru etkilemez.
       </p>
-      <div className="mb-3 grid grid-cols-4 gap-2 text-center text-xs">
-        <Stat label="Geldi" value={c.attendedCount} />
-        <Stat label="Gelmedi" value={c.absentCount} />
-        <Stat label="Mazeretli" value={c.excusedCount} />
-        <Stat label="Bekliyor" value={c.pendingCount} />
+      <div className="mb-3 grid grid-cols-2 gap-2 text-center text-xs">
+        <Stat label="Değerlendirilen ders" value={c.plannedLessonCount} />
+        <Stat label="Öğretmen kaynaklı" value={c.teacherCausedCount} />
       </div>
       {c.rows.length === 0 ? (
-        <EmptyState title="Bu dönemde ders kaydı yok" />
+        <EmptyState title="Bu dönemde öğretmen kaynaklı iptal/telafi yok" />
       ) : (
         <details>
           <summary className="cursor-pointer text-xs font-medium text-[var(--color-primary)]">
-            Ders detayları ({c.rows.length}) {flagged.length > 0 ? <Badge status="cancelled">{flagged.length} sorunlu</Badge> : null}
+            Öğretmen kaynaklı dersler <Badge status="cancelled">{c.rows.length}</Badge>
           </summary>
           <div className="mt-2 max-h-96 overflow-x-auto overflow-y-auto">
             <table className="w-full min-w-[560px] text-left text-xs">
@@ -138,8 +136,8 @@ function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["compo
                   <th className="pb-1 pr-2">Saat</th>
                   <th className="pb-1 pr-2">Öğrenci</th>
                   <th className="pb-1 pr-2">Enstrüman</th>
-                  <th className="pb-1 pr-2">Durum</th>
-                  <th className="pb-1 pr-2">İşaretleyen</th>
+                  <th className="pb-1 pr-2">Karar</th>
+                  <th className="pb-1 pr-2">Açıklama</th>
                 </tr>
               </thead>
               <tbody>
@@ -150,9 +148,7 @@ function AttendanceCard({ c, teacherId }: { c: TeacherPerformanceReportV2["compo
                     <td className="py-1 pr-2">{r.studentName}</td>
                     <td className="py-1 pr-2">{r.instrument}</td>
                     <td className="py-1 pr-2">
-                      <Badge status={r.status === "geldi" ? "confirmed" : r.status === "bekliyor" ? "pending" : "cancelled"}>
-                        {r.status === "bekliyor" ? "Bekliyor" : r.status}
-                      </Badge>
+                      <Badge status="cancelled">{r.kind}</Badge>
                     </td>
                     <td className="py-1 pr-2 text-[var(--color-text-muted)]">
                       {r.markedAt ? formatDate(r.markedAt) : "—"}

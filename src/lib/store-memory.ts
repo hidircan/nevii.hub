@@ -27,7 +27,6 @@ import {
   type MakeupLifecycleResult,
 } from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
-import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import { reassignConflictWindow, reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 /**
  * Serverless / demo memory store.
@@ -1738,22 +1737,6 @@ export async function clearLessonOpsFlagLive(
     if (result.ok && !result.alreadyClear) save(mergeLessonScope(data, result.data, lessonId));
     return result;
   });
-}
-
-/** Faz 2 — memory modu tamamen senkron; ekstra kilit gerekmez. */
-export async function markTeacherAttendanceLive(
-  lessonId: string,
-  status: TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof markTeacherAttendance>> {
-  const data = load();
-  // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
-  const scope = narrowLessonScope(data, lessonId);
-  if (!scope) return { ok: false, message: "Ders bulunamadı." };
-  const result = markTeacherAttendance(scope, lessonId, status, actorUserId, note);
-  if (result.ok && !result.alreadySet) save(mergeLessonScope(data, result.data, lessonId));
-  return result;
 }
 
 /** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */

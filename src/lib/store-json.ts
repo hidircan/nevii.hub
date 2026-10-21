@@ -67,7 +67,6 @@ import {
   type MakeupLifecycleResult,
 } from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
-import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
 import { reassignConflictWindow, reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import type {
   AppData,
@@ -1976,27 +1975,6 @@ export async function clearLessonOpsFlagLive(
     }
     return result;
   });
-}
-
-/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
-export async function markTeacherAttendanceLive(
-  lessonId: string,
-  status: TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof markTeacherAttendance>> {
-  let result!: ReturnType<typeof markTeacherAttendance>;
-  await mutateStoreUnderLock(async (data) => {
-    // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
-    const scope = narrowLessonScope(data, lessonId);
-    if (!scope) {
-      result = { ok: false, message: "Ders bulunamadı." };
-      return data;
-    }
-    result = markTeacherAttendance(scope, lessonId, status, actorUserId, note);
-    return result.ok ? mergeLessonScope(data, result.data, lessonId) : data;
-  });
-  return result;
 }
 
 /** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */
