@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedWallTimeToUtc } from "@/lib/timezone";
+import { resolveAppTimezone, toZonedYmd, zonedWallTimeToUtc } from "@/lib/timezone";
+import { makeupPlanningDeadline } from "@/lib/makeup-deadline";
 import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -51,10 +52,17 @@ export function ManualMakeupPlanForm({
   const [busy, setBusy] = useState(false);
   // Sayfa açılış anı — render içinde Date.now() çağrılmaz (saf render).
   const [nowMs] = useState(() => Date.now());
-  const expiryDay = expiresAt ? toZonedYmd(new Date(expiresAt), DEFAULT_APP_TIMEZONE) : undefined;
+  const expiryDay = expiresAt ? toZonedYmd(new Date(expiresAt), resolveAppTimezone()) : undefined;
   const pickedStart = date && time ? zonedWallTimeToUtc(date, time) : null;
   const isPast = Boolean(pickedStart && !Number.isNaN(pickedStart.getTime()) && pickedStart.getTime() < nowMs);
-  const afterExpiry = Boolean(expiryDay && date && date > expiryDay);
+  // Sunucu AFTER_EXPIRY ile AYNI kural (makeup-engine): dersin BİTİŞİ, son günün ertesi 00:00'ını aşamaz.
+  // Eskiden yalnız gün karşılaştırılıyordu; gece yarısını aşan son gün dersi formdan geçip sunucuda reddediliyordu.
+  const afterExpiry = Boolean(
+    expiresAt &&
+      pickedStart &&
+      !Number.isNaN(pickedStart.getTime()) &&
+      pickedStart.getTime() + lessonDurationMinutes * 60_000 > makeupPlanningDeadline(expiresAt).getTime()
+  );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   // 2026-10-04 — öğretmen müsaitlik dışı: yetkili kullanıcıya açık onay (normal ders planlamasıyla aynı kural).
@@ -247,7 +255,7 @@ export function ManualMakeupPlanForm({
       ) : null}
       {afterExpiry ? (
         <p className="mt-3 text-xs font-medium text-rose-600">
-          Seçilen tarih talebin son kullanım gününden ({expiryDay}) sonra; bu talep için planlanamaz.
+          Ders, talebin son kullanım gününü ({expiryDay}) aşıyor; bu talep için planlanamaz. Daha erken bir gün/saat seçin veya yetkili yönetici son günü uzatsın.
         </p>
       ) : null}
       <div className="mt-3">

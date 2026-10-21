@@ -93,6 +93,7 @@ import {
 import { findSlotConflict, type SlotResource } from "./lesson-occupancy";
 import {
   MAKEUP_PLANNING_EXPIRED_REASON,
+  makeupExpiresAtFromSource,
   type MakeupChangeEntry,
 } from "./makeup-deadline";
 import {
@@ -2020,7 +2021,7 @@ export async function markAttendance(input: {
                 status: "pending",
                 reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
                 // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
-                expiresAt: addDays(lesson.startAt, school?.makeupWindowDays ?? 0),
+                expiresAt: new Date(makeupExpiresAtFromSource(lesson.startAt, school?.makeupWindowDays ?? 0)),
                 suggestedSlots: [],
                 createdAt: new Date(),
                 policyNote,
@@ -4673,8 +4674,8 @@ export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<
   await prisma.$transaction([
     prisma.school.update({ where: { tenantId: tid }, data: { makeupWindowDays } }),
     // expiresAtForPolicyWindow ile AYNI kural (makeup-deadline.ts): açık/planlı talebin son günü
-    // createdAt + yeni pencere; GREATEST → asla kısalmaz.
-    prisma.$executeRaw`UPDATE "MakeupRequest" SET "expiresAt" = GREATEST("expiresAt", "createdAt" + make_interval(days => ${makeupWindowDays}::int)) WHERE "tenantId" = ${tid} AND "status" IN ('pending', 'suggested', 'awaiting_info', 'confirmed')`,
+    // kaynak ders başlangıcı (yoksa createdAt) + yeni pencere; GREATEST → asla kısalmaz.
+    prisma.$executeRaw`UPDATE "MakeupRequest" m SET "expiresAt" = GREATEST(m."expiresAt", COALESCE((SELECT l."startAt" FROM "Lesson" l WHERE l."id" = m."sourceLessonId" AND l."tenantId" = m."tenantId"), m."createdAt") + make_interval(days => ${makeupWindowDays}::int)) WHERE m."tenantId" = ${tid} AND m."status" IN ('pending', 'suggested', 'awaiting_info', 'confirmed')`,
   ]);
   return readData();
 }

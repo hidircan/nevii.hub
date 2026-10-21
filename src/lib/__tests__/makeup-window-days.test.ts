@@ -83,6 +83,8 @@ describe("2026-10-20 — pencere artırımı açık talebin son gününü de uza
     expect(a && b).toBeTruthy();
     await writeData({
       ...base,
+      // Son gün kaynak dersten hesaplanır (makeupExpiresAtFromSource): kaynak ders 20 gün önce.
+      lessons: base.lessons.map((l) => (l.id === a!.sourceLessonId ? { ...l, startAt: createdAt } : l)),
       makeupRequests: base.makeupRequests.map((m) =>
         m.id === a!.id
           ? { ...m, status: "pending", createdAt, expiresAt: oldExpires, confirmedLessonId: undefined }
