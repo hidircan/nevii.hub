@@ -59,25 +59,34 @@ export function isPastMakeupPlanningDeadline(expiresAtIso: string, now: Date, ti
 }
 
 /**
+ * 2026-10-21 — SON GÜN TEK KAYNAK. Hak, kaçan dersin tarihinden doğar (§3.4): son gün = kaynak ders başlangıcı +
+ * pencere. Talep açılışı (üç store modu) ve pencere değişimi bunu kullanır. Tek bilinçli istisna "yeniden Telafi":
+ * süre bugünden başlar (`reopenMakeupRequest`, lesson-ops) — owner kararı.
+ */
+export function makeupExpiresAtFromSource(sourceStartAt: string | Date, windowDays: number): string {
+  return new Date(new Date(sourceStartAt).getTime() + windowDays * 86_400_000).toISOString();
+}
+
+/**
  * 2026-10-20 — POLİTİKA PENCERESİ TEK KURAL. Pencere değişince henüz kullanılmamış (açık veya planlı) taleplerin son
- * günü yeni pencereye göre yeniden hesaplanır: hakkın açıldığı an (`createdAt`) + pencere. Asla KISALTMAZ (yöneticinin
- * elle uzattığı son gün ve eski, daha uzun pencere korunur). Kök neden: pencere yalnız ayarı değiştiriyordu; öneri
- * motoru yeni pencereyle slot önerirken form/sunucu doğrulaması talebin eski pencereyle donmuş `expiresAt`'ini
- * kullanıyor, "hakkı var ama tarih yüzünden planlanamaz" çelişkisi doğuyordu. Üç store modu bu fonksiyonu
- * (DB modu aynı kuralı tek SQL ile) uygular.
+ * günü yeni pencereye göre yeniden hesaplanır (`makeupExpiresAtFromSource`). Asla KISALTMAZ (yöneticinin elle
+ * uzattığı son gün, yeniden açılışta bugünden başlayan süre ve eski, daha uzun pencere korunur). 2026-10-21: çapa
+ * eskiden `createdAt` idi, açılış ise kaynak dersi kullanıyordu — iki farklı kural; artık ikisi de kaynak ders.
+ * Kaynak ders bulunamazsa `createdAt`e düşer. Üç store modu bu fonksiyonu (DB modu aynı kuralı tek SQL ile) uygular.
  */
 export const MAKEUP_WINDOW_FOLLOWING_STATUSES = ["pending", "suggested", "awaiting_info", "confirmed"] as const;
 
 export function expiresAtForPolicyWindow(
   request: Pick<MakeupRequest, "status" | "createdAt" | "expiresAt">,
-  windowDays: number
+  windowDays: number,
+  sourceStartAt?: string
 ): string {
   if (!(MAKEUP_WINDOW_FOLLOWING_STATUSES as readonly string[]).includes(request.status)) return request.expiresAt;
-  const created = new Date(request.createdAt).getTime();
+  const anchor = sourceStartAt ?? request.createdAt;
+  if (Number.isNaN(new Date(anchor).getTime())) return request.expiresAt;
+  const byPolicy = makeupExpiresAtFromSource(anchor, windowDays);
   const current = new Date(request.expiresAt).getTime();
-  if (Number.isNaN(created)) return request.expiresAt;
-  const byPolicy = created + windowDays * 86_400_000;
-  return Number.isNaN(current) || byPolicy > current ? new Date(byPolicy).toISOString() : request.expiresAt;
+  return Number.isNaN(current) || new Date(byPolicy).getTime() > current ? byPolicy : request.expiresAt;
 }
 
 /** Seçilen yyyy-MM-dd o yerel günün öğleni olarak saklanır; sınır bir gün daha uzamasın. */

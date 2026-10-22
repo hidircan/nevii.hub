@@ -1,4 +1,4 @@
-import { expiresAtForPolicyWindow } from "./makeup-deadline";
+import { expiresAtForPolicyWindow, makeupExpiresAtFromSource } from "./makeup-deadline";
 import { collectedAmountOf } from "./payment-profile";
 import { mergeImportRowIntoStudent } from "./import/student-merge";
 import {
@@ -159,7 +159,6 @@ import type { ImportCommitResult } from "./import/commit-result";
 import { uid, isOutstandingPaymentStatus } from "./utils";
 import { teacherAttendanceRows } from "./insights/teacher-performance";
 import { mobileDashboardCounts } from "./dashboard/mobile-counts";
-import { addDays, formatISO } from "date-fns";
 import { withKeyLock } from "./keyed-lock";
 import { calendarMonthKey, assertCanCreateMakeup, MakeupQuotaExceededError } from "./makeup-quota";
 
@@ -437,7 +436,7 @@ export async function markAttendance(input: {
         status: "pending",
         reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
         // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
-        expiresAt: formatISO(addDays(new Date(lesson.startAt), data.settings.makeupWindowDays)),
+        expiresAt: makeupExpiresAtFromSource(lesson.startAt, data.settings.makeupWindowDays),
         suggestedSlots: [],
         createdAt: new Date().toISOString(),
         policyNote:
@@ -1198,7 +1197,10 @@ export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<
   return save({
     ...data,
     settings: { ...data.settings, makeupWindowDays },
-    makeupRequests: data.makeupRequests.map((m) => ({ ...m, expiresAt: expiresAtForPolicyWindow(m, makeupWindowDays) })),
+    makeupRequests: data.makeupRequests.map((m) => ({
+      ...m,
+      expiresAt: expiresAtForPolicyWindow(m, makeupWindowDays, data.lessons.find((l) => l.id === m.sourceLessonId)?.startAt),
+    })),
   });
 }
 
