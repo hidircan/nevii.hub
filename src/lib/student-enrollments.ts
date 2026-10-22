@@ -874,8 +874,13 @@ export type RegistrationFirstPaymentRecord = {
   adjustedBy?: string;
   adjustedAt?: string;
   firstCollectionIncludesNextMonth?: boolean;
-  /** 2026-10-14 — sözleşmesiz ilk tahsilatın dönem(ler)i (`registrationFirstCollectionPeriods`). */
-  installmentPeriodLabel?: string;
+  /**
+   * 2026-10-14 — sözleşmesiz ilk tahsilatın dönem(ler)i (`registrationFirstCollectionPeriods`).
+   * 2026-10-22 — ZORUNLU: etiketsiz satırın dönemi vadeden (= tahsilat günü) okunuyordu; Eylül'de alınan Ekim ödemesi
+   * takvimde Eylül'e düşüyor, gece tahakkuku Ekim'i ikinci kez borçlandırıyordu. Eski satırlar:
+   * `scripts/backfill-first-collection-periods.ts`.
+   */
+  installmentPeriodLabel: string;
   installmentBreakdown?: { periodLabel: string; amount: number }[];
 };
 
