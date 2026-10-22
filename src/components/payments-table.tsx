@@ -5,7 +5,7 @@ import { useCurrentPath } from "@/lib/use-current-path";
 import Link from "@/components/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
-import { Button, Card } from "@/components/ui";
+import { Card } from "@/components/ui";
 import {
   formatDate,
   formatDateTime,
@@ -65,7 +65,6 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionOnly, setActionOnly] = useState(false);
   const [modalPayment, setModalPayment] = useState<PaymentRow | null>(null);
-  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
   const [paidFrom, setPaidFrom] = useState("");
@@ -99,10 +98,17 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
     <>
       {!canWrite ? (
         <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          &quot;Tüm kurumlar&quot; görünümündesiniz — ödeme işaretlemek için üstteki kurum seçiciden tek
+          &quot;Tüm kurumlar&quot; görünümündesiniz — kayıt düzeltmek için üstteki kurum seçiciden tek
           bir kurum seçin.
         </p>
       ) : null}
+      <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+        Bu ekran tahsilat almaz — ödemeler{" "}
+        <Link href="/panel/yoklama" className="font-medium text-[var(--color-primary)] hover:underline">
+          Yoklama Takvimi
+        </Link>{" "}
+        üzerinden tahsil edilir. Burada takip, filtreleme ve kayıt düzeltme yapılır.
+      </p>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="text"
@@ -176,6 +182,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
               <th className="px-4 py-3">Açıklama</th>
               <th className="px-4 py-3">Vade</th>
               <th className="px-4 py-3">Tahsil anı</th>
+              <th className="px-4 py-3">Ödeme türü</th>
               <th className="px-4 py-3">Tutar</th>
               <th className="px-4 py-3">Ödemeyi alan</th>
               <th className="px-4 py-3">Durum</th>
@@ -185,7 +192,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan ödeme bulunamadı.
                 </td>
               </tr>
@@ -209,11 +216,6 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                       </span>
                     ) : null}
                     {p.description}
-                    {p.method ? (
-                      <span className="block text-xs text-[var(--color-text-muted)]">
-                        {paymentMethodLabelTr(p.method)}
-                      </span>
-                    ) : null}
                     {p.status === "paid" && p.paidAt ? (
                       <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">
                         {formatPaymentCollectionSummary({
@@ -245,6 +247,9 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                       <span className="text-[var(--color-text-muted)]">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-[var(--color-text)]">
+                    <span className="text-xs font-medium sm:text-sm">{paymentMethodLabelTr(p.method)}</span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className="font-medium">{formatMoney(p.amount)}</span>
                     {p.paidAmount > 0 && p.paidAmount < p.amount ? (
@@ -266,19 +271,9 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                       </span>
                     ) : p.status !== "paid" ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="!py-1.5 text-xs"
-                          disabled={!canWrite}
-                          onClick={() => {
-                            setModalMode("create");
-                            setModalPayment(p);
-                          }}
-                        >
-                          Ödendi işaretle
-                        </Button>
-                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : null}
+                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : (
+                          <span className="text-xs text-[var(--color-text-muted)]">—</span>
+                        )}
                       </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
@@ -291,10 +286,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                         {canWrite ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              setModalMode("edit");
-                              setModalPayment(p);
-                            }}
+                            onClick={() => setModalPayment(p)}
                             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                           >
                             Detayı gör / düzenle
@@ -324,17 +316,10 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
         <PaymentMarkPaidModal
           paymentId={modalPayment.id}
           studentName={modalPayment.studentName}
-          defaultAmount={
-            modalMode === "edit"
-              ? modalPayment.paidAmount || modalPayment.amount
-              : modalPayment.amount - modalPayment.paidAmount
-          }
-          mode={modalMode}
-          initialMethod={
-            modalMode === "edit" && isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined
-          }
-          initialNote={modalMode === "edit" ? modalPayment.paymentNote : undefined}
-          initialPaidAt={modalMode === "edit" ? modalPayment.paidAt : undefined}
+          defaultAmount={modalPayment.paidAmount || modalPayment.amount}
+          initialMethod={isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined}
+          initialNote={modalPayment.paymentNote}
+          initialPaidAt={modalPayment.paidAt}
           dueDate={modalPayment.dueDate}
           description={modalPayment.description}
           source={modalPayment.source}

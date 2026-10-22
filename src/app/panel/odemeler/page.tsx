@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { AddPaymentForm } from "@/components/add-payment-form";
 import { PageHeader } from "@/components/ui";
-import { cn, formatMoney } from "@/lib/utils";
+import { cn, formatMoney, paymentMethodLabelTr } from "@/lib/utils";
 import { PAYMENT_SCOPE_LABEL, parsePaymentScope, scopePayments, type PaymentScope } from "@/lib/payment-scope";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { listContractEnrollmentLinksForScope, listTerminalContractIdsForScope } from "@/lib/contracts";
@@ -15,7 +15,7 @@ import { getInstitutionContext, readScopedPaymentsListData } from "@/lib/institu
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
-import { buildPaymentMonthView, parseMonthParam, shiftMonth } from "@/lib/payment-month-view";
+import { buildPaymentMonthView, parseMonthParam, shiftMonth, type MethodCollectionTotals } from "@/lib/payment-month-view";
 import { paidInstallmentCountsByStudent } from "@/lib/payment-profile";
 import { contractInstallmentProgressDescription, monthlyPlanPeriodLabel } from "@/lib/attendance-calendar-plan";
 import { PAYMENT_STATUS_INFO, canonicalPaymentStatus, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
@@ -203,6 +203,7 @@ export default async function OdemelerPage({
               <Metric label="Gecikmiş" value={formatMoney(s.overdue)} tone="danger" hint={PAYMENT_STATUS_INFO.overdue.description} />
               <Metric label="Yaklaşan (7 gün)" value={formatMoney(s.upcoming)} tone="info" hint={PAYMENT_STATUS_INFO.upcoming.description} />
             </dl>
+            <MethodBreakdown collectedByMethod={s.collectedByMethod} />
             {view.carryoverTotal > 0 ? (
               <p className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-danger)]">
                 Önceki aylardan devreden gecikmiş: <strong className="tabular-nums">{formatMoney(view.carryoverTotal)}</strong> ({view.carryover.length} satır) —
@@ -240,6 +241,41 @@ export default async function OdemelerPage({
         <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
           &quot;Tüm kurumlar&quot; görünümündesiniz — ödeme eklemek veya tahsil etmek için üstteki kurum seçiciden tek bir kurum seçin.
         </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Seçili ayda hangi ödeme türünden ne kadar tahsil edildi — `buildPaymentMonthView`
+ * özetinden (`collectedByMethod`) beslenir; tahsilat tarihi değil dönem ayı belirler.
+ */
+function MethodBreakdown({ collectedByMethod }: { collectedByMethod: MethodCollectionTotals }) {
+  const items = (
+    [
+      { key: "cash", label: paymentMethodLabelTr("cash"), total: collectedByMethod.cash },
+      { key: "transfer", label: paymentMethodLabelTr("transfer"), total: collectedByMethod.transfer },
+      { key: "credit_card", label: paymentMethodLabelTr("credit_card"), total: collectedByMethod.credit_card },
+      { key: "other", label: "Diğer", total: collectedByMethod.other },
+    ] as const
+  ).filter((i) => i.key !== "other" || i.total > 0);
+  const grandTotal = items.reduce((s, i) => s + i.total, 0);
+  return (
+    <div className="border-t border-[var(--color-border)] px-4 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+        Bu ay yöntem bazında tahsilat
+      </p>
+      {grandTotal === 0 ? (
+        <p className="mt-1 text-sm text-[var(--color-text-muted)]">Bu ay henüz tahsilat yok.</p>
+      ) : (
+        <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+          {items.map((i) => (
+            <li key={i.key} className="flex items-baseline gap-1.5">
+              <span className="text-[var(--color-text-muted)]">{i.label}</span>
+              <span className="font-semibold tabular-nums text-[var(--color-text)]">{formatMoney(i.total)}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
