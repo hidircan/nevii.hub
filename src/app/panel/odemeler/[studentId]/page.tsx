@@ -10,11 +10,11 @@ import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
-import { contractInstallmentProgressDescription, coveredInstallmentCount } from "@/lib/attendance-calendar-plan";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
 import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
-import { remainingAmount, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
+import { remainingAmount, todayYmdInstitution } from "@/lib/payments/status";
 import { PaymentsMonthBoard } from "@/components/payments-month-board";
-import type { MonthPaymentRow } from "@/lib/payment-month-view";
+import { buildStudentOpenDebtRows } from "@/lib/payment-month-view";
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
@@ -115,30 +115,11 @@ export default async function StudentPaymentProfilePage({
   const todayYmd = todayYmdInstitution();
   const terminalIds = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
   const debt = splitStudentDebt(payments, terminalIds);
-  const openRows: MonthPaymentRow[] = debt.open
-    .filter((p) => remainingAmount(p.amount, p.paidAmount) > 0)
-    .map((p) => ({
-      id: p.id,
-      studentId: p.studentId,
-      studentName: student.name,
-      branchLabel: branchOf(p),
-      description: contractInstallmentProgressDescription(p),
-      expected: p.amount,
-      collected: p.paidAmount,
-      remaining: remainingAmount(p.amount, p.paidAmount),
-      rowAmount: p.amount,
-      rowPaidAmount: p.paidAmount,
-      spansMonths: false,
-      coveredInstallments: coveredInstallmentCount(p),
-      dueDate: p.dueDate,
-      status: resolvePaymentDisplayStatus(p, terminalIds, todayYmd),
-      month: p.dueDate.slice(0, 7),
-      method: p.method,
-      paidAt: p.paidAt,
-      paymentNote: p.paymentNote,
-      source: p.source,
-      lessonId: p.lessonId,
-    }));
+  // Açık borç satırları öğrenci içi sekmeyle AYNI kurucudan (`buildStudentOpenDebtRows`) — tek dil.
+  const openRows = buildStudentOpenDebtRows(
+    debt.open.filter((p) => remainingAmount(p.amount, p.paidAmount) > 0),
+    { studentName: student.name, todayYmd, terminalContractIds: terminalIds, branchLabel: branchOf }
+  );
   const activeBranches = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
   const branchOptions = activeBranches.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, activeBranches, data.teachers) }));
 

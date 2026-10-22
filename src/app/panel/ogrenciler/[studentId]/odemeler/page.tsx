@@ -1,8 +1,10 @@
 import { ChangeHistory } from "@/components/change-history";
 import Link from "@/components/link";
 import { notFound } from "next/navigation";
-import { Badge, Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
+import { PaymentsMonthBoard } from "@/components/payments-month-board";
+import { buildStudentOpenDebtRows } from "@/lib/payment-month-view";
+import { todayYmdInstitution } from "@/lib/payments/status";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
 import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
 import { listStudentContractsTool } from "@/lib/services";
@@ -88,6 +90,22 @@ export default async function StudentPaymentsTab({
       })
     : [];
   const canAssign = canManage && kurum.scope.mode === "single";
+  // Açık borç satırları kanonik öğrenci ödeme ekranıyla AYNI kurucudan — tek dil, tek bileşen.
+  const terminalIds = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const openRows = buildStudentOpenDebtRows(debt.open, {
+    studentName: student.name,
+    todayYmd: todayYmdInstitution(),
+    terminalContractIds: terminalIds,
+    branchLabel: (p) => {
+      const full = p as (typeof allPayments)[number];
+      if (full.source === "club" || full.clubMembershipId) return undefined;
+      return branchName(branchOfPayment(full));
+    },
+  });
+  const unassignedOpen =
+    canAssign && multiBranch
+      ? debt.open.filter((p) => !p.contractId && p.source !== "club" && !p.clubMembershipId && !branchOfPayment(p))
+      : [];
   const branchOptions = branchList.map((e) => ({ id: e.id, label: branchName(e.id) }));
   const branchTag = (p: (typeof allPayments)[number]) =>
     multiBranch && p.source !== "club" && !p.clubMembershipId ? `${branchName(branchOfPayment(p))} · ` : "";
@@ -111,26 +129,28 @@ export default async function StudentPaymentsTab({
             Ödeme Detayında Aç →
           </Link>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {/* Özet kartları kanonik öğrenci ödeme ekranıyla (`/panel/odemeler/[studentId]`) AYNI etiket/sıra — tek dil. */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {multiBranch ? (
             <MiniStat
-              label="Güncel sözleşmeler tahakkuku (tüm branşlar)"
+              label="Geçerli tahakkuk (tüm branşlar)"
               value={formatMoney(branchBreakdown.reduce((sum, r) => sum + (r.currentContractBilled ?? 0), 0))}
             />
           ) : (
             <MiniStat
-              label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
+              label="Geçerli tahakkuk"
               value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
             />
           )}
-          <MiniStat label="Tahsil edilen (tüm kayıtlar)" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
-          <MiniStat label="Kalan" value={formatMoney(paymentSummary.remaining)} />
+          <MiniStat label="Toplam tahsil edilen" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
+          <MiniStat label="Kalan borç" value={formatMoney(paymentSummary.remaining)} />
           <MiniStat
             label="Gecikmiş kalan"
             value={formatMoney(paymentSummary.overdueRemaining)}
             tone={paymentSummary.overdueRemaining > 0 ? "danger" : undefined}
           />
-          <MiniStat label="Ödenmiş taksit sayısı" value={String(paymentSummary.paidInstallmentCount)} />
+          <MiniStat label="Açık ödeme kaydı" value={String(paymentSummary.openCount)} />
+          <MiniStat label="Ödenmiş taksit sayısı" value={String(paymentSummary.paidInstallmentCount)} tone="success" />
         </div>
       </section>
 
@@ -290,49 +310,34 @@ export default async function StudentPaymentsTab({
           </p>
         ) : null}
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Açık borçlar</h3>
-        {debt.open.length === 0 ? (
-          <EmptyState title="Açık borç yok" description="Bu öğrencinin ödenmemiş geçerli bir borç kaydı yok." />
-        ) : (
-          <div className="space-y-2">
-            {debt.open.map((p) => (
-              <Card key={p.id} id={`odeme-${p.id}`} className={`!p-3 scroll-mt-24${p.id === odeme ? " ring-2 ring-[var(--color-primary)]" : ""}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <div>
-                    <p className="font-medium text-[var(--color-text)]">
-                      {branchTag(p)}
-                      {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)}
-                    </p>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                      {DEBT_SOURCE_LABEL[debtSourceOf(p)]}
-                      {p.contractId ? ` · ${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "sözleşme"}` : ""}
-                    </p>
-                    <p className="text-xs text-[var(--color-text-muted)]">
-                      Vade: {formatDate(p.dueDate)} · Tutar {formatMoney(p.amount)}
-                      {p.paidAmount > 0 ? ` · Ödenen ${formatMoney(p.paidAmount)}` : ""}
-                    </p>
-                    {p.lessonId ? (
-                      <Link
-                        href={`/panel/ogrenciler/${student.id}/program`}
-                        className="text-xs font-medium text-[var(--color-primary)] hover:underline"
-                      >
-                        Kaynak ders →
-                      </Link>
-                    ) : null}
-                    {canAssign && multiBranch && !p.contractId && p.source !== "club" && !branchOfPayment(p) ? (
-                      <div className="mt-1">
-                        <AssignEnrollmentControl studentId={student.id} paymentId={p.id} branches={branchOptions} />
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">Kalan {formatMoney(Math.max(p.amount - p.paidAmount, 0))}</span>
-                    <Badge status={p.status} />
-                  </div>
-                </div>
-              </Card>
-            ))}
+        {/* Kanonik öğrenci ödeme ekranıyla AYNI liste (`PaymentsMonthBoard`) — ayrı finans ekranı hissi vermez. */}
+        <PaymentsMonthBoard
+          monthLabel="Açık borçlar"
+          empty={{ title: "Açık borç yok", hint: "Bu öğrencinin tahsil edilmeyi bekleyen canlı bir borç satırı bulunmuyor." }}
+          rows={openRows}
+          carryover={[]}
+          paidInstallmentCounts={{ [student.id]: paymentSummary.paidInstallmentCount }}
+          canWrite={canAssign}
+          canDelete={canAssign}
+          highlightPaymentId={odeme}
+        />
+        {unassignedOpen.length > 0 ? (
+          <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+            <p className="mb-1 text-xs font-medium text-[var(--color-text-muted)]">
+              Branşa bağlı olmayan {unassignedOpen.length} kayıt — doğru branşa bağlayın:
+            </p>
+            <ul className="space-y-1">
+              {unassignedOpen.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-[var(--color-text)]">
+                    {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)} · vade {formatDate(p.dueDate)}
+                  </span>
+                  <AssignEnrollmentControl studentId={student.id} paymentId={p.id} branches={branchOptions} />
+                </li>
+              ))}
+            </ul>
           </div>
-        )}
+        ) : null}
 
         <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Ödeme hareketleri</h3>
         {debt.movements.length === 0 ? (
