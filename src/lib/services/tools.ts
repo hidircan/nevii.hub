@@ -10845,7 +10845,9 @@ export async function scanOverduePaymentsTool(
     const now = new Date();
     const { listTerminalContractIds } = await import("../contracts");
     const { isLiveObligation } = await import("../payment-profile");
+    const { supersededUncollectedMonthlyPlanIds } = await import("../superseded-monthly-plan");
     const terminalContractIds = await listTerminalContractIds(ctx.tenantId);
+    const duplicatedPlan = supersededUncollectedMonthlyPlanIds(data.payments, terminalContractIds);
     // 2026-10-09 — çok branşlı öğrencide hatırlatma hangi branşın borcu olduğunu söyler (ödeme satırı başına, çift yok).
     const { listContractEnrollmentLinks } = await import("../contracts");
     const { makePaymentBranchLabeler } = await import("../student-enrollments");
@@ -10863,7 +10865,7 @@ export async function scanOverduePaymentsTool(
     for (const payment of data.payments) {
       if (payment.status !== "overdue") continue;
       // UAT 2026-09-25 — iptal/yenilenmiş sözleşmenin tahsil edilmemiş taksiti için hatırlatma üretilmez.
-      if (!isLiveObligation(payment, terminalContractIds)) continue;
+      if (!isLiveObligation(payment, terminalContractIds) || duplicatedPlan.has(payment.id)) continue;
       scanned++;
 
       const student = data.students.find((s) => s.id === payment.studentId);
@@ -13632,6 +13634,7 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
   const { getCriticalActionPasswordStatus } = await import("../critical-action-password");
   const { selectCurrentContract } = await import("../contract-list-helpers");
   const { isLiveObligation, collectedAmountOf } = await import("../payment-profile");
+  const { supersededUncollectedMonthlyPlanIds } = await import("../superseded-monthly-plan");
   const { isTerminalContractStatus } = await import("../contract-list-helpers");
   const [contracts, documents, pw] = await Promise.all([
     listContractsForStudent(tenantId, studentId),
@@ -13639,6 +13642,8 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
     getCriticalActionPasswordStatus(tenantId),
   ]);
   const payments = data.payments.filter((p) => p.studentId === studentId);
+  const deletionTerminal = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const duplicatedPlan = supersededUncollectedMonthlyPlanIds(payments, deletionTerminal);
   const lessons = data.lessons.filter((l) => l.studentId === studentId);
   const nowMs = Date.now();
   const attendanceCount = data.attendances.filter((a) => a.studentId === studentId).length;
@@ -13652,7 +13657,7 @@ async function computeStudentDeletionImpact(tenantId: string, studentId: string)
     hasCurrentContract: selectCurrentContract(contracts) !== null,
     paymentCount: payments.length,
     outstandingAmount: payments
-      .filter((p) => isLiveObligation(p, new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))))
+      .filter((p) => isLiveObligation(p, deletionTerminal) && !duplicatedPlan.has(p.id))
       .reduce((sum, p) => sum + Math.max(0, p.amount - p.paidAmount), 0),
     collectedAmount: payments.reduce((sum, p) => sum + collectedAmountOf(p), 0),
     lessonCount: lessons.length,
@@ -17019,6 +17024,43 @@ export async function createStudentContractTool(
           // Satır arada tahsilat gördüyse dokunulmaz; sözleşme zaten yazıldı — kalan ayrı borç olarak görünür.
           if (!(e instanceof Error && e.message === "PAYMENT_CHANGED")) logger.error("carry-over void failed", e);
           carryOverSkipped.push(p.description);
+        }
+      }
+    }
+    // İşaretlenmese bile: yeni taksitlerle AYNI dönemi kapsayan tahsilatsız aylık plan ikinci borç değildir.
+    // Elle borç, tahsilat görmüş satır ve başka branş kalır. Satır silinmez.
+    {
+      const { listTerminalContractIds } = await import("../contracts");
+      const { supersededUncollectedMonthlyPlanIds } = await import("../superseded-monthly-plan");
+      const terminal = await listTerminalContractIds(ctx.tenantId);
+      const fresh = await readStudentScope(student.id);
+      const autoIds = [...supersededUncollectedMonthlyPlanIds(fresh.payments.filter((p) => p.studentId === student.id), terminal)].filter(
+        (id) => !carriedOverPaymentIds.includes(id)
+      );
+      if (autoIds.length > 0) {
+        const { collectPayment } = await import("../payments/collect");
+        for (const id of autoIds) {
+          const p = fresh.payments.find((row) => row.id === id);
+          if (!p) continue;
+          try {
+            await collectPayment(id, {
+              voided: true,
+              paymentNote: `Sözleşme ${contract.contractNumber} planına taşındı (yeniden borçlandırılmadı).`,
+              actorUserId: ctx.userId,
+              tenantId: ctx.tenantId,
+              onlyIfUntouchedOpenDebt: true,
+            });
+            carriedOverPaymentIds.push(id);
+            audit(ctx, "payment.moved_to_contract", "Payment", id, {
+              contractId: contract.id,
+              contractNumber: contract.contractNumber,
+              automatic: true,
+              before: { amount: p.amount, status: p.status, dueDate: p.dueDate, source: p.source, description: p.description },
+            });
+          } catch (e) {
+            if (!(e instanceof Error && e.message === "PAYMENT_CHANGED")) logger.error("overlapping monthly plan void failed", e);
+            carryOverSkipped.push(p.description);
+          }
         }
       }
     }

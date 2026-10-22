@@ -8,7 +8,9 @@
  * olmayan) sözleşmesi OLMAYAN öğrenciye, kayıt ayından SONRAKİ her ay için — o ay zaten bir kayıt ilk
  * tahsilatı (sonraki ayı kapsayan dahil) veya aylık plan satırıyla karşılanmıyorsa — aylık ücret kadar
  * TEK `monthly_plan` satırı (`upsertMonthlyPlanPayment`, ayın 1'i vadeli) yazılır. İçinde bulunulan ay VE
- * gelecek ay; geçmiş aylar otomatik doldurulmaz. Tekrar çalıştırmak ikinci satır üretmez.
+ * gelecek ay için planlanır; geçmiş aylar otomatik doldurulmaz. Mevcut satırlar değişmez; tekrar çalıştırmak
+ * ikinci satır üretmez. Yaşayan sözleşmenin kapsadığı ayda sözleşmesiz aylık plan oluşturulmaz (özet kaydı
+ * eksik olsa bile); sözleşme açılışı çakışan tahsilatsız planı kapatır.
  *
  * 2026-10-23 — GELECEK AY (yaklaşan borç): eskiden yalnız içinde bulunulan ay yazılıyordu; sözleşmesiz öğrencinin
  * gelecek ay yükümlülüğü ayın 1'ine kadar HİÇBİR ekranda yoktu (Yoklama Takvimi, Ödemeler ay panosu, Açık borçlar
@@ -18,10 +20,9 @@
  * ayın satırı gibi yazıldığı andaki ücrettir (yeniden fiyatlanmaz). İçinde bulunulan ayın satırına dokunulmaz.
  */
 import { installmentMonthKeys, installmentMonthShares, isMonthlyPlanRowForMonth } from "./attendance-calendar-plan";
-import { contractSuspensionTag, isUntouchedPlanRow, suspensionTagOf, type AccrualOp, type AccrualWrite, type ContractGate } from "./payments/accrual-rows";
-import { selectCurrentContract } from "./contract-list-helpers";
+import { isUntouchedPlanRow, suspensionTagOf, type AccrualOp, type AccrualWrite, type ContractGate } from "./payments/accrual-rows";
+import { isTerminalContractStatus, selectCurrentContract } from "./contract-list-helpers";
 import { shiftMonth } from "./payment-month-view";
-import { isTerminalContractStatus } from "./contract-list-helpers";
 import { contractEnrollmentId, effectiveEnrollments, enrollmentTerms, isPersistedEnrollmentId, paymentEnrollmentId } from "./student-enrollments";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 import type { Lesson, Payment, StudentRef, Teacher } from "./types";
@@ -54,6 +55,12 @@ function coversMonth(p: Payment, month: string): boolean {
   return installmentMonthKeys(p).includes(month);
 }
 
+/** Yaşayan sözleşme taksidi bu ayı zaten borçlandırmış mı? İptal/yenilenmiş sözleşme sayılmaz. */
+function livingContractCoversMonth(p: Payment, month: string, terminalContractIds: ReadonlySet<string>): boolean {
+  if (!p.contractId || terminalContractIds.has(p.contractId) || p.status === "voided") return false;
+  return installmentMonthKeys(p).includes(month);
+}
+
 /** Saf: verilen ay için yazılması gereken sözleşmesiz aylık plan satırları. */
 export function planStandaloneMonthlyAccruals(input: {
   students: StudentRef[];
@@ -62,10 +69,13 @@ export function planStandaloneMonthlyAccruals(input: {
   contractStatusByStudent: ReadonlyMap<string, string>;
   /** Çok branşlı öğrencide branş başına güncel sözleşme durumu — anahtar `${studentId}:${enrollmentId}`. */
   contractStatusByBranch?: ReadonlyMap<string, string>;
+  /** Özet haritası boş kalsa bile taksit satırından çift borç yazılmasın diye. */
+  terminalContractIds?: ReadonlySet<string>;
   teachers?: Pick<Teacher, "id" | "instruments">[];
   lessons?: Pick<Lesson, "id" | "enrollmentId" | "instrument" | "teacherId">[];
   month: string;
 }): StandaloneAccrual[] {
+  const terminal = input.terminalContractIds ?? new Set<string>();
   const out: StandaloneAccrual[] = [];
   for (const s of input.students) {
     if (!s.active || s.deletedAt || s.paymentPauseStatus === "paused") continue;
@@ -80,7 +90,13 @@ export function planStandaloneMonthlyAccruals(input: {
           !paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) &&
           coversMonth(p, input.month)
       );
-      if (unassignedCovers) continue;
+      const unassignedContract = input.payments.some(
+        (p) =>
+          p.studentId === s.id &&
+          livingContractCoversMonth(p, input.month, terminal) &&
+          !paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers)
+      );
+      if (unassignedCovers || unassignedContract) continue;
       for (const e of branches) {
         if (!e.active) continue;
         const terms = enrollmentTerms(s, e, input.teachers);
@@ -96,7 +112,13 @@ export function planStandaloneMonthlyAccruals(input: {
             paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) === e.id &&
             coversMonth(p, input.month)
         );
-        if (covered) continue;
+        const contracted = input.payments.some(
+          (p) =>
+            p.studentId === s.id &&
+            livingContractCoversMonth(p, input.month, terminal) &&
+            paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) === e.id
+        );
+        if (covered || contracted) continue;
         out.push({ studentId: s.id, month: input.month, amount: terms.monthlyFee, enrollmentId: e.id });
       }
       continue;
@@ -108,13 +130,18 @@ export function planStandaloneMonthlyAccruals(input: {
     // Kayıt ayı ilk tahsilatın ayıdır; tarihsiz kayıt için tahmin yapılmaz.
     if (!startMonth || input.month <= startMonth) continue;
     if (s.enrollmentEndDate && s.enrollmentEndDate.slice(0, 7) < input.month) continue;
-    if (input.payments.some((p) => p.studentId === s.id && coversMonth(p, input.month))) continue;
+    if (
+      input.payments.some(
+        (p) => p.studentId === s.id && (coversMonth(p, input.month) || livingContractCoversMonth(p, input.month, terminal))
+      )
+    ) {
+      continue;
+    }
     const sole = branches[0];
     out.push({ studentId: s.id, month: input.month, amount: s.monthlyFee, ...(sole && isPersistedEnrollmentId(sole.id) ? { enrollmentId: sole.id } : {}) });
   }
   return out;
 }
-
 
 type AccrualPlanInput = Parameters<typeof planStandaloneMonthlyAccruals>[0];
 
@@ -237,10 +264,12 @@ export async function syncStandaloneAccruals(
   // DB egress: gece işi tek dilim (ödemeler sayfası), sözleşme iptali yalnız o öğrencinin dilimi.
   const data = opts.studentId ? await store.readStudentScope(opts.studentId) : await store.readPaymentsPageData();
   const rows = await contracts.listContractSummaryRows(tenantId, opts.studentId);
+  const terminalContractIds = new Set(rows.filter((r) => isTerminalContractStatus(r.status)).map((r) => r.contractId));
   const base = {
     students: data.students,
     payments: data.payments,
     ...contractStatusMaps(data.students, data.teachers, rows, contracts.currentContractSummaryByStudent(rows)),
+    terminalContractIds,
     teachers: data.teachers,
     lessons: data.lessons,
   };

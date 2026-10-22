@@ -1579,6 +1579,10 @@ satır yazdığı için düzeltiyordu. **Ders:** kod kuralı düzeltilince ESKİ
 
 Birleşik ilk tahsilat `installmentSequence` 1 olarak yazılır (sonraki satır 3. aydır) ve açıklama "Sözleşme taksiti 1/N" diye saklanır. Ödenmiş taksit sayısı düzelince bu ibare ayrı kaldı. **Ders:** ekrandaki pay `contractInstallmentProgressIndex` (başlangıç sırası + kapanan dönem − 1). Saklanan açıklamayı, tutarı ve tarihi yeniden yazma.
 
+## 2026-10-23 — Sözleşmeli öğrencide tahsilatsız aylık plan ikinci borç kaldı
+
+`debtSourceOf` etiketi satırın `source`/`contractId` değerinden gelir; öğrencinin güncel sözleşmesi etiketi değiştirmez. Tahakkuk sözleşme taksitini ayı kapatan satır saymıyordu, sözleşme açılışı da taşınmayan `monthly_plan` satırını silmiyordu. **Ders:** yeni sözleşme çakışan tahsilatsız satırı iptal eder; özet kaydı eksik olsa bile yaşayan taksit ayı yeni tahakkuku keser; eski satır okumada borç sayılmaz, elle silinmez. İki branşta branşı boş satır tahmin edilmez.
+
 ## 2026-10-22 — Ödenmiş taksit sayısı satır adedinden sayıldı
 
 İlk tahsilat iki ayı tek payment satırında kapatınca sayaç 1 kaldı. `installmentMonthShares` birleşik etiketin yalnız son ayını tutuyor, `firstCollectionIncludesNextMonth` etiket veya `contractId` varsa ikinci ayı eklemiyordu. **Ders:** taksit sayısı `payments.filter(paid).length` değil; `coveredInstallmentCount` (kapanan dönem). Tutar/tarih yeniden yazılmaz. Etiket + kırılım + bayrak yoksa dönem tahmin edilmez.

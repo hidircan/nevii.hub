@@ -132,7 +132,7 @@ export function resolveAccrualOp(rows: PlanRow[], op: AccrualOp, studentId: stri
           adjustedBy: contractSuspensionTag(op.contractId),
           adjustmentReason: contractSuspendedReason(op.contractNumber),
           adjustedAt: nowIso,
-          ...(op.carriedOverIds?.includes(p.id) ? { paymentNote: `Sözleşme ${op.contractNumber} planına taşındı (yeniden borçlandırılmadı).` } : {}),
+          paymentNote: `Sözleşme ${op.contractNumber} planına taşındı (yeniden borçlandırılmadı).`,
         },
       }));
   }

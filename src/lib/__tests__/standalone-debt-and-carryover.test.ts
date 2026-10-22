@@ -130,6 +130,28 @@ describe("sözleşme dışı borcun sözleşmeye taşınması (çift borç yok, 
     expect(await listContractsForStudent(DEFAULT_TENANT_ID, "s1")).toHaveLength(0);
   });
 
+  it("taşı seçilmeden sözleşme, aynı ayın tahsilatsız aylık planını iptal eder; başka ay durur", async () => {
+    const { monthlyPlanId, paidSeedId } = await seed();
+    const { upsertMonthlyPlanPayment, readData } = await import("../store-json");
+    const later = await upsertMonthlyPlanPayment({ studentId: "s1", month: "2027-01", amount: 3000 });
+    const res = await createStudentContractTool(adminCtx(), input({}));
+    expect(res.ok).toBe(true);
+    const payments = (await readData()).payments.filter((p) => p.studentId === "s1");
+    const moved = payments.find((p) => p.id === monthlyPlanId)!;
+    expect(moved.status).toBe("voided");
+    expect(moved.amount).toBe(3000);
+    expect(moved.paymentNote ?? moved.adjustmentReason).toMatch(/taşındı|kapsıyor/);
+    expect(payments.find((p) => p.id === later.paymentId)!.status).not.toBe("voided");
+    expect(payments.find((p) => p.id === paidSeedId)!.status).toBe("paid");
+    const open = summarizeStudentDebt(payments, new Set()).openTotal;
+    const expected = payments
+      .filter((p) => p.id !== monthlyPlanId && p.status !== "paid" && p.status !== "voided")
+      .reduce((sum, p) => sum + Math.max(p.amount - p.paidAmount, 0), 0);
+    expect(open).toBe(expected);
+    expect(open).toBeGreaterThan(0);
+    expect(payments.some((p) => p.contractId && p.source === "contract")).toBe(true);
+  });
+
   it("2026-10-04 Ela vakası: aktif sözleşmesi olan öğrenciye ikinci ilk sözleşme açılamaz (çift borç yok)", async () => {
     await seed();
     const first = await createStudentContractTool(adminCtx(), input({ keepRestSeparate: undefined }));

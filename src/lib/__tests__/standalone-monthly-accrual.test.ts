@@ -65,4 +65,38 @@ describe("sözleşmesiz aylık tahakkuk (2026-10-05 — Öğrenciler listesinde 
     });
     expect(plan.map((p) => p.studentId)).toEqual(["cancelledContract"]);
   });
+
+  it("sözleşme özeti yokken taksit aynı ayı kapsıyorsa aylık plan yazılmaz; iptal taksidi engellemez", () => {
+    const plan = planStandaloneMonthlyAccruals({
+      students: [student("hiddenContract"), student("cancelledWithInstallment")],
+      payments: [
+        pay({
+          id: "hc",
+          studentId: "hiddenContract",
+          amount: 5950,
+          paidAmount: 0,
+          status: "pending",
+          source: "contract",
+          contractId: "live",
+          dueDate: "2026-10-05T12:00:00.000Z",
+          installmentPeriodLabel: "Ekim 2026",
+        }),
+        pay({
+          id: "cc",
+          studentId: "cancelledWithInstallment",
+          amount: 5950,
+          paidAmount: 0,
+          status: "pending",
+          source: "contract",
+          contractId: "dead",
+          dueDate: "2026-10-05T12:00:00.000Z",
+          installmentPeriodLabel: "Ekim 2026",
+        }),
+      ],
+      contractStatusByStudent: new Map(),
+      terminalContractIds: new Set(["dead"]),
+      month: "2026-10",
+    });
+    expect(plan.map((p) => p.studentId)).toEqual(["cancelledWithInstallment"]);
+  });
 });

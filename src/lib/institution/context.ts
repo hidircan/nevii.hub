@@ -225,7 +225,15 @@ const readScopedStudentListDataByKey = cache(async (key: string): Promise<Studen
     return runWithTenantAsync(key.slice("single:".length), () => readStudentListData());
   }
   const full = await readScopedDataByKey(key);
-  return { ...toReferenceData(full), payments: toPaymentStatusRows(full.payments) };
+  const tenantIds = key.slice("all:".length).split(",").filter(Boolean);
+  const { listTerminalContractIdsForScope } = await import("../contracts");
+  const { supersededUncollectedMonthlyPlanIds } = await import("../superseded-monthly-plan");
+  const drop = supersededUncollectedMonthlyPlanIds(
+    full.payments,
+    await listTerminalContractIdsForScope({ mode: "all", tenantIds })
+  );
+  const payments = drop.size === 0 ? full.payments : full.payments.filter((p) => !drop.has(p.id));
+  return { ...toReferenceData(full), payments: toPaymentStatusRows(payments) };
 });
 
 /** DB egress (2026-09-30) — Öğrenciler listesi (bkz. reference-data.ts `StudentListData`). */

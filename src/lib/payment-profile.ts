@@ -2,6 +2,7 @@ import type { Payment } from "./types";
 import { paidInstallmentCount, type CalendarPlanInstallment } from "./attendance-calendar-plan";
 import { isTerminalContractStatus, selectCurrentContract } from "./contract-list-helpers";
 import { isPaymentOverdue } from "./payments/status";
+import { supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
 
 /**
  * 2026-10-20 — "gecikmiş" TEK kuraldan (`payments/status.ts`): vade günü (kurum saati) geçmiş canlı borç. Ham
@@ -10,6 +11,15 @@ import { isPaymentOverdue } from "./payments/status";
  */
 function overdueOf(p: Pick<Payment, "status" | "amount" | "paidAmount"> & { dueDate?: string }): boolean {
   return p.dueDate ? isPaymentOverdue({ ...p, dueDate: p.dueDate }) : p.status === "overdue";
+}
+
+type DebtRow = Pick<Payment, "status" | "contractId" | "amount" | "paidAmount"> &
+  Partial<Pick<PlanLinkRow, "id" | "studentId" | "source" | "enrollmentId" | "description" | "installmentPeriodLabel" | "installmentBreakdown" | "firstCollectionIncludesNextMonth" | "dueDate">>;
+
+/** Dönem alanları yoksa (liste özeti) boş küme: gruplama zaten kalanı düşmüştür. */
+function supersededIds(payments: readonly DebtRow[], terminalContractIds: ReadonlySet<string>): Set<string> {
+  if (!payments.some((p) => p.source === "monthly_plan" && p.id && p.studentId)) return new Set();
+  return supersededUncollectedMonthlyPlanIds(payments as PlanLinkRow[], terminalContractIds);
 }
 
 export type StudentPaymentSummary = {
@@ -48,13 +58,14 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
   let overdueRemaining = 0;
   let openCount = 0;
   const terminalIds = new Set((contracts ?? []).filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const duplicatedPlan = supersededIds(payments, terminalIds);
   const current = contracts ? selectCurrentContract(contracts) : null;
   let currentContractBilled = current ? 0 : null;
 
   for (const p of payments) {
     // "voided" (ders iptaliyle geri alınmış otomatik tahsilat) hiç borç/tahsilat
     // sayılmaz — özet toplamlarına hiç girmez, yalnızca geçmişte görünür kalır.
-    if (p.status === "voided") continue;
+    if (p.status === "voided" || duplicatedPlan.has(p.id)) continue;
     totalCollected += p.paidAmount;
     if (current && p.contractId === current.id) currentContractBilled! += p.amount;
     if (p.contractId && terminalIds.has(p.contractId)) {
@@ -183,9 +194,10 @@ export type StudentDebtSummary = {
  * bağımsız borcu (aylık plan, elle borç, ders bazlı) aynen sayılır; sözleşme yok diye dışlanmaz.
  */
 export function summarizeStudentDebt(
-  payments: (Pick<Payment, "status" | "contractId" | "amount" | "paidAmount"> & { dueDate?: string })[],
+  payments: DebtRow[],
   terminalContractIds: ReadonlySet<string>
 ): StudentDebtSummary {
+  const duplicatedPlan = supersededIds(payments, terminalContractIds);
   let openTotal = 0;
   let overdueTotal = 0;
   let openCount = 0;
@@ -193,6 +205,7 @@ export function summarizeStudentDebt(
   let anyPaid = false;
   for (const p of payments) {
     if (p.status === "paid") anyPaid = true;
+    if (p.id && duplicatedPlan.has(p.id)) continue;
     if (!isLiveObligation(p, terminalContractIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     if (due <= 0) continue;
@@ -220,7 +233,8 @@ export type StudentDebtView = {
 };
 
 export function splitStudentDebt(payments: Payment[], terminalContractIds: ReadonlySet<string>): StudentDebtView {
-  const live = payments.filter((p) => isLiveObligation(p, terminalContractIds));
+  const duplicatedPlan = supersededIds(payments, terminalContractIds);
+  const live = payments.filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id));
   const open = [...live].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const due = (p: Payment) => Math.max(p.amount - p.paidAmount, 0);
   return {
@@ -266,6 +280,7 @@ export function computeBranchPaymentBreakdown(input: {
   unassignedLabel: string;
 }): BranchPaymentRow[] {
   const terminalIds = new Set(input.contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const duplicatedPlan = supersededIds(input.payments, terminalIds);
   const rows = new Map<string, BranchPaymentRow>();
   const rowOf = (key: string, label: string) => {
     let r = rows.get(key);
@@ -290,7 +305,7 @@ export function computeBranchPaymentBreakdown(input: {
     const key = input.paymentBranchOf(p) ?? "__unassigned__";
     const r = rows.get(key) ?? rowOf("__unassigned__", input.unassignedLabel);
     r.collected += collectedAmountOf(p);
-    if (!isLiveObligation(p, terminalIds)) continue;
+    if (duplicatedPlan.has(p.id) || !isLiveObligation(p, terminalIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     r.openTotal += due;
     if (overdueOf(p)) r.overdueTotal += due;
