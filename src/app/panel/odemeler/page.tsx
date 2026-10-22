@@ -17,7 +17,7 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { buildPaymentMonthView, parseMonthParam, shiftMonth } from "@/lib/payment-month-view";
 import { paidInstallmentCountsByStudent } from "@/lib/payment-profile";
-import { monthlyPlanPeriodLabel } from "@/lib/attendance-calendar-plan";
+import { contractInstallmentProgressDescription, monthlyPlanPeriodLabel } from "@/lib/attendance-calendar-plan";
 import { PAYMENT_STATUS_INFO, canonicalPaymentStatus, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
 
 export const dynamic = "force-dynamic";
@@ -102,7 +102,7 @@ export default async function OdemelerPage({
         id: p.id,
         studentId: p.studentId,
         studentName: studentName.get(p.studentId) ?? "",
-        description: p.description,
+        description: contractInstallmentProgressDescription(p),
         branchLabel: branchOf(p),
         method: p.method,
         dueDate: p.dueDate,

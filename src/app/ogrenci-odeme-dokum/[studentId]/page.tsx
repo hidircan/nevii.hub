@@ -1,3 +1,4 @@
+import { contractInstallmentProgressDescription, contractInstallmentProgressIndex } from "@/lib/attendance-calendar-plan";
 import { collectedAmountOf } from "@/lib/payment-profile";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -187,13 +188,14 @@ export default async function OgrenciOdemeDokumPage({
                 {payments.map((p) => {
                   const collected = isCollectedPayment(p);
                   const paidPart = collectedOf(p);
+                  const progress = contractInstallmentProgressIndex(p);
                   const contractRef = p.contractId
-                    ? `${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "Sözleşme"}${p.installmentSequence != null ? ` · ${p.installmentSequence}. taksit` : ""}`
+                    ? `${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "Sözleşme"}${progress != null ? ` · ${progress}. taksit` : ""}`
                     : null;
                   return (
                     <tr key={p.id}>
                       <td>
-                        {p.description}
+                        {contractInstallmentProgressDescription(p)}
                         {contractRef ? <span className="block text-xs">{contractRef}</span> : null}
                         {p.paymentNote ? <span className="block text-xs">Not: {p.paymentNote}</span> : null}
                         {p.adjustmentReason ? (

@@ -10,7 +10,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { STUDENT_CONTRACTS_FILE, registrationFirstCollectionPeriods } from "../contracts";
-import { allocateInOrder, coveredInstallmentCount, installmentMonthShares, resolveContractPlanForMonth, type CalendarPlanInstallment } from "../attendance-calendar-plan";
+import { allocateInOrder, contractInstallmentProgressDescription, contractInstallmentProgressIndex, coveredInstallmentCount, installmentMonthShares, resolveContractPlanForMonth, type CalendarPlanInstallment } from "../attendance-calendar-plan";
 import { collectAttendanceCalendarPaymentTool, createStudentTool, getAttendanceCalendarMonthTool } from "../services/tools";
 import { planStandaloneMonthlyAccruals } from "../standalone-monthly-accrual";
 import { readData } from "../store";
@@ -106,6 +106,34 @@ describe("installmentMonthShares — tek tahsilatın dönemlere dağılımı", (
       ["2026-11", 0, 0, true],
     ]);
     expect(coveredInstallmentCount(p)).toBe(2);
+  });
+
+  it("sözleşme taksit ibaresi kapanan dönemden türer: iki ay 2/12, kısmi ilk dönem 1/12", () => {
+    const two = [{ periodLabel: "Ekim 2026", amount: 3000 }, { periodLabel: "Kasım 2026", amount: 3000 }];
+    const paid = row({
+      installmentSequence: 1,
+      description: "Sözleşme taksiti 1/12 — Kayıt anında tahsil edildi",
+      installmentPeriodLabel: "Ekim 2026 + Kasım 2026",
+      installmentBreakdown: two,
+    });
+    expect(contractInstallmentProgressIndex(paid)).toBe(2);
+    expect(contractInstallmentProgressDescription(paid)).toBe("Sözleşme taksiti 2/12 — Kayıt anında tahsil edildi");
+    const partial = row({
+      paidAmount: 3000,
+      status: "partial",
+      installmentSequence: 1,
+      description: "Sözleşme taksiti 1/12",
+      installmentBreakdown: two,
+    });
+    expect(contractInstallmentProgressDescription(partial)).toBe("Sözleşme taksiti 1/12");
+    const later = row({
+      amount: 3000,
+      paidAmount: 3000,
+      installmentSequence: 3,
+      description: "Sözleşme taksiti 3/12",
+      installmentPeriodLabel: "Aralık 2026",
+    });
+    expect(contractInstallmentProgressDescription(later)).toBe("Sözleşme taksiti 3/12");
   });
 
   it("allocateInOrder deterministik", () => {

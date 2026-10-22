@@ -10,7 +10,7 @@ import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
-import { coveredInstallmentCount } from "@/lib/attendance-calendar-plan";
+import { contractInstallmentProgressDescription, coveredInstallmentCount } from "@/lib/attendance-calendar-plan";
 import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
 import { remainingAmount, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
 import { PaymentsMonthBoard } from "@/components/payments-month-board";
@@ -106,6 +106,7 @@ export default async function StudentPaymentProfilePage({
   const branchOf = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
+    description: contractInstallmentProgressDescription(p),
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
     branchLabel: branchOf(p),
   }));
@@ -121,7 +122,7 @@ export default async function StudentPaymentProfilePage({
       studentId: p.studentId,
       studentName: student.name,
       branchLabel: branchOf(p),
-      description: p.description,
+      description: contractInstallmentProgressDescription(p),
       expected: p.amount,
       collected: p.paidAmount,
       remaining: remainingAmount(p.amount, p.paidAmount),

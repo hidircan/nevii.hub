@@ -17,6 +17,7 @@ import {
 } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
 import {
@@ -299,7 +300,7 @@ export default async function StudentPaymentsTab({
                   <div>
                     <p className="font-medium text-[var(--color-text)]">
                       {branchTag(p)}
-                      {p.installmentPeriodLabel ?? p.description}
+                      {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)}
                     </p>
                     <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                       {DEBT_SOURCE_LABEL[debtSourceOf(p)]}
@@ -346,7 +347,7 @@ export default async function StudentPaymentsTab({
               >
                 <span className="text-[var(--color-text)]">
                   {branchTag(p)}
-                  {p.installmentPeriodLabel ?? p.description}
+                  {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)}
                 </span>
                 <span className="text-xs text-[var(--color-text-muted)]">
                   {p.paidAt ? formatDate(p.paidAt) : "Tarih yok"} ·{" "}
@@ -365,7 +366,7 @@ export default async function StudentPaymentsTab({
             <ul className="mt-2 space-y-1 text-xs text-[var(--color-text-muted)]">
               {debt.closedByContract.map((p) => (
                 <li key={p.id} id={`odeme-${p.id}`} className={p.id === odeme ? "font-semibold text-[var(--color-text)]" : undefined}>
-                  {p.installmentPeriodLabel ?? p.description} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
+                  {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
                 </li>
               ))}
             </ul>
