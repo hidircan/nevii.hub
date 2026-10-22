@@ -57,9 +57,15 @@ export type AccrualOp =
   /** Tahsilat görmemiş canlı satırı askıya al (gelecek ay, öğrenci artık uygun değil). */
   | { kind: "suspend"; paymentId: string }
   /** Sözleşmenin kapsadığı aylardaki tüm tahsilat görmemiş canlı satırları askıya al (sözleşme oluşturma). */
-  | ({ kind: "suspendForContract"; contractId: string; contractNumber: string; fromMonth: string; toMonth: string } & Scope);
+  | ({
+      kind: "suspendForContract"; contractId: string; contractNumber: string; fromMonth: string; toMonth: string;
+      /** Yöneticinin "sözleşmeye taşı" ile seçtiği satırlar: aynı adımda taşındı notu da yazılır. */
+      carriedOverIds?: string[];
+    } & Scope)
+  /** Sözleşme oluşturma GERİ ALINDI: o sözleşmenin askıya aldığı satırlar aynen eski haline (sözleşme kontrolü yok). */
+  | { kind: "releaseContract"; contractId: string };
 
-type RowPatch = Partial<Pick<Payment, "status" | "amount" | "adjustedBy" | "adjustmentReason" | "adjustedAt">>;
+type RowPatch = Partial<Pick<Payment, "status" | "amount" | "adjustedBy" | "adjustmentReason" | "adjustedAt" | "paymentNote">>;
 export type AccrualWrite =
   | { kind: "update"; id: string; patch: RowPatch; reopened?: true }
   | { kind: "create"; row: Payment }
@@ -67,7 +73,8 @@ export type AccrualWrite =
 
 /** Açma/yeniden açma/yeniden fiyatlama — kilit içinde sözleşme yeniden kontrolüne tabidir. */
 const OPENING_KINDS = new Set<AccrualOp["kind"]>(["ensure", "resume", "reprice"]);
-const CLEAR_MARK = { adjustedBy: undefined, adjustmentReason: undefined, adjustedAt: undefined } as const;
+// Tahsilat görmemiş satırda not yalnız sistemin yazdığı "taşındı" notu olabilir; yeniden açılınca o da kalkar.
+const CLEAR_MARK = { adjustedBy: undefined, adjustmentReason: undefined, adjustedAt: undefined, paymentNote: undefined } as const;
 
 function openStatus(amount: number, dueDate: string, now: Date): Payment["status"] {
   return resolveCollectionStatus({ amount, paidAmount: 0, dueDate, now });
@@ -120,13 +127,36 @@ export function resolveAccrualOp(rows: PlanRow[], op: AccrualOp, studentId: stri
       .map((p) => ({
         kind: "update" as const,
         id: p.id,
-        patch: { status: "voided" as const, adjustedBy: contractSuspensionTag(op.contractId), adjustmentReason: contractSuspendedReason(op.contractNumber), adjustedAt: nowIso },
+        patch: {
+          status: "voided" as const,
+          adjustedBy: contractSuspensionTag(op.contractId),
+          adjustmentReason: contractSuspendedReason(op.contractNumber),
+          adjustedAt: nowIso,
+          ...(op.carriedOverIds?.includes(p.id) ? { paymentNote: `Sözleşme ${op.contractNumber} planına taşındı (yeniden borçlandırılmadı).` } : {}),
+        },
       }));
+  }
+  if (op.kind === "releaseContract") {
+    const tag = contractSuspensionTag(op.contractId);
+    return rows
+      .filter((p) => suspensionTagOf(p) === tag)
+      .map((p) => ({ kind: "update" as const, id: p.id, reopened: true as const, patch: { status: openStatus(p.amount, p.dueDate, now), ...CLEAR_MARK } }));
   }
   const row = rows.find((p) => p.id === op.paymentId);
   if (!row || !isUntouchedPlanRow(row)) return [{ kind: "skip", reason: "touched_or_missing" }];
   if (op.kind === "resume") {
     if (!suspensionTagOf(row)) return [{ kind: "skip", reason: "not_suspended" }];
+    // Aynı ay + branş için zaten açık/tahsil edilmiş bir satır varsa açılmaz (çift borç yok).
+    const month = installmentMonthKeys(row)[0];
+    const taken = rows.some(
+      (p) =>
+        p.id !== row.id &&
+        p.status !== "voided" &&
+        !!month &&
+        isMonthlyPlanRowForMonth(p, month) &&
+        matchesEnrollmentScope(p.enrollmentId, { enrollmentId: row.enrollmentId, includeUnlinked: true })
+    );
+    if (taken) return [{ kind: "skip", reason: "month_taken" }];
     return [{ kind: "update", id: row.id, reopened: true, patch: { status: openStatus(op.amount, row.dueDate, now), amount: op.amount, ...CLEAR_MARK } }];
   }
   if (row.status === "voided") return [{ kind: "skip", reason: "voided" }];
@@ -145,7 +175,7 @@ export type ContractGate = (contracts: StudentContractSummary[], enrollmentId: s
 
 function opEnrollmentId(rows: PlanRow[], op: AccrualOp): string | undefined {
   if ("paymentId" in op) return rows.find((p) => p.id === op.paymentId)?.enrollmentId;
-  return op.enrollmentId;
+  return "enrollmentId" in op ? op.enrollmentId : undefined;
 }
 
 /** Bir öğrencinin tahakkuk işlemlerini kilit altında, taze satırlarla uygular. Dönen: uygulanan yazımlar. */
@@ -234,6 +264,7 @@ async function applyDb(tenantId: string, studentId: string, decide: Decide, opts
           ...(p.status !== undefined ? { status: p.status } : {}),
           ...(p.amount !== undefined ? { amount: p.amount } : {}),
           ...("adjustedBy" in p ? { adjustedBy: p.adjustedBy ?? null, adjustmentReason: p.adjustmentReason ?? null, adjustedAt: p.adjustedAt ? new Date(p.adjustedAt) : null } : {}),
+          ...("paymentNote" in p ? { paymentNote: p.paymentNote ?? null } : {}),
         },
       });
       if (count === 0) continue;

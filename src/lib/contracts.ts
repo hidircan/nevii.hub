@@ -803,6 +803,12 @@ export type CreateContractInput = {
   blockOnUnassignedActive?: boolean;
   /** 2026-10-09 — kayıt ilk tahsilatının aranacağı branş kapsamı (yoksa eski davranış: öğrenci başına). */
   registrationPaymentScope?: import("./student-enrollments").EnrollmentScope;
+  /**
+   * 2026-10-23 — verilirse sözleşmenin kapsadığı aylardaki tahsilat görmemiş sözleşmesiz aylık plan satırları bu
+   * işlemin PARÇASI olarak askıya alınır (`payments/accrual-rows.ts`). Adım başarısız olursa sözleşme geri alınır:
+   * sözleşme ile aynı aya açık sözleşmesiz borç asla birlikte kalmaz.
+   */
+  standaloneSuspension?: { enrollmentId?: string; includeUnlinked: boolean; carriedOverIds?: string[] };
 };
 
 export type CreateContractResult = {
@@ -1448,11 +1454,40 @@ export async function createContract(input: CreateContractInput): Promise<Create
     enrollmentId: row.enrollmentId,
   });
 
+  if (input.standaloneSuspension) {
+    // SON adım (bilinçli): kendi kilidi/transaction'ı içinde ya hep ya hiç yazılır; hata verirse aşağıdaki geri alma
+    // sözleşmeyi ve taksitlerini kaldırır — askıya alınmış satır kalmaz, açık çift borç da kalmaz.
+    const { applyAccrualOps } = await import("./payments/accrual-rows");
+    await applyAccrualOps(
+      input.tenantId,
+      input.studentId,
+      [
+        {
+          kind: "suspendForContract",
+          contractId: row.id,
+          contractNumber: row.contractNumber,
+          fromMonth: row.enrollmentStartDate.slice(0, 7),
+          toMonth: row.enrollmentEndDate.slice(0, 7),
+          ...input.standaloneSuspension,
+        },
+      ],
+      { actorUserId: input.createdBy }
+    );
+  }
+
   return { contract: toPublic(row), installments: installmentPayments, amendmentCredit };
   } catch (e) {
     await rollbackContractRow(createdPaymentIds).catch((rollbackError) => {
       logger.error("createContract rollback failed", rollbackError);
     });
+    if (input.standaloneSuspension) {
+      // Askıya alma kısmen yazıldıysa (ör. dosya modunda vaka senkronu sonrası hata) bu sözleşmenin askıya aldığı
+      // satırlar eski haline döner: sözleşme yok → sözleşmesiz borç kaybolmaz.
+      const { applyAccrualOps } = await import("./payments/accrual-rows");
+      await applyAccrualOps(input.tenantId, input.studentId, [{ kind: "releaseContract", contractId: row.id }], { actorUserId: input.createdBy }).catch(
+        (releaseError) => logger.error("createContract standalone release failed", releaseError)
+      );
+    }
     throw e;
   }
 }

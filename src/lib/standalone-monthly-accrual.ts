@@ -149,17 +149,31 @@ export function planUpcomingAccrualSync(input: AccrualPlanInput): {
 }
 
 /**
- * Saf: iptal edilen sözleşmenin askıya aldığı sözleşmesiz satırlar (geçmiş aylar dahil) yeniden açılır — o aya
- * iptal edilen sözleşmeden FİİLEN tahsilat alınmışsa açılmaz (ay ödenmiş; çift borç olmaz).
+ * Saf: SÖZLEŞME nedeniyle askıya alınmış sözleşmesiz satırların KANONİK geri açılışı — hangi sözleşmenin etiketlediğine
+ * bakılmaz (yenileme zincirinde A'nın askıya aldığı satır, B iptal edilince de değerlendirilir). Satır yalnız şu
+ * durumda açılır:
+ * - öğrencinin/branşın GÜNCEL sözleşmesi yaşamıyor (`hasLiveContract` — planlayıcının kuralı; kilit içinde yeniden
+ *   kontrol edilir),
+ * - o aya HERHANGİ bir sözleşmeden (iptal/yenilenmiş dahil, aynı branş) fiilen tahsilat alınmamış (ay ödenmiş),
+ * - aynı ay için açık başka satır yok (yazım sırasında `resume` kilit içinde ayrıca kontrol eder).
+ * Tahsilat görmüş satır askıya alınmış olamaz; bu yüzden dokunulmaz.
  */
-export function planContractCancelRestore(payments: Payment[], contractId: string): { paymentId: string; studentId: string; amount: number }[] {
-  const tag = contractSuspensionTag(contractId);
+export function planContractRestore(
+  payments: Payment[],
+  hasLiveContract: (studentId: string, enrollmentId: string | undefined) => boolean
+): { paymentId: string; studentId: string; amount: number }[] {
   return payments
-    .filter((p) => suspensionTagOf(p) === tag)
+    .filter((p) => suspensionTagOf(p)?.startsWith("system:contract:"))
+    .filter((p) => !hasLiveContract(p.studentId, p.enrollmentId))
     .filter((p) => {
       const month = installmentMonthKeys(p)[0];
       return !payments.some(
-        (c) => c.contractId === contractId && Math.trunc(c.paidAmount) > 0 && installmentMonthShares(c).some((s) => s.month === month && s.paidAmount > 0)
+        (c) =>
+          c.studentId === p.studentId &&
+          !!c.contractId &&
+          (!c.enrollmentId || !p.enrollmentId || c.enrollmentId === p.enrollmentId) &&
+          Math.trunc(c.paidAmount) > 0 &&
+          installmentMonthShares(c).some((s) => s.month === month && s.paidAmount > 0)
       );
     })
     .map((p) => ({ paymentId: p.id, studentId: p.studentId, amount: Math.trunc(p.amount) }));
@@ -203,13 +217,13 @@ export type AccrualSyncResult = {
 };
 
 /**
- * Tahakkuk senkronu — gece işi (tüm kurum) ve sözleşme iptali (`studentId` + `restoreContractId`) AYNI yoldan.
+ * Tahakkuk senkronu — gece işi (tüm kurum) ve sözleşme iptali (`studentId`) AYNI yoldan.
  * Çağıran kurum kapsamını (ALS) kurmuş olmalı. `apply:false` yalnız planı döndürür. Yazımlar öğrenci başına
  * `applyAccrualOps` ile kilit altında, sözleşme durumu kilit içinde yeniden kontrol edilerek yapılır.
  */
 export async function syncStandaloneAccruals(
   tenantId: string,
-  opts: { apply: boolean; now?: Date; studentId?: string; restoreContractId?: string; actorUserId?: string }
+  opts: { apply: boolean; now?: Date; studentId?: string; actorUserId?: string }
 ): Promise<AccrualSyncResult> {
   const [store, contracts, { recordAuditLog }, { applyAccrualOps }] = await Promise.all([
     import("./store"),
@@ -232,7 +246,26 @@ export async function syncStandaloneAccruals(
   };
   const current = planStandaloneMonthlyAccruals({ ...base, month });
   const upcoming = planUpcomingAccrualSync({ ...base, month: next });
-  const restore = opts.restoreContractId ? planContractCancelRestore(data.payments, opts.restoreContractId) : [];
+  const contractGateOf = (studentId: string): ContractGate => {
+    const st = data.students.find((x) => x.id === studentId);
+    const multiBranch = st ? effectiveEnrollments(st, data.teachers).length > 1 : false;
+    // Planlayıcının kuralı: tek branş → öğrencinin güncel sözleşmesi; çok branş → branşın güncel sözleşmesi.
+    return (fresh, enrollmentId) => {
+      if (!st) return true;
+      if (multiBranch) {
+        const own = fresh.map((r) => ({ ...r, id: r.contractId }));
+        const cur = selectCurrentContract(enrollmentId ? own.filter((r) => contractEnrollmentId(st, r, data.teachers) === enrollmentId) : own);
+        return !!cur && !isTerminalContractStatus(cur.status);
+      }
+      const cur = contracts.currentContractSummaryByStudent(fresh).get(studentId);
+      return !!cur && !isTerminalContractStatus(cur.status);
+    };
+  };
+  // Sözleşme nedeniyle askıdaki satırlar her çalıştırmada (gece + iptal anı) güncel duruma göre geri açılır; anlık görüntüde
+  // yaşayan sözleşmesi olan öğrenci için işlem bile üretilmez (kilit/egress yok).
+  const restore = planContractRestore(data.payments, (studentId, enrollmentId) =>
+    contractGateOf(studentId)(rows.filter((r) => r.studentId === studentId), enrollmentId)
+  );
   const planned = [...current, ...upcoming.create];
   const result: AccrualSyncResult = { month, planned, created: 0, suspended: 0, repriced: 0 };
   if (!opts.apply) return result;
@@ -262,18 +295,8 @@ export async function syncStandaloneAccruals(
 
   // Sıralı: json store'da eşzamanlı yazım yarışmasın.
   for (const [studentId, ops] of opsByStudent) {
-    const st = data.students.find((x) => x.id === studentId)!;
-    const multiBranch = multiBranchOf(studentId);
-    // Kilit içinde TAZE sözleşme satırlarıyla planlayıcının kuralı: yaşayan (güncel) sözleşme → açma yok.
-    const gate: ContractGate = (fresh, enrollmentId) => {
-      if (multiBranch) {
-        const own = fresh.map((r) => ({ ...r, id: r.contractId }));
-        const cur = selectCurrentContract(enrollmentId ? own.filter((r) => contractEnrollmentId(st, r, data.teachers) === enrollmentId) : own);
-        return !!cur && !isTerminalContractStatus(cur.status);
-      }
-      const cur = contracts.currentContractSummaryByStudent(fresh).get(studentId);
-      return !!cur && !isTerminalContractStatus(cur.status);
-    };
+    // Kilit içinde TAZE sözleşme satırlarıyla aynı kural yeniden uygulanır: yaşayan sözleşme → açma yok.
+    const gate = contractGateOf(studentId);
     const writes = await applyAccrualOps(tenantId, studentId, ops, { actorUserId, gate, now: opts.now });
     for (const w of writes) {
       if (w.kind === "skip") continue;
@@ -284,7 +307,7 @@ export async function syncStandaloneAccruals(
       const id = w.kind === "create" ? w.row.id : w.id;
       await recordAuditLog({
         tenantId, actorUserId, actorRole: "SYSTEM", action, entityType: "Payment", entityId: id, outcome: "success",
-        meta: { studentId, ...(w.kind === "create" ? { month: installmentMonthKeys(w.row)[0], amount: w.row.amount, enrollmentId: w.row.enrollmentId } : { patch: w.patch }), ...(opts.restoreContractId ? { contractId: opts.restoreContractId } : {}) },
+        meta: { studentId, ...(w.kind === "create" ? { month: installmentMonthKeys(w.row)[0], amount: w.row.amount, enrollmentId: w.row.enrollmentId } : { patch: w.patch }), },
       });
     }
   }

@@ -6,7 +6,7 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import { STUDENT_CONTRACTS_FILE } from "../contracts";
 import { DOCUMENT_TEMPLATES_FILE, DOCUMENT_INSTANCES_FILE } from "../documents";
 import { createStudentContractTool } from "../services/tools";
-import { planContractCancelRestore, planUpcomingAccrualSync, syncStandaloneAccruals } from "../standalone-monthly-accrual";
+import { planContractRestore, planUpcomingAccrualSync, syncStandaloneAccruals } from "../standalone-monthly-accrual";
 import { ACCRUAL_SUSPENDED_TAG, applyAccrualOps, contractSuspensionTag, resolveAccrualOp, type PlanRow } from "../payments/accrual-rows";
 import type { ServiceContext } from "../services/context";
 import type { Payment, Student } from "../types";
@@ -90,7 +90,7 @@ describe("2) sözleşme açılınca çift borç yok", () => {
 
     const { cancelContract } = await import("../contracts");
     await cancelContract(DEFAULT_TENANT_ID, res.data.contract.id);
-    await syncStandaloneAccruals(DEFAULT_TENANT_ID, { apply: true, studentId: "s1", restoreContractId: res.data.contract.id, actorUserId: "u1", now: NOW });
+    await syncStandaloneAccruals(DEFAULT_TENANT_ID, { apply: true, studentId: "s1", actorUserId: "u1", now: NOW });
     rows = (await store.readData()).payments;
     const plans = rows.filter((p) => p.studentId === "s1" && p.source === "monthly_plan" && p.status !== "voided");
     expect(plans.map((p) => p.id).sort()).toEqual([oct, nov].sort());
@@ -119,10 +119,39 @@ describe("2) sözleşme açılınca çift borç yok", () => {
     expect(writes).toEqual([]);
   });
 
-  it("iptal edilen sözleşmeden tahsil edilmiş ay geri açılmaz", () => {
-    const suspendedOct = plan("o", { studentId: "s1", status: "voided", adjustedBy: contractSuspensionTag("c1"), description: "Aylık plan — 2026-10 (3000 TL)", installmentPeriodLabel: "Ekim 2026" });
-    const paidInstallment = plan("i", { studentId: "s1", source: "contract", contractId: "c1", paidAmount: 3000, status: "paid", installmentPeriodLabel: "Ekim 2026" });
-    expect(planContractCancelRestore([suspendedOct, paidInstallment], "c1")).toEqual([]);
-    expect(planContractCancelRestore([suspendedOct], "c1")).toEqual([{ paymentId: "o", studentId: "s1", amount: 7950 }]);
+  it("geri açma kanonik: etiketi hangi sözleşme koymuş olursa olsun güncel duruma bakar; ödenmiş ay ve yaşayan sözleşme açmaz", () => {
+    // Yenileme zinciri: A'nın askıya aldığı Ekim, B iptal edilince değerlendirilir (etiket A olsa da).
+    const suspendedOct = plan("o", { studentId: "s1", status: "voided", adjustedBy: contractSuspensionTag("A"), description: "Aylık plan — 2026-10 (3000 TL)", installmentPeriodLabel: "Ekim 2026" });
+    const none = () => false;
+    expect(planContractRestore([suspendedOct], none)).toEqual([{ paymentId: "o", studentId: "s1", amount: 7950 }]);
+    // Zincirdeki HERHANGİ bir sözleşmeden (burada B) o aya tahsilat alınmışsa ay ödenmiştir → açılmaz.
+    const paidByB = plan("i", { studentId: "s1", source: "contract", contractId: "B", paidAmount: 3000, status: "paid", installmentPeriodLabel: "Ekim 2026" });
+    expect(planContractRestore([suspendedOct, paidByB], none)).toEqual([]);
+    // Güncel sözleşme yaşıyorsa açılmaz; sistemin tahakkuk nedeniyle askıya aldığı satır bu kuralın konusu değildir.
+    expect(planContractRestore([suspendedOct], () => true)).toEqual([]);
+    expect(planContractRestore([{ ...suspendedOct, adjustedBy: ACCRUAL_SUSPENDED_TAG }], none)).toEqual([]);
+  });
+
+  it("yenileme zinciri (entegrasyon): A askıya alır, B yeniler, B iptal → satırlar AYNEN geri açılır, ikinci satır yok", async () => {
+    const { store, oct, nov } = await seed();
+    const a = await createStudentContractTool(adminCtx(), contractInput);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    const b = await createStudentContractTool(adminCtx(), {
+      ...contractInput,
+      contractType: "renewal",
+      previousContractId: a.data.contract.id,
+      renewalDebtOverrideReason: "Test: önceki sözleşmenin açık taksitleri bilinçli olarak devrediliyor.",
+      allowOverlap: true,
+      overlapReason: "Test: yenileme aynı dönemi kapsıyor.",
+      firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-10-20T09:00:00.000Z" },
+    });
+    expect(b.ok, b.ok ? "" : b.error.message).toBe(true);
+    if (!b.ok) return;
+    const { cancelContract } = await import("../contracts");
+    await cancelContract(DEFAULT_TENANT_ID, b.data.contract.id);
+    await syncStandaloneAccruals(DEFAULT_TENANT_ID, { apply: true, studentId: "s1", actorUserId: "u1", now: NOW });
+    const open = (await store.readData()).payments.filter((p) => p.studentId === "s1" && p.source === "monthly_plan" && p.status !== "voided");
+    expect(open.map((p) => p.id).sort()).toEqual([oct, nov].sort());
   });
 });
