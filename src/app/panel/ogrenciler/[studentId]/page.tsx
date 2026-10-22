@@ -293,7 +293,7 @@ export default async function StudentOverviewTab({
         initialEditId={duzenleBrans}
       />
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {multiBranch ? (
           <MiniStat
             label="Güncel sözleşmeler tahakkuku (tüm branşlar)"
@@ -317,6 +317,7 @@ export default async function StudentOverviewTab({
           value={formatMoney(paymentSummary.overdueRemaining)}
           tone={paymentSummary.overdueRemaining > 0 ? "danger" : undefined}
         />
+        <MiniStat label="Ödenmiş taksit sayısı" value={String(paymentSummary.paidInstallmentCount)} />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

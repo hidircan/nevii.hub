@@ -16,6 +16,7 @@ describe("computeStudentPaymentSummary", () => {
       remaining: 3600,
       overdueRemaining: 3600,
       openCount: 1,
+      paidInstallmentCount: 0,
     });
   });
 
@@ -31,6 +32,7 @@ describe("computeStudentPaymentSummary", () => {
       // 2026-10-20 — vadesi (2 gün önce) geçmiş kısmi ödemenin kalanı gecikmiştir (payments/status.ts).
       overdueRemaining: 1500,
       openCount: 1,
+      paidInstallmentCount: 0,
     });
   });
 
@@ -45,6 +47,7 @@ describe("computeStudentPaymentSummary", () => {
       remaining: 0,
       overdueRemaining: 0,
       openCount: 0,
+      paidInstallmentCount: 1,
     });
   });
 
@@ -74,6 +77,7 @@ describe("computeStudentPaymentSummary", () => {
       remaining: 0,
       overdueRemaining: 0,
       openCount: 0,
+      paidInstallmentCount: 0,
     });
   });
 

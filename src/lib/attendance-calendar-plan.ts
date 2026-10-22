@@ -215,10 +215,11 @@ export function installmentMonthKeys(p: CalendarPlanInstallment): string[] {
  * - Dönem kırılımı (`installmentBreakdown`) varsa borç, kırılım tutarları sırayla doldurularak dağıtılır; satır tutarı
  *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer. Tahsilat en eski dönemden başlayarak
  *   mahsup edilir (kısmi ödeme / iade sonrası eksik kalan, en yeni dönemdir).
- * - Kırılımı OLMAYAN eski kayıt ilk tahsilatında "takip eden ayı da ekle" seçiliyse (açık seçim), sonraki ay
- *   KARŞILANMIŞ sayılır ama tutarı kayda işlenmemiştir: o ayın payı 0'dır ve `unsplit` işaretlenir. Tutar TAHMİN
- *   edilmez (öğrencinin bugünkü ücretinden türetilmez); kırılım `scripts/backfill-first-collection-periods.ts` ile,
- *   onaydan sonra yazılır.
+ * - Kırılımı OLMAYAN eski kayıtta "takip eden ayı da ekle" seçiliyse (alanın kendisi; kaynak veya sözleşme bağı
+ *   aranmaz), sonraki ay KARŞILANMIŞ sayılır ama tutarı kayda işlenmemiştir: o ayın payı 0'dır ve `unsplit`
+ *   işaretlenir. Tutar TAHMİN edilmez. İki parçalı kırılım varsa o yeterlidir; bayrak üçüncü ay eklemez.
+ * - Kırılım yokken etiket "A + B" ise para ilk aya yazılır, sonraki etiketli aylar `unsplit` kalır. Etiket tek ay
+ *   ise ve bayrak açıksa sonraki ay eklenir.
  */
 export type InstallmentMonthShare = {
   month: string;
@@ -247,18 +248,50 @@ function nextMonthKeyOf(monthKey: string): string {
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
 }
 
+/** "Ekim 2026 + Kasım 2026" → her parçanın ayı. Parça ayrışmazsa boş (tek ay yolu kullanılır). */
+function combinedPeriodMonths(label: string | undefined): { month: string; label: string }[] {
+  if (!label?.includes(" + ")) return [];
+  const out: { month: string; label: string }[] = [];
+  for (const chunk of label.split(" + ")) {
+    const part = chunk.trim();
+    const month = monthKeyOfPeriodLabel(part);
+    if (!month) return [];
+    out.push({ month, label: part });
+  }
+  return out.length >= 2 ? out : [];
+}
+
+function withUnsplitNextMonth(own: InstallmentMonthShare, includeNext: boolean | undefined): InstallmentMonthShare[] {
+  if (!includeNext) return [own];
+  return [own, { month: nextMonthKeyOf(own.month), amount: 0, paidAmount: 0, unsplit: true }];
+}
+
 export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentMonthShare[] {
   const amount = Math.trunc(p.amount);
   const paid = Math.trunc(p.paidAmount);
   const parts = (p.installmentBreakdown ?? [])
     .map((b) => ({ month: monthKeyOfPeriodLabel(b.periodLabel), cap: b.amount, label: b.periodLabel }))
     .filter((b): b is { month: string; cap: number; label: string } => !!b.month);
-  if (parts.length > 0) {
+  if (parts.length >= 2) {
     const amounts = allocateInOrder(amount, parts.map((b) => b.cap));
     const paids = allocateInOrder(paid, amounts);
     return parts.map((b, i) => ({ month: b.month, amount: amounts[i]!, paidAmount: paids[i]!, periodLabel: b.label }));
   }
+  if (parts.length === 1) {
+    const amounts = allocateInOrder(amount, [parts[0]!.cap]);
+    const paids = allocateInOrder(paid, amounts);
+    const own: InstallmentMonthShare = { month: parts[0]!.month, amount: amounts[0]!, paidAmount: paids[0]!, periodLabel: parts[0]!.label };
+    return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+  }
   const label = p.installmentPeriodLabel ?? p.periodLabel;
+  const labeled = combinedPeriodMonths(label);
+  if (labeled.length >= 2) {
+    const [first, ...rest] = labeled;
+    return [
+      { month: first!.month, amount, paidAmount: paid, periodLabel: first!.label },
+      ...rest.map((b) => ({ month: b.month, amount: 0, paidAmount: 0, periodLabel: b.label, unsplit: true as const })),
+    ];
+  }
   const fromLabel = monthKeyOfPeriodLabel(label);
   // 2026-10-06 — sözleşmesiz aylık plan: dönem ayı, kullanıcının SEÇTİĞİ ay kutusudur (açıklamaya yazılan ay).
   // Eski takvim tahsilatı vadeye TAHSİLAT günü yazıyordu (Ekim kutusu + 30.09 → Eylül'de görünüyordu);
@@ -266,10 +299,36 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
   const fromDescription = p.source === "monthly_plan" ? monthlyPlanMonthOfDescription(p.description) : undefined;
   const month = fromLabel ?? fromDescription ?? monthKeyOf(p.dueDate);
   const own: InstallmentMonthShare = { month, amount, paidAmount: paid, ...(label ? { periodLabel: label } : {}) };
-  if (p.source === "registration_first_payment" && !p.contractId && p.firstCollectionIncludesNextMonth && !fromLabel) {
-    return [own, { month: nextMonthKeyOf(month), amount: 0, paidAmount: 0, unsplit: true }];
+  return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+}
+
+/** Satırın tamamen tahsil edilip edilmediği. `unsplit` ayın sayaçta görünmesi buna bağlıdır. */
+function parentFullyCollected(p: CalendarPlanInstallment): boolean {
+  const amount = Math.trunc(p.amount);
+  const paid = Math.trunc(p.paidAmount);
+  return p.status === "paid" || (amount > 0 && paid >= amount);
+}
+
+/**
+ * Bu satırın fiilen kapattığı dönem/taksit sayısı. Satır adedi değildir: iki dönemlik tek tahsilat 2'dir.
+ * Paralı bir pay yalnız kendi tutarı tam karşılanınca sayılır (kısmi ödeme en eski dönemi kapatır).
+ * Tutarı yazılmamış (`unsplit`) ay, satırın kendisi tam tahsil edildiyse sayılır.
+ */
+export function coveredInstallmentCount(p: CalendarPlanInstallment): number {
+  if (p.status === "voided") return 0;
+  let n = 0;
+  for (const share of installmentMonthShares(p)) {
+    if (share.unsplit) {
+      if (parentFullyCollected(p)) n += 1;
+      continue;
+    }
+    if (share.amount > 0 && share.paidAmount >= share.amount) n += 1;
   }
-  return [own];
+  return n;
+}
+
+export function paidInstallmentCount(payments: readonly CalendarPlanInstallment[]): number {
+  return payments.reduce((n, p) => n + coveredInstallmentCount(p), 0);
 }
 
 const TR_MONTH_NAMES = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];

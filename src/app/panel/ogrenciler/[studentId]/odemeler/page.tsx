@@ -110,7 +110,7 @@ export default async function StudentPaymentsTab({
             Ödeme Detayında Aç →
           </Link>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {multiBranch ? (
             <MiniStat
               label="Güncel sözleşmeler tahakkuku (tüm branşlar)"
@@ -129,6 +129,7 @@ export default async function StudentPaymentsTab({
             value={formatMoney(paymentSummary.overdueRemaining)}
             tone={paymentSummary.overdueRemaining > 0 ? "danger" : undefined}
           />
+          <MiniStat label="Ödenmiş taksit sayısı" value={String(paymentSummary.paidInstallmentCount)} />
         </div>
       </section>
 

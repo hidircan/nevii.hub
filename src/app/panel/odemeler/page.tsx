@@ -16,6 +16,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { buildPaymentMonthView, parseMonthParam, shiftMonth } from "@/lib/payment-month-view";
+import { paidInstallmentCountsByStudent } from "@/lib/payment-profile";
 import { monthlyPlanPeriodLabel } from "@/lib/attendance-calendar-plan";
 import { PAYMENT_STATUS_INFO, canonicalPaymentStatus, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
 
@@ -215,6 +216,7 @@ export default async function OdemelerPage({
             monthLabel={monthLabel}
             rows={view.rows}
             carryover={view.carryover}
+            paidInstallmentCounts={paidInstallmentCountsByStudent(payments)}
             canWrite={canWrite}
             canDelete={canDelete}
           />

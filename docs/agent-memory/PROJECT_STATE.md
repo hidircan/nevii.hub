@@ -4,7 +4,12 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-20 (P0/P1: Yoklama Düzelt, AI buton sürükleme, Telafi pencere, Ödemeler redesign; PR açık, MERGE/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-22 (ödenmiş taksit sayısı; MERGE/PUSH/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-paid-installment-count`, dal `fix/paid-installment-count` (taban origin/main d8107c33).
+- Ödenmiş taksit sayısı satır adedinden değil `coveredInstallmentCount` / `paidInstallmentCount` ile kapanan dönemden gelir. İki aylık ilk tahsilat 2 sayılır. Tutar ve tarihe dokunulmadı.
+- Açık: owner canlı kabul. Etiketi, kırılımı ve `firstCollectionIncludesNextMonth` bayrağı olmayan eski satırlar dönem sayamaz; mevcut backfill betiği dry-run, çalıştırılmadı.
+
+## Snapshot — 2026-10-20 (P0/P1: Yoklama Düzelt, AI buton sürükleme, Telafi pencere, Ödemeler redesign; PR açık, MERGE/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-p0-redesign`, dal `fix/p0-yoklama-telafi-odemeler` (taban origin/main 73a8e1a).
 - Yoklama Takvimi: her tahsilat satırında "Düzelt" (`PaymentCorrectionForm` → PATCH /payments/:id), "Yeni tahsilat ekle" ayrı;
   sözleşme taksitinin dondurulmuş tutarı düzeltmeyle değişmez. AI başlatıcı sürüklenir (Pointer Events, sessionStorage).
