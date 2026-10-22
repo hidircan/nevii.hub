@@ -31,6 +31,7 @@ export function PaymentsMonthBoard({
   monthLabel,
   rows,
   carryover,
+  paidInstallmentCounts,
   canWrite,
   canDelete,
   empty,
@@ -40,6 +41,8 @@ export function PaymentsMonthBoard({
   monthLabel: string;
   rows: MonthPaymentRow[];
   carryover: MonthPaymentRow[];
+  /** Öğrencinin tüm ödemelerinden türetilen ödenmiş taksit sayısı. Ay satırlarından sayılmaz. */
+  paidInstallmentCounts?: Record<string, number>;
   canWrite: boolean;
   canDelete: boolean;
 }) {
@@ -160,6 +163,7 @@ export function PaymentsMonthBoard({
           studentId={drawerStudentId}
           monthLabel={monthLabel}
           rows={drawerRows}
+          paidInstallmentCount={paidInstallmentCounts?.[drawerStudentId]}
           onClose={() => setDrawerStudentId(null)}
           {...actions}
         />
@@ -299,6 +303,7 @@ function RowContext({ row, showMonth }: { row: MonthPaymentRow; showMonth?: bool
     row.description,
     row.paidAt && row.collected > 0 ? `Tahsilat ${formatDate(row.paidAt)}${row.method ? ` · ${paymentMethodLabelTr(row.method)}` : ""}` : null,
     row.spansMonths ? "çok aylı tahsilatın bu aya düşen payı" : null,
+    row.coveredInstallments > 1 ? `${row.coveredInstallments} taksit karşılandı` : null,
   ].filter(Boolean);
   return <p className="truncate text-xs text-[var(--color-text-muted)]" title={bits.join(" · ")}>{bits.join(" · ")}</p>;
 }
@@ -354,9 +359,10 @@ function StudentDrawer({
   studentId,
   monthLabel,
   rows,
+  paidInstallmentCount,
   onClose,
   ...actions
-}: LineActions & { studentId: string; monthLabel: string; rows: MonthPaymentRow[]; onClose: () => void }) {
+}: LineActions & { studentId: string; monthLabel: string; rows: MonthPaymentRow[]; paidInstallmentCount?: number; onClose: () => void }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -375,6 +381,11 @@ function StudentDrawer({
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-[var(--color-text)]">{name}</p>
             <p className="text-xs text-[var(--color-text-muted)]">{monthLabel} ve önceki aylardan kalan gecikmişler</p>
+            {paidInstallmentCount !== undefined ? (
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Ödenmiş taksit sayısı: <strong className="tabular-nums text-[var(--color-text)]">{paidInstallmentCount}</strong>
+              </p>
+            ) : null}
           </div>
           <button type="button" onClick={onClose} aria-label="Kapat" className="rounded-md p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]">
             <X className="h-4 w-4" />

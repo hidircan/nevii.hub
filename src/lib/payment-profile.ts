@@ -1,4 +1,5 @@
 import type { Payment } from "./types";
+import { paidInstallmentCount, type CalendarPlanInstallment } from "./attendance-calendar-plan";
 import { isTerminalContractStatus, selectCurrentContract } from "./contract-list-helpers";
 import { isPaymentOverdue } from "./payments/status";
 
@@ -19,6 +20,8 @@ export type StudentPaymentSummary = {
   remaining: number;
   overdueRemaining: number;
   openCount: number;
+  /** Tam kapanmış dönem sayısı. Satır adedi değil (`coveredInstallmentCount`). */
+  paidInstallmentCount: number;
   /**
    * Güncel (iptal/yenilenmemiş) sözleşmenin taksit tutarları toplamı. `null`:
    * aktif sözleşme yok ya da çağıran sözleşme listesi vermedi.
@@ -71,9 +74,25 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
     remaining,
     overdueRemaining,
     openCount,
+    paidInstallmentCount: paidInstallmentCount(payments),
     currentContractBilled,
     currentContractNumber: current?.contractNumber ?? null,
   };
+}
+
+/** Öğrenci kimliği → ödenmiş taksit sayısı. Ödemeler listesi çekmecesi bunu düz nesne olarak alır. */
+export function paidInstallmentCountsByStudent(
+  payments: readonly (CalendarPlanInstallment & { studentId: string })[]
+): Record<string, number> {
+  const groups = new Map<string, (CalendarPlanInstallment & { studentId: string })[]>();
+  for (const p of payments) {
+    const list = groups.get(p.studentId);
+    if (list) list.push(p);
+    else groups.set(p.studentId, [p]);
+  }
+  const out: Record<string, number> = {};
+  for (const [studentId, rows] of groups) out[studentId] = paidInstallmentCount(rows);
+  return out;
 }
 
 /** Ödeme geçmişi görünümü için sıralama: en yeni vade önce. */

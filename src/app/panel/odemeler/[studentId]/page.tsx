@@ -10,6 +10,7 @@ import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
 import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
+import { coveredInstallmentCount } from "@/lib/attendance-calendar-plan";
 import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
 import { remainingAmount, resolvePaymentDisplayStatus, todayYmdInstitution } from "@/lib/payments/status";
 import { PaymentsMonthBoard } from "@/components/payments-month-board";
@@ -127,6 +128,7 @@ export default async function StudentPaymentProfilePage({
       rowAmount: p.amount,
       rowPaidAmount: p.paidAmount,
       spansMonths: false,
+      coveredInstallments: coveredInstallmentCount(p),
       dueDate: p.dueDate,
       status: resolvePaymentDisplayStatus(p, terminalIds, todayYmd),
       month: p.dueDate.slice(0, 7),
@@ -176,12 +178,13 @@ export default async function StudentPaymentProfilePage({
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label="Geçerli tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
         <StatCard label="Toplam tahsil edilen" value={formatMoney(summary.totalCollected)} accent="success" />
         <StatCard label="Kalan borç" value={formatMoney(summary.remaining)} accent="warning" />
         <StatCard label="Gecikmiş kalan" value={formatMoney(summary.overdueRemaining)} accent="danger" />
         <StatCard label="Açık ödeme kaydı" value={summary.openCount} accent="info" />
+        <StatCard label="Ödenmiş taksit sayısı" value={summary.paidInstallmentCount} accent="success" />
       </div>
 
       {multiBranch ? (
@@ -252,7 +255,12 @@ export default async function StudentPaymentProfilePage({
         <PaymentsMonthBoard
           monthLabel="Açık borçlar"
           empty={{ title: "Açık borç yok", hint: "Bu öğrencinin tahsil edilmeyi bekleyen canlı bir borç satırı bulunmuyor." }}
-          rows={openRows} carryover={[]} canWrite={canWrite} canDelete={canWrite} />
+          rows={openRows}
+          carryover={[]}
+          paidInstallmentCounts={{ [student.id]: summary.paidInstallmentCount }}
+          canWrite={canWrite}
+          canDelete={canWrite}
+        />
         {debt.closedByContract.length > 0 ? (
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
             {debt.closedByContract.length} taksit iptal edilen / yenilenen sözleşmeden kaldı (toplam{" "}

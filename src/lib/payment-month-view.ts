@@ -7,7 +7,7 @@
  * DURUM: `resolvePaymentDisplayStatus` (payments/status.ts) o ayın payına uygulanır — liste, filtre ve özet aynı
  * kaynaktan. İptal edilmiş satır ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti aylık beklentiye girmez.
  */
-import { installmentMonthShares } from "./attendance-calendar-plan";
+import { coveredInstallmentCount, installmentMonthShares } from "./attendance-calendar-plan";
 import { resolvePaymentDisplayStatus, remainingAmount, type PaymentDisplayStatus } from "./payments/status";
 import type { PaymentListRow } from "./reference-data";
 
@@ -25,6 +25,8 @@ export type MonthPaymentRow = {
   rowAmount: number;
   rowPaidAmount: number;
   spansMonths: boolean;
+  /** Satırın kapattığı dönem sayısı (ay payı başına değil, satırın tamamı). */
+  coveredInstallments: number;
   dueDate: string;
   status: PaymentDisplayStatus;
   month: string;
@@ -84,6 +86,7 @@ export function buildPaymentMonthView(
   let excludedCount = 0;
   for (const p of payments) {
     const shares = installmentMonthShares(p);
+    const coveredInstallments = coveredInstallmentCount(p);
     for (const share of shares) {
       if (share.month > opts.month) continue;
       if (share.month < opts.month && p.status === "paid") continue;
@@ -109,6 +112,7 @@ export function buildPaymentMonthView(
         rowAmount: p.amount,
         rowPaidAmount: p.paidAmount,
         spansMonths: shares.length > 1,
+        coveredInstallments,
         dueDate: p.dueDate,
         status,
         month: share.month,

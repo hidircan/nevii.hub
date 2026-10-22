@@ -10,7 +10,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
 import { STUDENT_CONTRACTS_FILE, registrationFirstCollectionPeriods } from "../contracts";
-import { allocateInOrder, installmentMonthShares, resolveContractPlanForMonth, type CalendarPlanInstallment } from "../attendance-calendar-plan";
+import { allocateInOrder, coveredInstallmentCount, installmentMonthShares, resolveContractPlanForMonth, type CalendarPlanInstallment } from "../attendance-calendar-plan";
 import { collectAttendanceCalendarPaymentTool, createStudentTool, getAttendanceCalendarMonthTool } from "../services/tools";
 import { planStandaloneMonthlyAccruals } from "../standalone-monthly-accrual";
 import { readData } from "../store";
@@ -79,6 +79,33 @@ describe("installmentMonthShares — tek tahsilatın dönemlere dağılımı", (
     const oct = resolveContractPlanForMonth({ contracts: [], installments: [row({ amount: 9937, paidAmount: 9937, dueDate: "2026-09-26T09:00:00.000Z", firstCollectionIncludesNextMonth: true })], year: 2026, month: 10, studentMonthlyFee: 7950 });
     expect(oct.state === "student_plan" && oct.coveredByCombinedFirstCollection?.paymentId).toBe("fp");
     expect(oct.state === "student_plan" && oct.remaining).toBe(0);
+  });
+
+  it("ödenmiş taksit sayısı satır adedi değil, kapanan dönem sayısıdır", () => {
+    const two = [{ periodLabel: "Ekim 2026", amount: 3000 }, { periodLabel: "Kasım 2026", amount: 3000 }];
+    expect(coveredInstallmentCount(row({ installmentPeriodLabel: "Ekim 2026" }))).toBe(1);
+    expect(coveredInstallmentCount(row({ contractId: "c1", installmentPeriodLabel: "Ekim 2026 + Kasım 2026", installmentBreakdown: two }))).toBe(2);
+    expect(coveredInstallmentCount(row({ paidAmount: 3000, status: "partial", installmentBreakdown: two }))).toBe(1);
+    expect(coveredInstallmentCount(row({ paidAmount: 0, status: "pending", installmentBreakdown: two }))).toBe(0);
+    expect(coveredInstallmentCount(row({ status: "voided", installmentBreakdown: two }))).toBe(0);
+  });
+
+  it("tek dönem etiketi ve takip eden ay bayrağı, sözleşme bağlı olsa da iki dönemdir", () => {
+    const p = row({ contractId: "c1", installmentPeriodLabel: "Ekim 2026", firstCollectionIncludesNextMonth: true });
+    expect(installmentMonthShares(p).map((s) => [s.month, s.amount, s.unsplit ?? false])).toEqual([
+      ["2026-10", 6000, false],
+      ["2026-11", 0, true],
+    ]);
+    expect(coveredInstallmentCount(p)).toBe(2);
+  });
+
+  it("kırılımsız birleşik etiket parayı ilk aya yazar, ikinci ayı tutarsız karşılanmış sayar", () => {
+    const p = row({ installmentPeriodLabel: "Ekim 2026 + Kasım 2026" });
+    expect(installmentMonthShares(p).map((s) => [s.month, s.amount, s.paidAmount, s.unsplit ?? false])).toEqual([
+      ["2026-10", 6000, 6000, false],
+      ["2026-11", 0, 0, true],
+    ]);
+    expect(coveredInstallmentCount(p)).toBe(2);
   });
 
   it("allocateInOrder deterministik", () => {
