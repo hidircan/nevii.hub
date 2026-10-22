@@ -283,7 +283,11 @@ export async function readPaymentsListData(): Promise<PaymentsListData> {
 /** Bkz. src/lib/reference-data.ts `StudentListData`. */
 export async function readStudentListData(): Promise<StudentListData> {
   const data = await readData();
-  return { ...toReferenceData(data), payments: toPaymentStatusRows(data.payments) };
+  const { listTerminalContractIds } = await import("./contracts");
+  const { supersededUncollectedMonthlyPlanIds } = await import("./superseded-monthly-plan");
+  const drop = supersededUncollectedMonthlyPlanIds(data.payments, await listTerminalContractIds(data.settings.tenantId));
+  const payments = drop.size === 0 ? data.payments : data.payments.filter((p) => !drop.has(p.id));
+  return { ...toReferenceData(data), payments: toPaymentStatusRows(payments) };
 }
 
 /** Bkz. store-db.readStudentById — tek dosya/süreç verisi zaten okunur; sonuç `readData()` ile aynı. */

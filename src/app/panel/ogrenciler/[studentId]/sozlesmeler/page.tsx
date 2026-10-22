@@ -198,6 +198,7 @@ export default async function StudentContractsCenterPage({
         label: p.installmentPeriodLabel ?? p.description,
         dueDate: p.dueDate,
         amount: p.amount,
+        source: p.source,
         sourceLabel: DEBT_SOURCE_LABEL[debtSourceOf(p)],
       })),
   };

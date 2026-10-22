@@ -247,6 +247,11 @@ export function toDashboardPaymentRow(p: DashboardPaymentRow): DashboardPaymentR
     dueDate: p.dueDate,
     paidAt: p.paidAt,
     contractId: p.contractId,
+    source: p.source,
+    enrollmentId: p.enrollmentId,
+    description: p.description,
+    installmentPeriodLabel: p.installmentPeriodLabel,
+    firstCollectionIncludesNextMonth: p.firstCollectionIncludesNextMonth,
   };
 }
 

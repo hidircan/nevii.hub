@@ -137,6 +137,7 @@ import {
   type StudentListData,
   type StudentScopeData,
 } from "./reference-data";
+import { subtractSupersededRemainders, supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -1749,7 +1750,21 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
           teacherPayouts: true,
           makeupRequests: { omit: HOT_ROW_OMIT },
           payments: {
-            select: { id: true, studentId: true, amount: true, paidAmount: true, status: true, dueDate: true, paidAt: true, contractId: true },
+            select: {
+              id: true,
+              studentId: true,
+              amount: true,
+              paidAmount: true,
+              status: true,
+              dueDate: true,
+              paidAt: true,
+              contractId: true,
+              source: true,
+              enrollmentId: true,
+              description: true,
+              installmentPeriodLabel: true,
+              firstCollectionIncludesNextMonth: true,
+            },
           },
         },
       }),
@@ -1783,6 +1798,11 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
       dueDate: p.dueDate.toISOString(),
       paidAt: p.paidAt?.toISOString() ?? undefined,
       contractId: p.contractId ?? undefined,
+      source: (p.source ?? undefined) as import("./types").PaymentSource | undefined,
+      enrollmentId: p.enrollmentId ?? undefined,
+      description: p.description ?? undefined,
+      installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+      firstCollectionIncludesNextMonth: p.firstCollectionIncludesNextMonth ?? undefined,
     })),
     hasFutureScheduledLesson: Boolean(futureLesson),
   };
@@ -1862,6 +1882,51 @@ export async function readPaymentsListData(): Promise<PaymentsListData> {
   };
 }
 
+function breakdownShares(raw: unknown): { periodLabel: string; amount: number }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const rows = raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const periodLabel = (item as { periodLabel?: unknown }).periodLabel;
+    const amount = (item as { amount?: unknown }).amount;
+    if (typeof periodLabel !== "string" || typeof amount !== "number") return [];
+    return [{ periodLabel, amount }];
+  });
+  return rows.length > 0 ? rows : undefined;
+}
+
+/** Liste grubundan düşülecek ikinci borç kanıtı. Sözleşme taksidi (ödenmiş dahil) ayı kapatır. */
+function planLinkFromDb(p: {
+  id: string;
+  studentId: string;
+  source: string;
+  contractId: string | null;
+  status: string;
+  amount: number;
+  paidAmount: number;
+  dueDate: Date;
+  description: string;
+  installmentPeriodLabel: string | null;
+  installmentBreakdown: unknown;
+  firstCollectionIncludesNextMonth: boolean | null;
+  enrollmentId: string | null;
+}): PlanLinkRow {
+  return {
+    id: p.id,
+    studentId: p.studentId,
+    source: p.source,
+    contractId: p.contractId ?? undefined,
+    status: p.status,
+    amount: p.amount,
+    paidAmount: p.paidAmount,
+    dueDate: p.dueDate.toISOString(),
+    description: p.description,
+    installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+    installmentBreakdown: breakdownShares(p.installmentBreakdown),
+    firstCollectionIncludesNextMonth: p.firstCollectionIncludesNextMonth ?? undefined,
+    enrollmentId: p.enrollmentId ?? undefined,
+  };
+}
+
 /** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */
 export async function readStudentListData(): Promise<StudentListData> {
   const tid = tenantId();
@@ -1870,7 +1935,7 @@ export async function readStudentListData(): Promise<StudentListData> {
   // statü bayat olabileceği için grup vadeye göre ikiye ayrılır; geçmiş vadeli grup "overdue" sayılır.
   const todayStart = zonedWallTimeToUtc(todayYmdInstitution(), "00:00");
   const openWhere = { ...tenantPayments, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount } };
-  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, pastDueGroups, currentGroups, paidStudents] = await Promise.all([
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, pastDueGroups, currentGroups, paidStudents, planEvidence, terminalContracts] = await Promise.all([
     findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
@@ -1888,10 +1953,43 @@ export async function readStudentListData(): Promise<StudentListData> {
       _sum: { amount: true, paidAmount: true },
     }),
     prisma.payment.groupBy({ by: ["studentId"], where: { ...tenantPayments, status: "paid" } }),
+    // İkinci borç kanıtı: tahsilatsız monthly_plan + void olmayan sözleşme taksitleri. Gruplamada source yok.
+    prisma.payment.findMany({
+      where: {
+        ...tenantPayments,
+        status: { not: "voided" },
+        OR: [
+          { source: "monthly_plan", contractId: null, paidAmount: 0, status: { notIn: ["paid", "voided"] } },
+          { contractId: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        studentId: true,
+        source: true,
+        contractId: true,
+        status: true,
+        amount: true,
+        paidAmount: true,
+        dueDate: true,
+        description: true,
+        installmentPeriodLabel: true,
+        installmentBreakdown: true,
+        firstCollectionIncludesNextMonth: true,
+        enrollmentId: true,
+      },
+    }),
+    prisma.studentContract.findMany({
+      where: { tenantId: tid, status: { in: ["cancelled", "superseded"] } },
+      select: { id: true },
+    }),
   ]);
+  const terminal = new Set(terminalContracts.map((c) => c.id));
   if (!school) {
     const full = await readData();
-    return { ...toReferenceData(full), payments: toPaymentStatusRows(full.payments) };
+    const drop = supersededUncollectedMonthlyPlanIds(full.payments, terminal);
+    const payments = drop.size === 0 ? full.payments : full.payments.filter((p) => !drop.has(p.id));
+    return { ...toReferenceData(full), payments: toPaymentStatusRows(payments) };
   }
   const mapped = mapSchoolToAppData({
     ...school,
@@ -1903,25 +2001,26 @@ export async function readStudentListData(): Promise<StudentListData> {
     payments: [],
     teacherPayouts: [],
   });
+  const grouped = [
+    ...paidStudents.map((p) => ({ studentId: p.studentId, status: "paid" as const, contractId: undefined, amount: 0, paidAmount: 0 })),
+    ...pastDueGroups.map((g) => ({
+      studentId: g.studentId,
+      status: "overdue" as const,
+      contractId: g.contractId ?? undefined,
+      amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+      paidAmount: 0,
+    })),
+    ...currentGroups.map((g) => ({
+      studentId: g.studentId,
+      status: g.status as import("./types").PaymentStatus,
+      contractId: g.contractId ?? undefined,
+      amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+      paidAmount: 0,
+    })),
+  ];
   return {
     ...toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
-    payments: toPaymentStatusRows([
-      ...paidStudents.map((p) => ({ studentId: p.studentId, status: "paid" as const, contractId: undefined, amount: 0, paidAmount: 0 })),
-      ...pastDueGroups.map((g) => ({
-        studentId: g.studentId,
-        status: "overdue" as const,
-        contractId: g.contractId ?? undefined,
-        amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
-        paidAmount: 0,
-      })),
-      ...currentGroups.map((g) => ({
-        studentId: g.studentId,
-        status: g.status as import("./types").PaymentStatus,
-        contractId: g.contractId ?? undefined,
-        amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
-        paidAmount: 0,
-      })),
-    ]),
+    payments: toPaymentStatusRows(subtractSupersededRemainders(grouped, planEvidence.map(planLinkFromDb), terminal)),
   };
 }
 

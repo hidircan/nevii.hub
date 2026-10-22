@@ -22,6 +22,7 @@
 import { collectedAmountOf } from "../payment-profile";
 import type { AppData, Lesson, Payment, StudentRef, Task } from "../types";
 import { isLiveObligation } from "../payment-profile";
+import { supersededUncollectedMonthlyPlanIds } from "../superseded-monthly-plan";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
 import { isOwnStudent } from "../teacher-portal-scope";
@@ -33,7 +34,19 @@ import { isOwnStudent } from "../teacher-portal-scope";
  */
 export type DashboardPaymentRow = Pick<
   Payment,
-  "id" | "studentId" | "amount" | "paidAmount" | "status" | "dueDate" | "paidAt" | "contractId"
+  | "id"
+  | "studentId"
+  | "amount"
+  | "paidAmount"
+  | "status"
+  | "dueDate"
+  | "paidAt"
+  | "contractId"
+  | "source"
+  | "enrollmentId"
+  | "description"
+  | "installmentPeriodLabel"
+  | "firstCollectionIncludesNextMonth"
 >;
 export type DashboardSummaryInput = Pick<AppData, "settings" | "teachers" | "rooms" | "lessons" | "makeupRequests"> & {
   students: StudentRef[];
@@ -206,23 +219,25 @@ export function buildDashboardSummary(
       const branchStudents = data.students.filter((s) => s.branchId === b.id && s.active !== false);
       const branchStudentIds = new Set(branchStudents.map((s) => s.id));
       const branchPayments = data.payments.filter((p) => branchStudentIds.has(p.studentId));
+      const duplicatedPlan = supersededUncollectedMonthlyPlanIds(branchPayments, terminalContractIds);
       return {
         branchId: b.id,
         name: b.shortName || b.name,
         todayLessonCount: lessonsToday.filter((l) => l.branchId === b.id).length,
         activeStudentCount: branchStudents.length,
         outstandingAmount: branchPayments
-          .filter((p) => isLiveObligation(p, terminalContractIds))
+          .filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id))
           .reduce((sum, p) => sum + remainingOf(p), 0),
         overdueAmount: branchPayments
-          .filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds))
+          .filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id))
           .reduce((sum, p) => sum + remainingOf(p), 0),
       };
     })
     .sort((a, b) => b.todayLessonCount - a.todayLessonCount);
 
   // ---- Tahsilat ----------------------------------------------------------
-  const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds));
+  const duplicatedPlan = supersededUncollectedMonthlyPlanIds(payments, terminalContractIds);
+  const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id));
   const toDueRow = (p: DashboardPaymentRow): DueRow => ({
     paymentId: p.id,
     studentId: p.studentId,

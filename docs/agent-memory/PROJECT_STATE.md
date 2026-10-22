@@ -4,7 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-23 (sözleşme taksit ibaresi; MERGE/PUSH/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-23 (sözleşmeli öğrencide ikinci borç; MERGE/PUSH/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-orphan-contractless-payment-link`, dal `fix/orphan-contractless-payment-link` (taban origin/main 3c519b58, #82 dahil).
+- Kök: `monthly_plan` satırı `contractId` almadan kalır; etiket "Sözleşmesiz aylık plan" öğrencinin güncel sözleşmesinden değil kaynaktan gelir. Sözleşme açılışı çakışan tahsilatsız satırı iptal eder. Tahakkuk, özet kaydı eksik olsa bile yaşayan taksit ayını kapsıyorsa yazmaz. Okuma yolları eski satırı açık/gecikmiş borçtan düşer; satır silinmez.
+- İki branşta branşı boş satır otomatik kapanmaz. Tahsilat görmüş, elle, kulüp ve başka ay durur. Veri düzeltmesi: `scripts/detect-superseded-monthly-plans.ts` yalnız rapor, `--apply` yok, çalıştırılmadı. Pırıl satırı bu oturumda okunmadı.
+- Açık: owner canlı kabul. Migration yok.
+
+## Snapshot — 2026-10-23 (sözleşme taksit ibaresi; MERGE/PUSH/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-contract-installment-label`, dal `fix/contract-installment-label` (taban origin/main e4f73057, #81 dahil).
 - "Sözleşme taksiti X/N" ekranda `contractInstallmentProgressIndex` ile kapanan dönemden türer. İki ay tam kapanmışsa 2/N, yalnız ilk dönem tamsa 1/N. Saklanan sıra, tutar ve tarih durur.
 - Açık: owner canlı kabul. Commit/push yok.

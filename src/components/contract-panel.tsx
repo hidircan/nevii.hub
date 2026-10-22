@@ -231,7 +231,7 @@ export type RegistrationSummary = {
   /** 2026-10-04 — öğrencinin aktif eğitimleri (çoklu eğitimde sözleşmenin hangi eğitime ait olduğu seçilir). */
   educations?: { id: string; instrument: string; label: string; primary?: boolean }[];
   /** Sözleşmeye bağlı OLMAYAN, hiç tahsilat görmemiş açık borçlar — sözleşme planına taşınabilir (açık seçim). */
-  openStandaloneDebts?: { id: string; label: string; dueDate: string; amount: number; sourceLabel: string }[];
+  openStandaloneDebts?: { id: string; label: string; dueDate: string; amount: number; sourceLabel: string; source?: string }[];
 };
 
 type FieldErrors = Record<string, string>;
@@ -805,6 +805,8 @@ function ContractForm({
   const [allowOverlap, setAllowOverlap] = useContractDraft(draftKey, "allowOverlap", false);
   // 2026-10-04 — sözleşme dışı açık borçlar: taşınacaklar + "kalanlar ayrı borç olarak kalsın" onayı.
   const standaloneDebts = !isAmendment ? (registration?.openStandaloneDebts ?? []) : [];
+  const monthlyPlanDebts = standaloneDebts.filter((d) => d.source === "monthly_plan");
+  const otherStandaloneDebts = standaloneDebts.filter((d) => d.source !== "monthly_plan");
   const [carryOverIds, setCarryOverIds] = useState<ReadonlySet<string>>(new Set());
   const [keepRestSeparate, setKeepRestSeparate] = useState(false);
   const [overlapReason, setOverlapReason] = useContractDraft(draftKey, "overlapReason", "");
@@ -1112,9 +1114,9 @@ function ContractForm({
       errors.amounts = `${emptyAmountRows.sort((a, b) => a - b).join(", ")}. taksit tutarı boş. Tutarı yazın (ücretsiz ay için 0) veya ↺ ile otomatiğe döndürün.`;
     }
     if (!signatoryFullName.trim()) errors.signatoryFullName = "Yasal imza sahibi adı soyadı zorunludur.";
-    if (standaloneDebts.some((d) => !carryOverIds.has(d.id)) && !keepRestSeparate) {
+    if (otherStandaloneDebts.some((d) => !carryOverIds.has(d.id)) && !keepRestSeparate) {
       errors.carryOver =
-        "Sözleşme dışı açık borçlar için karar verin: sözleşme planı aynı ayları kapsıyorsa borcu \"Sözleşmeye taşı\" ile işaretleyin, ayrı kalacaksa alttaki onay kutusunu işaretleyin.";
+        "Sözleşme dışı açık borçlar için karar verin: sözleşme planı aynı ayları kapsıyorsa borcu \"Sözleşmeye taşı\" ile işaretleyin, ayrı kalacaksa alttaki onay kutusunu işaretleyin. Aynı ayı kapsayan sözleşmesiz aylık plan kaydı ayrıca onay istemez; sözleşme yazılınca kapanır.";
     }
     if (isRenewal && hasOverlap) {
       if (!allowOverlap) {
@@ -1770,41 +1772,64 @@ function ContractForm({
       {standaloneDebts.length > 0 ? (
         <fieldset className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
           <legend className="px-1 font-semibold text-[var(--color-text)]">Sözleşme dışı açık borçlar ({standaloneDebts.length})</legend>
-          <p className="mb-2 text-[var(--color-text-muted)]">
-            Bu öğrencinin sözleşmeye bağlı olmayan, henüz tahsil edilmemiş borçları var. Sözleşme planı aynı ayı kapsıyorsa borcu
-            &quot;Sözleşmeye taşı&quot; ile işaretleyin: satır silinmez, &quot;sözleşmeye taşındı&quot; notuyla iptal edilir ve borç yalnız
-            sözleşme taksidinde kalır (çift borç oluşmaz). İşaretlemediğiniz borçlar ayrıca ödenmeye devam eder.
-          </p>
-          <ul className="space-y-1">
-            {standaloneDebts.map((d) => (
-              <li key={d.id}>
-                <label className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={carryOverIds.has(d.id)}
-                    onChange={(e) =>
-                      setCarryOverIds((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(d.id);
-                        else next.delete(d.id);
-                        return next;
-                      })
-                    }
-                  />
-                  <span className="font-medium text-[var(--color-text)]">{d.label}</span>
-                  <span className="text-[var(--color-text-muted)]">
-                    {d.sourceLabel} · vade {formatDateTr(d.dueDate)} · {formatTL(d.amount)}
-                  </span>
-                  <span className="text-[var(--color-text-muted)]">— Sözleşmeye taşı</span>
+          {monthlyPlanDebts.length > 0 ? (
+            <div className="mb-2">
+              <p className="mb-1 text-[var(--color-text-muted)]">
+                Sözleşmesiz aylık plan satırları, sözleşme aynı ayı kapsıyorsa kayıt sırasında otomatik kapanır. Satır silinmez;
+                &quot;sözleşmeye taşındı&quot; notuyla iptal edilir ve borç yalnız sözleşme taksidinde kalır. Farklı ay veya tahsilat
+                görmüş satır durur.
+              </p>
+              <ul className="space-y-1">
+                {monthlyPlanDebts.map((d) => (
+                  <li key={d.id} className="text-[var(--color-text)]">
+                    <span className="font-medium">{d.label}</span>
+                    <span className="text-[var(--color-text-muted)]">
+                      {" "}· {d.sourceLabel} · vade {formatDateTr(d.dueDate)} · {formatTL(d.amount)} — aynı ay kapsanırsa otomatik kapanır
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {otherStandaloneDebts.length > 0 ? (
+            <>
+              <p className="mb-2 text-[var(--color-text-muted)]">
+                Elle, ders veya kayıt borcu sözleşme planına kendiliğinden yazılmaz. Aynı ayı kapsıyorsa &quot;Sözleşmeye taşı&quot; ile
+                işaretleyin: satır silinmez, &quot;sözleşmeye taşındı&quot; notuyla iptal edilir. İşaretlemediğiniz bu borçlar ayrıca
+                ödenmeye devam eder.
+              </p>
+              <ul className="space-y-1">
+                {otherStandaloneDebts.map((d) => (
+                  <li key={d.id}>
+                    <label className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={carryOverIds.has(d.id)}
+                        onChange={(e) =>
+                          setCarryOverIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(d.id);
+                            else next.delete(d.id);
+                            return next;
+                          })
+                        }
+                      />
+                      <span className="font-medium text-[var(--color-text)]">{d.label}</span>
+                      <span className="text-[var(--color-text-muted)]">
+                        {d.sourceLabel} · vade {formatDateTr(d.dueDate)} · {formatTL(d.amount)}
+                      </span>
+                      <span className="text-[var(--color-text-muted)]">— Sözleşmeye taşı</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              {otherStandaloneDebts.some((d) => !carryOverIds.has(d.id)) ? (
+                <label className="mt-2 flex items-center gap-2 font-medium text-[var(--color-text)]">
+                  <input type="checkbox" checked={keepRestSeparate} onChange={(e) => setKeepRestSeparate(e.target.checked)} />
+                  İşaretlemediğim borçlar sözleşmeden ayrı borç olarak kalsın
                 </label>
-              </li>
-            ))}
-          </ul>
-          {standaloneDebts.some((d) => !carryOverIds.has(d.id)) ? (
-            <label className="mt-2 flex items-center gap-2 font-medium text-[var(--color-text)]">
-              <input type="checkbox" checked={keepRestSeparate} onChange={(e) => setKeepRestSeparate(e.target.checked)} />
-              İşaretlemediğim borçlar sözleşmeden ayrı borç olarak kalsın
-            </label>
+              ) : null}
+            </>
           ) : null}
           <FieldError message={fieldErrors.carryOver} />
         </fieldset>

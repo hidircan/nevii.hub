@@ -2,6 +2,7 @@ import { readPaymentsPageData } from "./store";
 import { isDbMode } from "./config";
 import { listTerminalContractIds } from "./contracts";
 import { PAYMENT_REMINDER_SELECT, resolvePaymentReminderSettings, shouldCreatePaymentReminder } from "./payment-reminder-policy";
+import { supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
 import type { CollectionsSettings, Payment } from "./types";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
@@ -34,44 +35,93 @@ export async function sweepStudentContractExpiry(now = new Date()): Promise<{ cr
   return { created, tenantErrors };
 }
 
-type ReminderCandidate = Pick<
-  Payment,
-  "id" | "studentId" | "status" | "contractId" | "dueDate" | "amount" | "paidAmount" | "description" | "installmentPeriodLabel"
->;
+type ReminderCandidate = Omit<PlanLinkRow, "status"> &
+  Pick<Payment, "status" | "description" | "installmentPeriodLabel">;
+
+function reminderRow(r: {
+  id: string;
+  studentId: string;
+  status: string;
+  contractId: string | null;
+  dueDate: Date;
+  amount: number;
+  paidAmount: number;
+  description: string;
+  installmentPeriodLabel: string | null;
+  source: string;
+  enrollmentId: string | null;
+  firstCollectionIncludesNextMonth: boolean | null;
+  installmentBreakdown?: unknown;
+}): ReminderCandidate {
+  const breakdown = Array.isArray(r.installmentBreakdown)
+    ? r.installmentBreakdown.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const periodLabel = (item as { periodLabel?: unknown }).periodLabel;
+        const amount = (item as { amount?: unknown }).amount;
+        return typeof periodLabel === "string" && typeof amount === "number" ? [{ periodLabel, amount }] : [];
+      })
+    : undefined;
+  return {
+    id: r.id,
+    studentId: r.studentId,
+    status: r.status as Payment["status"],
+    amount: r.amount,
+    paidAmount: r.paidAmount,
+    dueDate: r.dueDate.toISOString(),
+    description: r.description,
+    contractId: r.contractId ?? undefined,
+    installmentPeriodLabel: r.installmentPeriodLabel ?? undefined,
+    source: r.source,
+    enrollmentId: r.enrollmentId ?? undefined,
+    firstCollectionIncludesNextMonth: r.firstCollectionIncludesNextMonth ?? undefined,
+    installmentBreakdown: breakdown && breakdown.length > 0 ? breakdown : undefined,
+  };
+}
 
 /**
  * Kurumun hatırlatma ayarı + YALNIZ aday ödemeler (canlı borç, vadesi `today + daysBefore`'a kadar) ve onların öğrenci
- * adları. DB egress (2026-10-20): eskiden tüm ödemeler × ~31 kolon + referans veri okunuyordu; artık 9 kolon, aday satır.
+ * adları. DB egress (2026-10-20): eskiden tüm ödemeler × ~31 kolon + referans veri okunuyordu; artık aday satır.
+ * `cover` ikinci borcu ayırt etmek için: aday ufkunun dışındaki ödenmiş sözleşme taksitini de taşır.
  */
 async function readReminderCandidates(tenantId: string, now: Date) {
   if (isDbMode) {
     const { prisma } = await import("./db");
     const school = await prisma.school.findFirst({ where: { tenantId }, select: { collectionsSettings: true } });
     const settings = resolvePaymentReminderSettings(school?.collectionsSettings as CollectionsSettings | null);
-    if (!settings.enabled) return { settings, payments: [] as ReminderCandidate[], names: new Map<string, string>() };
+    if (!settings.enabled) {
+      return { settings, payments: [] as ReminderCandidate[], cover: [] as ReminderCandidate[], names: new Map<string, string>() };
+    }
     const horizon = new Date(`${now.toISOString().slice(0, 10)}T23:59:59.999Z`);
     horizon.setUTCDate(horizon.getUTCDate() + settings.daysBefore);
     const rows = await prisma.payment.findMany({
       where: { tenantId, status: { notIn: ["paid", "voided"] }, dueDate: { lte: horizon } },
       select: PAYMENT_REMINDER_SELECT,
     });
-    const payments: ReminderCandidate[] = rows.map((r) => ({
-      ...r,
-      status: r.status as Payment["status"],
-      dueDate: r.dueDate.toISOString(),
-      contractId: r.contractId ?? undefined,
-      installmentPeriodLabel: r.installmentPeriodLabel ?? undefined,
-    }));
+    const payments = rows.map((r) => reminderRow(r));
+    const monthlyStudentIds = [...new Set(payments.filter((p) => p.source === "monthly_plan" && !p.contractId).map((p) => p.studentId))];
+    const extra = monthlyStudentIds.length
+      ? await prisma.payment.findMany({
+          where: { tenantId, studentId: { in: monthlyStudentIds }, contractId: { not: null }, status: { not: "voided" } },
+          select: { ...PAYMENT_REMINDER_SELECT, installmentBreakdown: true },
+        })
+      : [];
     const ids = [...new Set(payments.map((p) => p.studentId))];
     const students = ids.length
       ? await prisma.student.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } })
       : [];
-    return { settings, payments, names: new Map(students.map((st) => [st.id, st.name])) };
+    return {
+      settings,
+      payments,
+      cover: [...payments, ...extra.map((r) => reminderRow(r))],
+      names: new Map(students.map((st) => [st.id, st.name])),
+    };
   }
   const data = await readPaymentsPageData();
+  const payments = data.payments as ReminderCandidate[];
   return {
     settings: resolvePaymentReminderSettings(data.settings.collectionsSettings),
-    payments: data.payments as ReminderCandidate[],
+    payments,
+    cover: payments,
     names: new Map(data.students.map((st) => [st.id, st.name])),
   };
 }
@@ -84,10 +134,12 @@ export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ c
   let candidates = 0;
   let suppressed = 0;
   const tenantErrors = await forEachSchoolTenant("paymentPending", async (tenantId) => {
-    const { settings, payments, names } = await readReminderCandidates(tenantId, now);
+    const { settings, payments, cover, names } = await readReminderCandidates(tenantId, now);
     if (payments.length === 0) return;
     const terminal = await listTerminalContractIds(tenantId);
+    const duplicatedPlan = supersededUncollectedMonthlyPlanIds(cover, terminal);
     for (const p of payments) {
+      if (duplicatedPlan.has(p.id)) continue;
       const decision = shouldCreatePaymentReminder(p, settings, terminal, now);
       if (!decision) continue;
       candidates++;

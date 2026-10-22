@@ -79,4 +79,7 @@ export const PAYMENT_REMINDER_SELECT = {
   paidAmount: true,
   description: true,
   installmentPeriodLabel: true,
+  source: true,
+  enrollmentId: true,
+  firstCollectionIncludesNextMonth: true,
 } as const;

@@ -9,7 +9,8 @@
  * tahsilatı (sonraki ayı kapsayan dahil) veya aylık plan satırıyla karşılanmıyorsa — aylık ücret kadar
  * TEK `monthly_plan` satırı (`upsertMonthlyPlanPayment`, ayın 1'i vadeli) yazılır. Yalnız İÇİNDE
  * bulunulan ay; geçmiş aylar otomatik doldurulmaz. Mevcut satırlar değişmez; tekrar çalıştırmak ikinci
- * satır üretmez. Sözleşme açılınca mevcut "sözleşmeye taşı" akışı bu satırları devralır.
+ * satır üretmez. Yaşayan sözleşme taksidi aynı ayı kapsıyorsa yeni satır yazılmaz
+ * (özet kaydı eksik olsa bile). Sözleşme açılışı, çakışan tahsilatsız satırı iptal eder.
  */
 import { installmentMonthKeys, isMonthlyPlanRowForMonth } from "./attendance-calendar-plan";
 import { isTerminalContractStatus } from "./contract-list-helpers";
@@ -40,6 +41,12 @@ function coversMonth(p: Payment, month: string): boolean {
   return installmentMonthKeys(p).includes(month);
 }
 
+/** Yaşayan sözleşme taksidi bu ayı zaten borçlandırmış mı? İptal/yenilenmiş sözleşme sayılmaz. */
+function livingContractCoversMonth(p: Payment, month: string, terminalContractIds: ReadonlySet<string>): boolean {
+  if (!p.contractId || terminalContractIds.has(p.contractId) || p.status === "voided") return false;
+  return installmentMonthKeys(p).includes(month);
+}
+
 /** Saf: verilen ay için yazılması gereken sözleşmesiz aylık plan satırları. */
 export function planStandaloneMonthlyAccruals(input: {
   students: StudentRef[];
@@ -48,10 +55,13 @@ export function planStandaloneMonthlyAccruals(input: {
   contractStatusByStudent: ReadonlyMap<string, string>;
   /** Çok branşlı öğrencide branş başına güncel sözleşme durumu — anahtar `${studentId}:${enrollmentId}`. */
   contractStatusByBranch?: ReadonlyMap<string, string>;
+  /** Özet haritası boş kalsa bile taksit satırından çift borç yazılmasın diye. */
+  terminalContractIds?: ReadonlySet<string>;
   teachers?: Pick<Teacher, "id" | "instruments">[];
   lessons?: Pick<Lesson, "id" | "enrollmentId" | "instrument" | "teacherId">[];
   month: string;
 }): StandaloneAccrual[] {
+  const terminal = input.terminalContractIds ?? new Set<string>();
   const out: StandaloneAccrual[] = [];
   for (const s of input.students) {
     if (!s.active || s.deletedAt || s.paymentPauseStatus === "paused") continue;
@@ -66,7 +76,13 @@ export function planStandaloneMonthlyAccruals(input: {
           !paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) &&
           coversMonth(p, input.month)
       );
-      if (unassignedCovers) continue;
+      const unassignedContract = input.payments.some(
+        (p) =>
+          p.studentId === s.id &&
+          livingContractCoversMonth(p, input.month, terminal) &&
+          !paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers)
+      );
+      if (unassignedCovers || unassignedContract) continue;
       for (const e of branches) {
         if (!e.active) continue;
         const terms = enrollmentTerms(s, e, input.teachers);
@@ -82,7 +98,13 @@ export function planStandaloneMonthlyAccruals(input: {
             paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) === e.id &&
             coversMonth(p, input.month)
         );
-        if (covered) continue;
+        const contracted = input.payments.some(
+          (p) =>
+            p.studentId === s.id &&
+            livingContractCoversMonth(p, input.month, terminal) &&
+            paymentEnrollmentId(s, p, { lessons: input.lessons }, input.teachers) === e.id
+        );
+        if (covered || contracted) continue;
         out.push({ studentId: s.id, month: input.month, amount: terms.monthlyFee, enrollmentId: e.id });
       }
       continue;
@@ -94,7 +116,13 @@ export function planStandaloneMonthlyAccruals(input: {
     // Kayıt ayı ilk tahsilatın ayıdır; tarihsiz kayıt için tahmin yapılmaz.
     if (!startMonth || input.month <= startMonth) continue;
     if (s.enrollmentEndDate && s.enrollmentEndDate.slice(0, 7) < input.month) continue;
-    if (input.payments.some((p) => p.studentId === s.id && coversMonth(p, input.month))) continue;
+    if (
+      input.payments.some(
+        (p) => p.studentId === s.id && (coversMonth(p, input.month) || livingContractCoversMonth(p, input.month, terminal))
+      )
+    ) {
+      continue;
+    }
     const sole = branches[0];
     out.push({ studentId: s.id, month: input.month, amount: s.monthlyFee, ...(sole && isPersistedEnrollmentId(sole.id) ? { enrollmentId: sole.id } : {}) });
   }
@@ -115,6 +143,7 @@ export async function runStandaloneMonthlyAccrual(
   const summaries = await listContractSummariesByStudent(tenantId);
   // Çok branşlı öğrencide güncel sözleşme branş başına (açık bağ; tek branşlıda o branş) — `selectCurrentContract`.
   const rows = await listContractSummaryRows(tenantId);
+  const terminalContractIds = new Set(rows.filter((r) => isTerminalContractStatus(r.status)).map((r) => r.contractId));
   const contractStatusByBranch = new Map<string, string>();
   for (const st of data.students) {
     const branches = effectiveEnrollments(st, data.teachers);
@@ -130,6 +159,7 @@ export async function runStandaloneMonthlyAccrual(
     payments: data.payments,
     contractStatusByStudent: new Map([...summaries].map(([id, c]) => [id, c.status])),
     contractStatusByBranch,
+    terminalContractIds,
     teachers: data.teachers,
     lessons: data.lessons,
     month,
