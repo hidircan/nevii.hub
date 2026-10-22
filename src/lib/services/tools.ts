@@ -16752,6 +16752,33 @@ export async function createStudentContractTool(
 
   // Sahip kararı (2026-09-16) — birleştirme kullanıcının AÇIK seçimi: istek söylüyorsa o,
   // söylemiyorsa kayıt anında verilen ve ödemeye yazılan seçim; ders sayısından TÜRETİLMEZ.
+  // 2026-10-23 — sözleşmenin kapsadığı ayda KISMEN tahsil edilmiş sözleşmesiz aylık plan satırı varsa sözleşme yazılmaz:
+  // satırın kalanı sözleşme taksitiyle aynı ay için ikinci açık borç olurdu; tahsilat kaydı ise değiştirilemez.
+  {
+    const { installmentMonthKeys, monthlyPlanPeriodLabel } = await import("../attendance-calendar-plan");
+    const { matchesEnrollmentScope } = await import("../student-enrollments");
+    const fromMonth = v.data.enrollmentStartDate.slice(0, 7);
+    const toMonth = enrollmentEndDate.slice(0, 7);
+    const partial = data.payments.find(
+      (p) =>
+        p.studentId === student.id &&
+        p.source === "monthly_plan" &&
+        !p.contractId &&
+        p.status !== "voided" &&
+        Math.trunc(p.paidAmount) > 0 &&
+        Math.trunc(p.paidAmount) < Math.trunc(p.amount) &&
+        matchesEnrollmentScope(p.enrollmentId, { enrollmentId: contractEnrollmentId, includeUnlinked: !branchCtx.data.multi }) &&
+        installmentMonthKeys(p).some((m) => m >= fromMonth && m <= toMonth)
+    );
+    if (partial) {
+      const month = installmentMonthKeys(partial)[0]!;
+      return fail(
+        "CONFLICT",
+        `${monthlyPlanPeriodLabel(month)} için sözleşmesiz aylık planda kısmi tahsilat var (${Math.trunc(partial.paidAmount).toLocaleString("tr-TR")} / ${Math.trunc(partial.amount).toLocaleString("tr-TR")} TL). Sözleşme bu ayı da kapsadığı için kalan tutar ikinci borç olurdu. Önce Ödemeler ekranında bu satırın kalanını tahsil edin veya tahsilatı geri alın, sonra sözleşmeyi oluşturun.`
+      );
+    }
+  }
+
   const registrationFirstPaymentRow = await getRegistrationFirstPayment(student.id, branchCtx.data.scope);
   const mergeFirstCollection =
     v.data.mergeFirstCollection ?? registrationFirstPaymentRow?.firstCollectionIncludesNextMonth ?? false;
@@ -16849,6 +16876,35 @@ export async function createStudentContractTool(
         }
       }
     }
+    // 2026-10-23 — sözleşmenin kapsadığı aylardaki tahsilat görmemiş sözleşmesiz aylık plan satırları HEMEN askıya alınır
+    // (gece işini beklemeden; aynı ay için sözleşme taksiti + sözleşmesiz borç = çift borç). Öğrenci kilidi altında taze
+    // satırlarla yapılır: aynı anda çalışan gece tahakkuku yeni satır açamaz (kilit içinde sözleşmeyi görür) ya da açtığını
+    // bu adım askıya alır. Sözleşme iptal edilirse bu satırlar yeniden açılır (`syncStandaloneAccruals`).
+    try {
+      const { applyAccrualOps } = await import("../payments/accrual-rows");
+      const suspendedNow = await applyAccrualOps(
+        ctx.tenantId,
+        student.id,
+        [
+          {
+            kind: "suspendForContract",
+            contractId: contract.id,
+            contractNumber: contract.contractNumber,
+            fromMonth: contract.enrollmentStartDate.slice(0, 7),
+            toMonth: contract.enrollmentEndDate.slice(0, 7),
+            enrollmentId: contractEnrollmentId,
+            includeUnlinked: !branchCtx.data.multi,
+          },
+        ],
+        { actorUserId: ctx.userId }
+      );
+      for (const w of suspendedNow) {
+        if (w.kind === "update") audit(ctx, "payment.accrual_suspended", "Payment", w.id, { contractId: contract.id, contractNumber: contract.contractNumber });
+      }
+    } catch (e) {
+      logger.error("contract standalone suspension failed", e);
+    }
+
     if (amendmentCredit && amendmentCredit.collected > 0) {
       audit(ctx, "contract.amendment_credit", "StudentContract", contract.id, {
         previousContractId: v.data.previousContractId,
@@ -17416,6 +17472,14 @@ export async function cancelStudentContractTool(
 
     const cancelled = await cancelContract(ctx.tenantId, v.data.contractId);
     if (!cancelled) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+    // 2026-10-23 — sözleşmenin askıya aldığı sözleşmesiz borçlar (geçmiş aylar dahil; sözleşmeden tahsil edilmiş aylar
+    // hariç) ve içinde bulunulan/gelecek ayın yükümlülüğü HEMEN geri gelir — gece işini beklemeden.
+    try {
+      const { syncStandaloneAccruals } = await import("../standalone-monthly-accrual");
+      await syncStandaloneAccruals(ctx.tenantId, { apply: true, studentId: cancelled.studentId, restoreContractId: cancelled.id, actorUserId: ctx.userId });
+    } catch (e) {
+      logger.error("standalone accrual restore after contract cancel failed", e);
+    }
     audit(ctx, "contract.cancel", "StudentContract", cancelled.id, {
       reason: v.data.reason,
       cancelFutureLessons: v.data.cancelFutureLessons,

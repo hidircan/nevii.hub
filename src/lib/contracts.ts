@@ -1657,68 +1657,85 @@ export type StudentContractSummary = {
   enrollmentId?: string;
 };
 
-/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. */
-export async function listContractSummaryRows(tenantId: string): Promise<StudentContractSummary[]> {
-  let rows: StudentContractSummary[];
+/** Sözleşme özeti satırının DB seçimi + eşlemesi — tahakkuk kilidi içinde (tx) de aynı şekil okunur. */
+export const CONTRACT_SUMMARY_SELECT = {
+  id: true,
+  studentId: true,
+  contractNumber: true,
+  status: true,
+  enrollmentStartDate: true,
+  enrollmentEndDate: true,
+  versionNumber: true,
+  monthlyAmount: true,
+  enrollmentId: true,
+} as const;
+
+export function toContractSummaryRow(r: {
+  id: string;
+  studentId: string;
+  contractNumber: string;
+  status: string;
+  enrollmentStartDate: Date;
+  enrollmentEndDate: Date;
+  versionNumber: number;
+  monthlyAmount: number;
+  enrollmentId: string | null;
+}): StudentContractSummary {
+  return {
+    enrollmentId: r.enrollmentId ?? undefined,
+    monthlyAmount: r.monthlyAmount,
+    studentId: r.studentId,
+    contractId: r.id,
+    contractNumber: r.contractNumber,
+    status: r.status as ContractStatus,
+    enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
+    enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
+    versionNumber: r.versionNumber,
+  };
+}
+
+/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. `studentId`: yalnız o öğrenci. */
+export async function listContractSummaryRows(tenantId: string, studentId?: string): Promise<StudentContractSummary[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");
     const found = await prisma.studentContract.findMany({
-      where: { tenantId },
-      select: {
-        id: true,
-        studentId: true,
-        contractNumber: true,
-        status: true,
-        enrollmentStartDate: true,
-        enrollmentEndDate: true,
-        versionNumber: true,
-        monthlyAmount: true,
-        enrollmentId: true,
-      },
+      where: { tenantId, ...(studentId ? { studentId } : {}) },
+      select: CONTRACT_SUMMARY_SELECT,
       orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
-    rows = found.map((r) => ({
-      enrollmentId: r.enrollmentId ?? undefined,
-      monthlyAmount: r.monthlyAmount,
-      studentId: r.studentId,
-      contractId: r.id,
-      contractNumber: r.contractNumber,
-      status: r.status as ContractStatus,
-      enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
-      enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
-      versionNumber: r.versionNumber,
-    }));
-  } else {
-    const all = await loadAll();
-    rows = all
-      .filter((x) => x.tenantId === tenantId)
-      .sort((a, b) => b.versionNumber - a.versionNumber)
-      .map((x) => ({
-        enrollmentId: x.enrollmentId,
-        monthlyAmount: x.monthlyAmount,
-        studentId: x.studentId,
-        contractId: x.id,
-        contractNumber: x.contractNumber,
-        status: x.status,
-        enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
-        enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
-        versionNumber: x.versionNumber,
-      }));
+    return found.map(toContractSummaryRow);
   }
-  return rows;
+  const all = await loadAll();
+  return all
+    .filter((x) => x.tenantId === tenantId && (!studentId || x.studentId === studentId))
+    .sort((a, b) => b.versionNumber - a.versionNumber)
+    .map((x) => ({
+      enrollmentId: x.enrollmentId,
+      monthlyAmount: x.monthlyAmount,
+      studentId: x.studentId,
+      contractId: x.id,
+      contractNumber: x.contractNumber,
+      status: x.status,
+      enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
+      enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
+      versionNumber: x.versionNumber,
+    }));
 }
 
 export async function listContractSummariesByStudent(
   tenantId: string
 ): Promise<Map<string, StudentContractSummary>> {
-  const rows = await listContractSummaryRows(tenantId);
+  return currentContractSummaryByStudent(await listContractSummaryRows(tenantId));
+}
 
-  /**
-   * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
-   * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
-   * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
-   * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
-   */
+/**
+ * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
+ * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
+ * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
+ * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
+ * Saf — tahakkuk kilidi içindeki yeniden kontrol de bunu kullanır.
+ */
+export function currentContractSummaryByStudent(rows: StudentContractSummary[]): Map<string, StudentContractSummary> {
   const byStudent = new Map<string, StudentContractSummary>();
   for (const row of rows) {
     const current = byStudent.get(row.studentId);

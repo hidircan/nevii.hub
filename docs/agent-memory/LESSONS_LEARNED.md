@@ -1585,3 +1585,7 @@ Gece tahakkuku yalnız İÇİNDE bulunulan ayı yazıyordu; takvim, Ödemeler ay
 sözleşmesiz öğrencinin Kasım'ı 1 Kasım'a kadar her yerde boştu (Darya Ö.), sözleşmelinin taksitleri baştan görünüyordu.
 **Ders:** yükümlülük üreten iş ile gösteren ekranların ufku aynı olmalı; gelecek ay satırı geçicidir, tahsilat görene
 kadar her gece aynı kuralla senkronlanır (uygunluk bitince iptal, yeniden fiyatlanmaz).
+Devamı (aynı gün): otomatik iptal ile yönetici iptali AYRI işaretlenmeli (`adjustedBy = system:*`) — aksi halde iptal
+satırı ayı "karşılar" ve öğrenci yeniden uygun olunca borç bir daha doğmaz. Satır açan/kapatan her akış (gece işi,
+sözleşme oluştur/iptal) öğrenci kilidi altında taze satırla ve sözleşme yeniden kontrolüyle tek noktadan yazar
+(`payments/accrual-rows.ts`); `upsertMonthlyPlanPayment` iptal satırını da eşlediği için açma yolu olarak kullanılmaz.
