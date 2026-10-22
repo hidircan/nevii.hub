@@ -14,8 +14,8 @@
  * gelecek ay yükümlülüğü ayın 1'ine kadar HİÇBİR ekranda yoktu (Yoklama Takvimi, Ödemeler ay panosu, Açık borçlar
  * hepsi satır okur), sözleşmeli öğrencinin taksitleri ise baştan görünüyordu (Darya Ö. — Kasım boş). Gelecek ayın
  * satırı GEÇİCİdir: tahsilat görmediği sürece her gece aynı kurala göre senkronlanır — öğrenci artık uygun değilse
- * (pasif, durdurma, kayıt bitişi, yaşayan sözleşme, başka satır o ayı karşılıyor) iptal edilir, ücret değiştiyse
- * tutarı güncellenir. İçinde bulunulan ayın satırına dokunulmaz (eski davranış).
+ * (pasif, durdurma, kayıt bitişi, yaşayan sözleşme, başka satır o ayı karşılıyor) iptal edilir. Tutar, içinde bulunulan
+ * ayın satırı gibi yazıldığı andaki ücrettir (yeniden fiyatlanmaz). İçinde bulunulan ayın satırına dokunulmaz.
  */
 import { installmentMonthKeys, isMonthlyPlanRowForMonth } from "./attendance-calendar-plan";
 import { shiftMonth } from "./payment-month-view";
@@ -117,20 +117,18 @@ function isProvisionalAccrual(p: Payment, month: string): boolean {
 
 /**
  * Saf: GELECEK ay için tahakkuk senkronu — aynı kural (`planStandaloneMonthlyAccruals`) geçici satırlar YOKMUŞ gibi
- * çalıştırılır; sonuçla eşleşen geçici satır kalır (ücret değiştiyse yeni tutar), eşleşmeyen iptal edilir, kalan
+ * çalıştırılır; sonuçla eşleşen geçici satır kalır, eşleşmeyen iptal edilir, kalan
  * yükümlülükler yeni satır olur. Böylece "yaklaşan borç" ile "olması gereken borç" tek kuraldan gelir.
  */
 export function planUpcomingAccrualSync(input: AccrualPlanInput): {
   create: StandaloneAccrual[];
   voidIds: string[];
-  reprice: { paymentId: string; studentId: string; amount: number; enrollmentId?: string }[];
 } {
   const provisional = input.payments.filter((p) => isProvisionalAccrual(p, input.month));
   const ids = new Set(provisional.map((p) => p.id));
   const due = planStandaloneMonthlyAccruals({ ...input, payments: input.payments.filter((p) => !ids.has(p.id)) });
   const used = new Set<StandaloneAccrual>();
   const voidIds: string[] = [];
-  const reprice: { paymentId: string; studentId: string; amount: number; enrollmentId?: string }[] = [];
   for (const p of provisional) {
     const match = due.find(
       (a) => !used.has(a) && a.studentId === p.studentId && (!a.enrollmentId || !p.enrollmentId || a.enrollmentId === p.enrollmentId)
@@ -140,18 +138,15 @@ export function planUpcomingAccrualSync(input: AccrualPlanInput): {
       continue;
     }
     used.add(match);
-    if (Math.trunc(p.amount) !== match.amount) {
-      reprice.push({ paymentId: p.id, studentId: p.studentId, amount: match.amount, ...(p.enrollmentId ? { enrollmentId: p.enrollmentId } : {}) });
-    }
   }
-  return { create: due.filter((a) => !used.has(a)), voidIds, reprice };
+  return { create: due.filter((a) => !used.has(a)), voidIds };
 }
 
 /** Tek kurum — çağıran kurum kapsamını (ALS) kurmuş olmalı. `apply:false` yalnız planı döndürür. */
 export async function runStandaloneMonthlyAccrual(
   tenantId: string,
   opts: { apply: boolean; now?: Date }
-): Promise<{ month: string; planned: StandaloneAccrual[]; created: number; voided: number; repriced: number }> {
+): Promise<{ month: string; planned: StandaloneAccrual[]; created: number; voided: number }> {
   const [{ readPaymentsPageData, upsertMonthlyPlanPayment }, { listContractSummariesByStudent, listContractSummaryRows }, { recordAuditLog }] =
     await Promise.all([import("./store"), import("./contracts"), import("./audit/log")]);
   const { selectCurrentContract } = await import("./contract-list-helpers");
@@ -184,7 +179,6 @@ export async function runStandaloneMonthlyAccrual(
   const planned = [...planStandaloneMonthlyAccruals({ ...base, month }), ...upcoming.create];
   let created = 0;
   let voided = 0;
-  let repriced = 0;
   if (opts.apply) {
     const { collectPayment } = await import("./payments/collect");
     for (const id of upcoming.voidIds) {
@@ -202,16 +196,6 @@ export async function runStandaloneMonthlyAccrual(
       await recordAuditLog({
         tenantId, actorUserId: "cron", actorRole: "SYSTEM", action: "payment.upcoming_accrual_voided",
         entityType: "Payment", entityId: id, outcome: "success", meta: { month: shiftMonth(month, 1) },
-      });
-    }
-    for (const r of upcoming.reprice) {
-      const st = data.students.find((x) => x.id === r.studentId);
-      const multiBranch = st ? effectiveEnrollments(st, data.teachers).length > 1 : false;
-      await upsertMonthlyPlanPayment({ studentId: r.studentId, month: shiftMonth(month, 1), amount: r.amount, enrollmentId: r.enrollmentId, includeUnlinked: !multiBranch });
-      repriced++;
-      await recordAuditLog({
-        tenantId, actorUserId: "cron", actorRole: "SYSTEM", action: "payment.upcoming_accrual_repriced",
-        entityType: "Payment", entityId: r.paymentId, outcome: "success", meta: { month: shiftMonth(month, 1), amount: r.amount },
       });
     }
     // Sıralı: json store'da eşzamanlı yazım yarışmasın.
@@ -246,5 +230,5 @@ export async function runStandaloneMonthlyAccrual(
       });
     }
   }
-  return { month, planned, created, voided, repriced };
+  return { month, planned, created, voided };
 }

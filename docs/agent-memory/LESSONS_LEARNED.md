@@ -1584,4 +1584,4 @@ satır yazdığı için düzeltiyordu. **Ders:** kod kuralı düzeltilince ESKİ
 Gece tahakkuku yalnız İÇİNDE bulunulan ayı yazıyordu; takvim, Ödemeler ay panosu ve Açık borçlar satır okuduğu için
 sözleşmesiz öğrencinin Kasım'ı 1 Kasım'a kadar her yerde boştu (Darya Ö.), sözleşmelinin taksitleri baştan görünüyordu.
 **Ders:** yükümlülük üreten iş ile gösteren ekranların ufku aynı olmalı; gelecek ay satırı geçicidir, tahsilat görene
-kadar her gece aynı kuralla senkronlanır (uygunluk bitince iptal, ücret değişince tutar).
+kadar her gece aynı kuralla senkronlanır (uygunluk bitince iptal, yeniden fiyatlanmaz).

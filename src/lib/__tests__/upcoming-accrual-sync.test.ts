@@ -10,7 +10,7 @@ const plan = (id: string, studentId: string, p: Partial<Payment> = {}): Payment 
 });
 
 describe("gelecek ay tahakkuku (2026-10-23 — sözleşmesiz öğrencide Kasım hiçbir ekranda yoktu)", () => {
-  it("uygun öğrenciye gelecek ay yazılır; ücret değişince tutar, uygunluk bitince iptal; ödenmiş satıra dokunulmaz", () => {
+  it("uygun öğrenciye gelecek ay yazılır; uygunluk bitince iptal, mevcut satır yeniden fiyatlanmaz; ödenmiş satıra dokunulmaz", () => {
     const r = planUpcomingAccrualSync({
       students: [student("new"), student("feeChanged", { monthlyFee: 8500 }), student("paused", { paymentPauseStatus: "paused" }), student("paid")],
       payments: [plan("f", "feeChanged"), plan("p", "paused"), plan("x", "paid", { paidAmount: 7950, status: "paid" })],
@@ -18,7 +18,6 @@ describe("gelecek ay tahakkuku (2026-10-23 — sözleşmesiz öğrencide Kasım 
       month: "2026-11",
     });
     expect(r.create).toEqual([{ studentId: "new", month: "2026-11", amount: 7950 }]);
-    expect(r.reprice).toEqual([{ paymentId: "f", studentId: "feeChanged", amount: 8500 }]);
     expect(r.voidIds).toEqual(["p"]);
   });
 });
