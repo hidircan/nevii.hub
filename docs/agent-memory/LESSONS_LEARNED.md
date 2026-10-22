@@ -1582,3 +1582,14 @@ Birleşik ilk tahsilat `installmentSequence` 1 olarak yazılır (sonraki satır 
 ## 2026-10-22 — Ödenmiş taksit sayısı satır adedinden sayıldı
 
 İlk tahsilat iki ayı tek payment satırında kapatınca sayaç 1 kaldı. `installmentMonthShares` birleşik etiketin yalnız son ayını tutuyor, `firstCollectionIncludesNextMonth` etiket veya `contractId` varsa ikinci ayı eklemiyordu. **Ders:** taksit sayısı `payments.filter(paid).length` değil; `coveredInstallmentCount` (kapanan dönem). Tutar/tarih yeniden yazılmaz. Etiket + kırılım + bayrak yoksa dönem tahmin edilmez.
+
+## 2026-10-23 — Sözleşmesiz öğrencinin gelecek ay borcu hiçbir ekranda yoktu
+
+Gece tahakkuku yalnız İÇİNDE bulunulan ayı yazıyordu; takvim, Ödemeler ay panosu ve Açık borçlar satır okuduğu için
+sözleşmesiz öğrencinin Kasım'ı 1 Kasım'a kadar her yerde boştu (Darya Ö.), sözleşmelinin taksitleri baştan görünüyordu.
+**Ders:** yükümlülük üreten iş ile gösteren ekranların ufku aynı olmalı; gelecek ay satırı geçicidir, tahsilat görene
+kadar her gece aynı kuralla senkronlanır (uygunluk bitince iptal, yeniden fiyatlanmaz).
+Devamı (aynı gün): otomatik iptal ile yönetici iptali AYRI işaretlenmeli (`adjustedBy = system:*`) — aksi halde iptal
+satırı ayı "karşılar" ve öğrenci yeniden uygun olunca borç bir daha doğmaz. Satır açan/kapatan her akış (gece işi,
+sözleşme oluştur/iptal) öğrenci kilidi altında taze satırla ve sözleşme yeniden kontrolüyle tek noktadan yazar
+(`payments/accrual-rows.ts`); `upsertMonthlyPlanPayment` iptal satırını da eşlediği için açma yolu olarak kullanılmaz.

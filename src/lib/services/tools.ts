@@ -16879,6 +16879,33 @@ export async function createStudentContractTool(
 
   // Sahip kararı (2026-09-16) — birleştirme kullanıcının AÇIK seçimi: istek söylüyorsa o,
   // söylemiyorsa kayıt anında verilen ve ödemeye yazılan seçim; ders sayısından TÜRETİLMEZ.
+  // 2026-10-23 — sözleşmenin kapsadığı ayda KISMEN tahsil edilmiş sözleşmesiz aylık plan satırı varsa sözleşme yazılmaz:
+  // satırın kalanı sözleşme taksitiyle aynı ay için ikinci açık borç olurdu; tahsilat kaydı ise değiştirilemez.
+  {
+    const { installmentMonthKeys, monthlyPlanPeriodLabel } = await import("../attendance-calendar-plan");
+    const { matchesEnrollmentScope } = await import("../student-enrollments");
+    const fromMonth = v.data.enrollmentStartDate.slice(0, 7);
+    const toMonth = enrollmentEndDate.slice(0, 7);
+    const partial = data.payments.find(
+      (p) =>
+        p.studentId === student.id &&
+        p.source === "monthly_plan" &&
+        !p.contractId &&
+        p.status !== "voided" &&
+        Math.trunc(p.paidAmount) > 0 &&
+        Math.trunc(p.paidAmount) < Math.trunc(p.amount) &&
+        matchesEnrollmentScope(p.enrollmentId, { enrollmentId: contractEnrollmentId, includeUnlinked: !branchCtx.data.multi }) &&
+        installmentMonthKeys(p).some((m) => m >= fromMonth && m <= toMonth)
+    );
+    if (partial) {
+      const month = installmentMonthKeys(partial)[0]!;
+      return fail(
+        "CONFLICT",
+        `${monthlyPlanPeriodLabel(month)} için sözleşmesiz aylık planda kısmi tahsilat var (${Math.trunc(partial.paidAmount).toLocaleString("tr-TR")} / ${Math.trunc(partial.amount).toLocaleString("tr-TR")} TL). Sözleşme bu ayı da kapsadığı için kalan tutar ikinci borç olurdu. Önce Ödemeler ekranında bu satırın kalanını tahsil edin veya tahsilatı geri alın, sonra sözleşmeyi oluşturun.`
+      );
+    }
+  }
+
   const registrationFirstPaymentRow = await getRegistrationFirstPayment(student.id, branchCtx.data.scope);
   const mergeFirstCollection =
     v.data.mergeFirstCollection ?? registrationFirstPaymentRow?.firstCollectionIncludesNextMonth ?? false;
@@ -16946,6 +16973,13 @@ export async function createStudentContractTool(
       branchLabel: branchCtx.data.label,
       blockOnUnassignedActive: branchCtx.data.multi,
       registrationPaymentScope: branchCtx.data.scope,
+      // 2026-10-23 — kapsanan aylardaki tahsilat görmemiş sözleşmesiz aylık plan satırları sözleşme işleminin PARÇASI
+      // olarak askıya alınır; başarısız olursa sözleşme geri alınır (açık çift borç kalmaz).
+      standaloneSuspension: {
+        enrollmentId: contractEnrollmentId,
+        includeUnlinked: !branchCtx.data.multi,
+        carriedOverIds: carryOver.flatMap((p) => (p ? [p.id] : [])),
+      },
     });
 
     const carriedOverPaymentIds: string[] = [];
@@ -16970,6 +17004,18 @@ export async function createStudentContractTool(
             before: { amount: p.amount, status: p.status, dueDate: p.dueDate, source: p.source, description: p.description },
           });
         } catch (e) {
+          // Sözleşmenin kapsadığı ayın aylık plan satırı sözleşme işleminde zaten askıya alındı → taşınmış sayılır.
+          const { contractSuspensionTag, suspensionTagOf } = await import("../payments/accrual-rows");
+          const now = e instanceof Error && e.message === "PAYMENT_CHANGED" ? await readPaymentById(p.id) : null;
+          if (now && suspensionTagOf(now) === contractSuspensionTag(contract.id)) {
+            carriedOverPaymentIds.push(p.id);
+            audit(ctx, "payment.moved_to_contract", "Payment", p.id, {
+              contractId: contract.id,
+              contractNumber: contract.contractNumber,
+              before: { amount: p.amount, status: p.status, dueDate: p.dueDate, source: p.source, description: p.description },
+            });
+            continue;
+          }
           // Satır arada tahsilat gördüyse dokunulmaz; sözleşme zaten yazıldı — kalan ayrı borç olarak görünür.
           if (!(e instanceof Error && e.message === "PAYMENT_CHANGED")) logger.error("carry-over void failed", e);
           carryOverSkipped.push(p.description);
@@ -17543,6 +17589,15 @@ export async function cancelStudentContractTool(
 
     const cancelled = await cancelContract(ctx.tenantId, v.data.contractId);
     if (!cancelled) return fail("NOT_FOUND", "Sözleşme bulunamadı.");
+    // 2026-10-23 — sözleşme nedeniyle askıdaki sözleşmesiz borçlar (yenileme zincirindeki önceki sözleşmeninkiler ve
+    // geçmiş aylar dahil; herhangi bir sözleşmeden tahsil edilmiş aylar hariç) ve içinde bulunulan/gelecek ayın yükümlülüğü
+    // HEMEN geri gelir. Bu adım başarısız olursa gece işi aynı kanonik kuralla tamamlar (borç kaybolmaz, çift olmaz).
+    try {
+      const { syncStandaloneAccruals } = await import("../standalone-monthly-accrual");
+      await syncStandaloneAccruals(ctx.tenantId, { apply: true, studentId: cancelled.studentId, actorUserId: ctx.userId });
+    } catch (e) {
+      logger.error("standalone accrual restore after contract cancel failed", e);
+    }
     audit(ctx, "contract.cancel", "StudentContract", cancelled.id, {
       reason: v.data.reason,
       cancelFutureLessons: v.data.cancelFutureLessons,

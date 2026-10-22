@@ -1537,6 +1537,8 @@ export async function upsertMonthlyPlanPayment(input: {
             description: `Aylık plan — ${input.month} (${input.amount} TL)`,
             installmentPeriodLabel: p.installmentPeriodLabel ?? monthlyPlanPeriodLabel(input.month),
             method: input.method ?? p.method,
+            // 2026-10-23 — sistemin askıya aldığı satıra takvimden tahsilat: askı işareti kalkar (bkz. payments/accrual-rows.ts).
+            ...(p.adjustedBy?.startsWith("system:") ? { adjustedBy: undefined, adjustmentReason: undefined, adjustedAt: undefined } : {}),
           }
         : p
     );
