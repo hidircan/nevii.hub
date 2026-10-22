@@ -1,3 +1,4 @@
+import { contractInstallmentProgressDescription } from "./attendance-calendar-plan";
 import type { Branch, Payment, SchoolSettings, StudentRef } from "./types";
 
 /**
@@ -83,7 +84,7 @@ export function buildReceiptViewModel(
     branchContact,
     studentName: student.name,
     parentLine,
-    description: payment.description,
+    description: contractInstallmentProgressDescription(payment),
     amount: payment.paidAmount,
     paymentDateIso: payment.paidAt ?? payment.dueDate,
     method: payment.method,

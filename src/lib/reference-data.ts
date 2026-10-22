@@ -194,6 +194,7 @@ export function narrowToPaymentsPage(data: AppData, opts?: ClubOnlyOptions): Pay
 export const PAYMENT_LIST_FIELDS = [
   "id", "studentId", "description", "method", "dueDate", "amount", "paidAmount", "status", "lessonId", "paymentNote",
   "paidAt", "createdAt", "source", "receivedByUserId", "contractId", "enrollmentId", "clubMembershipId",
+  "installmentSequence",
   // 2026-10-20 — ay görünümü dönem ayını takvimle AYNI kuraldan (`installmentMonthShares`) çıkarır.
   "installmentPeriodLabel", "installmentBreakdown", "firstCollectionIncludesNextMonth",
 ] as const satisfies readonly (keyof Payment)[];

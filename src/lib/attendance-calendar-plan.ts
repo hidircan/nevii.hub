@@ -331,6 +331,37 @@ export function paidInstallmentCount(payments: readonly CalendarPlanInstallment[
   return payments.reduce((n, p) => n + coveredInstallmentCount(p), 0);
 }
 
+const CONTRACT_INSTALLMENT_DESC = /^(Sözleşme taksiti )(\d+)\/(\d+)/;
+
+/**
+ * Sözleşme taksit etiketinin payı. Saklanan sıra, satırın BAŞLADIĞI aydır
+ * (birleşik ilk tahsilat 1 yazar, sonraki satır 3). Ekranda görünen numara
+ * kapanan dönem kadar ilerler: iki dönem tam kapanmışsa 2, yalnız ilki tamsa 1.
+ * Hiç dönem kapanmamışsa planlanan sıra durur.
+ */
+export function contractInstallmentProgressIndex(p: CalendarPlanInstallment): number | undefined {
+  const match = p.description?.match(CONTRACT_INSTALLMENT_DESC);
+  const start = p.installmentSequence != null && p.installmentSequence > 0
+    ? p.installmentSequence
+    : match ? Number(match[2]) : undefined;
+  if (start == null) return undefined;
+  const covered = coveredInstallmentCount(p);
+  if (covered <= 1) return start;
+  const total = match ? Number(match[3]) : undefined;
+  const reached = start + covered - 1;
+  return total != null && reached > total ? total : reached;
+}
+
+/** Saklanan açıklamadaki "Sözleşme taksiti X/N" payını dönem ilerlemesiyle değiştirir. Tutar/tarih yazılmaz. */
+export function contractInstallmentProgressDescription(p: CalendarPlanInstallment): string {
+  const description = p.description ?? "";
+  const match = description.match(CONTRACT_INSTALLMENT_DESC);
+  if (!match) return description;
+  const index = contractInstallmentProgressIndex(p);
+  if (index == null || index === Number(match[2])) return description;
+  return description.replace(CONTRACT_INSTALLMENT_DESC, `$1${index}/${match[3]}`);
+}
+
 const TR_MONTH_NAMES = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 /** "2026-10" → "Ekim 2026" — sözleşmesiz aylık plan satırının KALICI dönem etiketi (`installmentPeriodLabel`). */

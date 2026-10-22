@@ -4,7 +4,12 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-22 (ödenmiş taksit sayısı; MERGE/PUSH/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-23 (sözleşme taksit ibaresi; MERGE/PUSH/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-contract-installment-label`, dal `fix/contract-installment-label` (taban origin/main e4f73057, #81 dahil).
+- "Sözleşme taksiti X/N" ekranda `contractInstallmentProgressIndex` ile kapanan dönemden türer. İki ay tam kapanmışsa 2/N, yalnız ilk dönem tamsa 1/N. Saklanan sıra, tutar ve tarih durur.
+- Açık: owner canlı kabul. Commit/push yok.
+
+## Snapshot — 2026-10-22 (ödenmiş taksit sayısı; MERGE/PUSH/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-paid-installment-count`, dal `fix/paid-installment-count` (taban origin/main d8107c33).
 - Ödenmiş taksit sayısı satır adedinden değil `coveredInstallmentCount` / `paidInstallmentCount` ile kapanan dönemden gelir. İki aylık ilk tahsilat 2 sayılır. Tutar ve tarihe dokunulmadı.
 - Açık: owner canlı kabul. Etiketi, kırılımı ve `firstCollectionIncludesNextMonth` bayrağı olmayan eski satırlar dönem sayamaz; mevcut backfill betiği dry-run, çalıştırılmadı.

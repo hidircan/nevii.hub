@@ -19,6 +19,7 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { readStudentScope } from "@/lib/store";
 import { listTerminalContractIds } from "@/lib/contracts";
 import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
 import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
 import { listNotificationsPageForUser } from "@/lib/notifications";
@@ -570,7 +571,7 @@ export default async function OgrenciPortalPage({
                       <div>
                         <p className="text-sm font-medium text-[var(--color-text)]">
                           {portalBranchOf(p) ? `${portalBranchOf(p)} · ` : ""}
-                          {p.description}
+                          {contractInstallmentProgressDescription(p)}
                         </p>
                         <p className="text-xs text-[var(--color-text-muted)]">
                           {p.status === "partial"

@@ -1575,6 +1575,10 @@ vade = tahsilat günü (Eylül sonu) → dersleri Ekim'de başlayan öğrencinin
 satır yazdığı için düzeltiyordu. **Ders:** kod kuralı düzeltilince ESKİ satırların backfill'i de aynı PR'da kapsanmalı
 (10-14 betiği yalnız "takip eden ay" satırlarını seçiyordu); dönem alanı yazıcıda zorunlu tip olmalı.
 
+## 2026-10-23 — Sözleşme taksit ibaresi saklanan sırayı gösterdi
+
+Birleşik ilk tahsilat `installmentSequence` 1 olarak yazılır (sonraki satır 3. aydır) ve açıklama "Sözleşme taksiti 1/N" diye saklanır. Ödenmiş taksit sayısı düzelince bu ibare ayrı kaldı. **Ders:** ekrandaki pay `contractInstallmentProgressIndex` (başlangıç sırası + kapanan dönem − 1). Saklanan açıklamayı, tutarı ve tarihi yeniden yazma.
+
 ## 2026-10-22 — Ödenmiş taksit sayısı satır adedinden sayıldı
 
 İlk tahsilat iki ayı tek payment satırında kapatınca sayaç 1 kaldı. `installmentMonthShares` birleşik etiketin yalnız son ayını tutuyor, `firstCollectionIncludesNextMonth` etiket veya `contractId` varsa ikinci ayı eklemiyordu. **Ders:** taksit sayısı `payments.filter(paid).length` değil; `coveredInstallmentCount` (kapanan dönem). Tutar/tarih yeniden yazılmaz. Etiket + kırılım + bayrak yoksa dönem tahmin edilmez.

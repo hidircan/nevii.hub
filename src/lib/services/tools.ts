@@ -237,7 +237,7 @@ import { ownStudents, ownPayouts } from "../teacher-portal-scope";
 import { effectiveLessonOpsStatus, isLessonProcessedForPayout } from "../lesson-ops";
 import { normalizeAttendanceNote, type MakeupLifecycleOp } from "../makeup-lifecycle";
 import { resolveLessonFinalStatus, type LessonFinalStatus } from "../lesson-live-status";
-import { monthlyPlanPeriodLabel, resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
+import { contractInstallmentProgressDescription, monthlyPlanPeriodLabel, resolveContractPlanForMonth, type CalendarMonthPlan, type CalendarPlanContract } from "../attendance-calendar-plan";
 import {
   academicTermMonths,
   isYmdWithinAcademicTerm,
@@ -2253,7 +2253,7 @@ async function computePaymentDeletionPlan(tenantId: string, paymentId: string): 
   return {
     paymentId,
     studentName: data.students.find((st) => st.id === payment.studentId)?.name ?? "—",
-    description: payment.description,
+    description: contractInstallmentProgressDescription(payment),
     amount: payment.amount,
     paidAmount: payment.paidAmount,
     status: payment.status,
