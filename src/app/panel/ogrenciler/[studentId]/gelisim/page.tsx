@@ -46,6 +46,7 @@ export default async function StudentProgressTab({ params }: { params: Promise<{
   const curriculumTopics = curriculumResult.ok ? curriculumResult.data.topics : [];
   const curriculumOverall = curriculumResult.ok ? curriculumResult.data.overallPercent : 0;
   const assessments = assessmentResult.ok ? assessmentResult.data.assessments : [];
+  const periodicAssessments = assessmentResult.ok ? (assessmentResult.data.periodicAssessments ?? []) : [];
 
   // Karşılıklı değerlendirmeler yalnız yöneticiye ve yalnız bu öğrenciye kapsamlı.
   let teacherFeedbackAboutTeachers: TeacherFeedback[] = [];
@@ -89,6 +90,38 @@ export default async function StudentProgressTab({ params }: { params: Promise<{
             ))}
           </div>
         ) : null}
+        {periodicAssessments.length > 0 ? (
+          <div className="mb-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+              4 Haftalık / 4 Derslik Dönem Raporları ({periodicAssessments.length})
+            </p>
+            {periodicAssessments.slice(0, 4).map((pa) => {
+              const paScore = pa.overallScore ?? (pa.scores ? computeOverallScore(pa.scores) : undefined);
+              return (
+                <Link key={pa.id} href={`/degerlendirme/rapor/${student.id}?donem=${pa.id}`}>
+                  <Card className="!p-3 transition hover:border-[var(--color-primary)]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--color-text)]">
+                          {formatDate(pa.periodStart)} – {formatDate(pa.periodEnd)}
+                        </p>
+                        <p className="mt-0.5 line-clamp-1 text-xs text-[var(--color-text-muted)]">{pa.overallProgressNote}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {paScore !== undefined ? (
+                          <span className="rounded-full bg-[var(--color-primary-soft)] px-2.5 py-0.5 text-xs font-bold tabular-nums text-[var(--color-primary)]">
+                            {paScore.toFixed(1)} / 5
+                          </span>
+                        ) : null}
+                        <Badge status="approved">Onaylandı</Badge>
+                      </div>
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
         {assessments.length === 0 ? (
           <EmptyState title="Henüz gelişim değerlendirmesi yok" />
         ) : (
@@ -107,12 +140,21 @@ export default async function StudentProgressTab({ params }: { params: Promise<{
             ))}
           </div>
         )}
-        <Link
-          href={`/degerlendirme/rapor/${student.id}`}
-          className="mt-2 inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
-        >
-          Tam raporu görüntüle →
-        </Link>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <Link
+            href={`/degerlendirme/rapor/${student.id}`}
+            className="inline-block text-sm font-medium text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+          >
+            Tam raporu görüntüle →
+          </Link>
+          <Link
+            href={`/degerlendirme/rapor/${student.id}?yazdir=1`}
+            target="_blank"
+            className="inline-block text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            Kurumsal PDF indir / yazdır ↗
+          </Link>
+        </div>
       </section>
 
       <section>

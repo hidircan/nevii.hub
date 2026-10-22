@@ -91,15 +91,15 @@ export default async function ReportHomePage() {
 
       {pendingPeriods.length > 0 ? (
         <section className="space-y-2">
-          <ReportSectionTitle count={pendingPeriods.length}>4 haftalık değerlendirme bekleyenler</ReportSectionTitle>
+          <ReportSectionTitle count={pendingPeriods.length}>4 haftalık / 4 derslik onay bekleyenler</ReportSectionTitle>
           <ul className="space-y-2">
             {pendingPeriods.map((p) => (
               <ReportListItem
                 key={`${p.studentId}:${p.periodStart}`}
                 href={`/gelisim/${p.studentId}?sekme=donemsel&donem=${encodeURIComponent(p.periodStart)}`}
                 title={p.studentName}
-                meta={`${formatDate(p.periodStart)} – ${formatDate(p.periodEnd)}`}
-                badge="4 hafta"
+                meta={`${formatDate(p.periodStart)} – ${formatDate(p.periodEnd)}${p.draft ? ` · ${p.draft.lessonCount} ders · Ort. ${p.draft.overallScore.toFixed(1)}/5` : ""}`}
+                badge="4 ders özeti"
               />
             ))}
           </ul>

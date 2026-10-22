@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ASSESSMENT_ITEM_LABELS, ASSESSMENT_SECTIONS } from "@/lib/assessment/score";
+import { DEFAULT_ASSESSMENT_SCORES, LESSON_REPORT_PLACEHOLDERS } from "@/lib/reports/guidance";
 import type { AssessmentScores } from "@/lib/types";
 import { apiFetchJson } from "@/lib/api/client-fetch";
 import { formatDateTime } from "@/lib/utils";
@@ -25,18 +26,7 @@ import { useFormDraft } from "./use-form-draft";
 
 export type AssessableLesson = { id: string; startAt: string; instrument?: string };
 
-const DEFAULT_SCORES: AssessmentScores = {
-  teknikBecerisi: 3,
-  notaOkuma: 3,
-  muzikalite: 3,
-  ritimDuyusu: 3,
-  calismaDuzeni: 3,
-  evOdeviTamamlama: 3,
-  dersKatilimi: 3,
-  motivasyon: 3,
-  genelIlerleme: 3,
-  hedefeUlasma: 3,
-};
+const DEFAULT_SCORES: AssessmentScores = DEFAULT_ASSESSMENT_SCORES;
 
 type Draft = {
   lessonId: string;
@@ -192,24 +182,84 @@ export function LessonAssessmentMobileForm({
         </FormSection>
       ))}
 
-      <FormSection title="Değerlendirme notları">
-        <FieldTextarea id={`guclu-${studentId}`} label="Güçlü yönler" required value={d.strengthNote} onChange={(v) => update({ strengthNote: v })} maxLength={2000} />
-        <FieldTextarea id={`gelisim-${studentId}`} label="Gelişime açık alanlar" required value={d.improvementNote} onChange={(v) => update({ improvementNote: v })} maxLength={2000} />
-        <FieldTextarea id={`sonraki-${studentId}`} label="Sonraki adımlar" required value={d.nextStepsNote} onChange={(v) => update({ nextStepsNote: v })} maxLength={2000} />
+      <FormSection
+        title="Değerlendirme notları"
+        description="Kutuların içindeki silik örnekler rehberlik içindir; tıklayıp kendi ders notunuzu kısaca yazabilirsiniz."
+      >
+        <FieldTextarea
+          id={`guclu-${studentId}`}
+          label="Güçlü yönler"
+          required
+          placeholder={LESSON_REPORT_PLACEHOLDERS.strengthNote}
+          value={d.strengthNote}
+          onChange={(v) => update({ strengthNote: v })}
+          maxLength={2000}
+        />
+        <FieldTextarea
+          id={`gelisim-${studentId}`}
+          label="Gelişime açık alanlar"
+          required
+          placeholder={LESSON_REPORT_PLACEHOLDERS.improvementNote}
+          value={d.improvementNote}
+          onChange={(v) => update({ improvementNote: v })}
+          maxLength={2000}
+        />
+        <FieldTextarea
+          id={`sonraki-${studentId}`}
+          label="Sonraki adımlar"
+          required
+          placeholder={LESSON_REPORT_PLACEHOLDERS.nextStepsNote}
+          value={d.nextStepsNote}
+          onChange={(v) => update({ nextStepsNote: v })}
+          maxLength={2000}
+        />
       </FormSection>
 
       <OptionalSection title="Çalışılan konular">
-        <FieldTextarea id={`parca-${studentId}`} label="İşlenen parçalar" rows={2} value={d.piecesWorked} onChange={(v) => update({ piecesWorked: v })} maxLength={2000} />
-        <FieldTextarea id={`etut-${studentId}`} label="İşlenen etütler" rows={2} value={d.etudesWorked} onChange={(v) => update({ etudesWorked: v })} maxLength={2000} />
-        <FieldTextarea id={`teknik-${studentId}`} label="Teknik çalışmalar" rows={2} value={d.technicalWork} onChange={(v) => update({ technicalWork: v })} maxLength={2000} />
-        <FieldTextarea id={`teori-${studentId}`} label="Teorik / pratik konular" rows={2} value={d.theoryWork} onChange={(v) => update({ theoryWork: v })} maxLength={2000} />
+        <FieldTextarea
+          id={`parca-${studentId}`}
+          label="İşlenen parçalar"
+          rows={2}
+          placeholder={LESSON_REPORT_PLACEHOLDERS.piecesWorked}
+          value={d.piecesWorked}
+          onChange={(v) => update({ piecesWorked: v })}
+          maxLength={2000}
+        />
+        <FieldTextarea
+          id={`etut-${studentId}`}
+          label="İşlenen etütler"
+          rows={2}
+          placeholder={LESSON_REPORT_PLACEHOLDERS.etudesWorked}
+          value={d.etudesWorked}
+          onChange={(v) => update({ etudesWorked: v })}
+          maxLength={2000}
+        />
+        <FieldTextarea
+          id={`teknik-${studentId}`}
+          label="Teknik çalışmalar"
+          rows={2}
+          placeholder={LESSON_REPORT_PLACEHOLDERS.technicalWork}
+          value={d.technicalWork}
+          onChange={(v) => update({ technicalWork: v })}
+          maxLength={2000}
+        />
+        <FieldTextarea
+          id={`teori-${studentId}`}
+          label="Teorik / pratik konular"
+          rows={2}
+          placeholder={LESSON_REPORT_PLACEHOLDERS.theoryWork}
+          value={d.theoryWork}
+          onChange={(v) => update({ theoryWork: v })}
+          maxLength={2000}
+        />
       </OptionalSection>
 
       <OptionalSection title="Veliye özel not">
         <FieldTextarea
           id={`veli-${studentId}`}
           label="Not"
-          hint="Varsayılan olarak yalnız veli görür. Gizlilik için bu not taslakta saklanmaz."
+          hint="Varsayılan olarak yalnız yönetici ve veli görür. Gizlilik için bu not taslakta saklanmaz."
+          placeholder={LESSON_REPORT_PLACEHOLDERS.parentPrivateNote}
           rows={2}
           value={d.parentPrivateNote}
           onChange={(v) => update({ parentPrivateNote: v })}
@@ -233,8 +283,9 @@ export function LessonAssessmentMobileForm({
           id={`imza-${studentId}`}
           value={d.teacherSignedName}
           onChange={(e) => update({ teacherSignedName: e.target.value })}
+          placeholder="Örn: Deniz Aydın"
           autoComplete="name"
-          className="min-h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-base text-[var(--color-text)] sm:text-sm"
+          className="min-h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-base text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]/60 sm:text-sm"
         />
       </div>
 

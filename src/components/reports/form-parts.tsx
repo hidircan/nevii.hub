@@ -65,6 +65,7 @@ export function FieldTextarea({
   onChange,
   required,
   hint,
+  placeholder,
   rows = 3,
   maxLength,
 }: {
@@ -74,6 +75,7 @@ export function FieldTextarea({
   onChange: (value: string) => void;
   required?: boolean;
   hint?: string;
+  placeholder?: string;
   rows?: number;
   maxLength?: number;
 }) {
@@ -88,10 +90,11 @@ export function FieldTextarea({
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
         rows={rows}
         maxLength={maxLength}
         required={required}
-        className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base text-[var(--color-text)] outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-focus-ring)] sm:text-sm"
+        className="w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-base text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]/60 outline-none transition focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-focus-ring)] sm:text-sm"
       />
     </div>
   );
