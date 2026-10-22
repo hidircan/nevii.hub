@@ -1566,3 +1566,11 @@ Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pa
   kullandı ("hakkı var ama planlanamaz"). Düzeltme: `expiresAtForPolicyWindow` (asla kısaltmaz), üç store modunda.
 - Ders: zamana bağlı bir statüyü kolonda saklama; okurken türet. Bir politika ayarı değişince "bu kural mevcut kayıtları
   nerede okuyor?" diye grep et — iki okuyucu farklı kaynağa bakıyorsa çelişki kaçınılmaz.
+
+## 2026-10-22 — Etiketsiz kayıt ilk tahsilatı: Ekim ödemesi takvimde Eylül'de, Ekim ikinci kez borçlandı
+
+10-14 öncesi sözleşmesiz kayıt ilk tahsilatı dönem etiketi taşımıyordu; `installmentMonthShares` dönemi vadeden okudu,
+vade = tahsilat günü (Eylül sonu) → dersleri Ekim'de başlayan öğrencinin ödemesi Eylül'de; gece tahakkuku Ekim'i
+"karşılanmamış" sanıp mükerrer `monthly_plan` yazdı (Arya U., Luna T., Denyse N.). "Sil-yeniden oluştur" etiketli yeni
+satır yazdığı için düzeltiyordu. **Ders:** kod kuralı düzeltilince ESKİ satırların backfill'i de aynı PR'da kapsanmalı
+(10-14 betiği yalnız "takip eden ay" satırlarını seçiyordu); dönem alanı yazıcıda zorunlu tip olmalı.
