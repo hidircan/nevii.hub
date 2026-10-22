@@ -1007,7 +1007,20 @@ export const createAssessmentSchema = z.object({
   teacherSignedName: z.string().min(1),
 });
 
-/** Faz 3B — dört haftalık genel gelişim değerlendirmesi. */
+export const assessmentScoresSchema = z.object({
+  teknikBecerisi: scoreItem(),
+  notaOkuma: scoreItem(),
+  muzikalite: scoreItem(),
+  ritimDuyusu: scoreItem(),
+  calismaDuzeni: scoreItem(),
+  evOdeviTamamlama: scoreItem(),
+  dersKatilimi: scoreItem(),
+  motivasyon: scoreItem(),
+  genelIlerleme: scoreItem(),
+  hedefeUlasma: scoreItem(),
+});
+
+/** Faz 3B — dört haftalık / 4 derslik genel gelişim değerlendirmesi. */
 export const createPeriodicAssessmentSchema = z.object({
   studentId: z.string().min(1),
   periodStart: z.string().min(1),
@@ -1016,6 +1029,8 @@ export const createPeriodicAssessmentSchema = z.object({
   strengthsNote: z.string().max(2000).optional(),
   areasForImprovementNote: z.string().max(2000).optional(),
   recommendationNote: z.string().max(2000).optional(),
+  scores: assessmentScoresSchema.optional(),
+  teacherSignedName: z.string().max(200).optional(),
 });
 
 export const startLessonSchema = z.object({

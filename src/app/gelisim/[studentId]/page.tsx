@@ -54,7 +54,7 @@ export default async function ReportStudentPage({ params, searchParams }: Props)
 
   const periodic = await listPendingPeriodicAssessmentsTool(
     { role: session.role, userId: session.userId, tenantId: session.tenantId, teacherId, channel: "web" },
-    {}
+    { studentId: student.id }
   );
   const periods = (periodic.ok ? periodic.data.items : []).filter((p) => p.studentId === student.id);
   const period = periods.find((p) => p.periodStart === donem) ?? periods[0];
@@ -96,12 +96,14 @@ export default async function ReportStudentPage({ params, searchParams }: Props)
           key={period.periodStart}
           studentId={student.id}
           period={{ periodStart: period.periodStart, periodEnd: period.periodEnd }}
+          draftSummary={period.draft}
+          teacherName={teacher?.name ?? ""}
           draftOwner={teacherId}
           doneHref={done}
         />
       ) : (
         <p className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] p-4 text-sm text-[var(--color-text-muted)]">
-          Bu öğrenci için bekleyen 4 haftalık değerlendirme yok. Bir sonraki dönem tamamlandığında burada görünecek.
+          Bu öğrenci için bekleyen 4 haftalık değerlendirme yok. 4 ders tamamlandığında özet form otomatik olarak burada açılacak.
         </p>
       )}
     </ReportShell>

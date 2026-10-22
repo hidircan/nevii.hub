@@ -174,7 +174,6 @@ export function StudentPaymentHistoryTable({
           paymentId={modalPayment.id}
           studentName={modalPayment.studentName || studentName}
           defaultAmount={modalPayment.paidAmount || modalPayment.amount}
-          mode="edit"
           initialMethod={isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined}
           initialNote={modalPayment.paymentNote}
           initialPaidAt={modalPayment.paidAt}

@@ -133,14 +133,14 @@ describe("sözleşme dışı borcun sözleşmeye taşınması (çift borç yok, 
   it("taşı seçilmeden sözleşme, aynı ayın tahsilatsız aylık planını iptal eder; başka ay durur", async () => {
     const { monthlyPlanId, paidSeedId } = await seed();
     const { upsertMonthlyPlanPayment, readData } = await import("../store-json");
-    const later = await upsertMonthlyPlanPayment({ studentId: "s1", month: "2026-12", amount: 3000 });
+    const later = await upsertMonthlyPlanPayment({ studentId: "s1", month: "2027-01", amount: 3000 });
     const res = await createStudentContractTool(adminCtx(), input({}));
     expect(res.ok).toBe(true);
     const payments = (await readData()).payments.filter((p) => p.studentId === "s1");
     const moved = payments.find((p) => p.id === monthlyPlanId)!;
     expect(moved.status).toBe("voided");
     expect(moved.amount).toBe(3000);
-    expect(moved.paymentNote).toContain("taşındı");
+    expect(moved.paymentNote ?? moved.adjustmentReason).toMatch(/taşındı|kapsıyor/);
     expect(payments.find((p) => p.id === later.paymentId)!.status).not.toBe("voided");
     expect(payments.find((p) => p.id === paidSeedId)!.status).toBe("paid");
     const open = summarizeStudentDebt(payments, new Set()).openTotal;

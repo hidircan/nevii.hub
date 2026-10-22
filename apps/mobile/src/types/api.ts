@@ -306,15 +306,113 @@ export type CurriculumTopic = {
 };
 export type CurriculumResponse = { topics: CurriculumTopic[]; overallPercent: number; progressExplanation: string };
 
+export type AssessmentScoresPayload = {
+  teknikBecerisi: number;
+  notaOkuma: number;
+  muzikalite: number;
+  ritimDuyusu: number;
+  calismaDuzeni: number;
+  evOdeviTamamlama: number;
+  dersKatilimi: number;
+  motivasyon: number;
+  genelIlerleme: number;
+  hedefeUlasma: number;
+};
+
 export type Assessment = {
   id: string;
+  lessonId?: string;
+  studentId?: string;
+  teacherId?: string;
   strengthNote: string;
   nextStepsNote: string;
   improvementNote: string;
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
   teacherSignedName: string;
   createdAt: string;
-};
+} & Partial<AssessmentScoresPayload>;
 export type AssessmentsResponse = { assessments: Assessment[] };
+
+export type PeriodicLessonSummaryItem = {
+  lessonId: string;
+  startAt: string;
+  instrument?: string;
+  status: string;
+  assessed: boolean;
+  overallScore?: number;
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
+  strengthNote?: string;
+  improvementNote?: string;
+  nextStepsNote?: string;
+};
+
+export type PeriodicAssessmentItem = {
+  id: string;
+  studentId: string;
+  teacherId: string;
+  periodStart: string;
+  periodEnd: string;
+  overallProgressNote: string;
+  strengthsNote?: string;
+  areasForImprovementNote?: string;
+  recommendationNote?: string;
+  relatedLessonIds: string[];
+  scores?: AssessmentScoresPayload;
+  overallScore?: number;
+  lessonSummaries?: PeriodicLessonSummaryItem[];
+  teacherSignedName?: string;
+  approvedAt?: string;
+  createdAt: string;
+};
+
+export type PeriodicAssessmentDraft = {
+  lessonCount: number;
+  assessedLessonCount: number;
+  attendedLessonCount: number;
+  relatedLessonIds: string[];
+  lessonSummaries: PeriodicLessonSummaryItem[];
+  suggestedScores: AssessmentScoresPayload;
+  overallScore: number;
+  topicsSummary: {
+    piecesWorked: string[];
+    etudesWorked: string[];
+    technicalWork: string[];
+    theoryWork: string[];
+  };
+  synthesizedNotes: {
+    overallProgressNote: string;
+    strengthsNote: string;
+    areasForImprovementNote: string;
+    recommendationNote: string;
+  };
+};
+
+export type PendingPeriodicAssessmentItem = {
+  studentId: string;
+  studentName: string;
+  teacherId: string;
+  periodStart: string;
+  periodEnd: string;
+  draft?: PeriodicAssessmentDraft;
+};
+
+export type PendingPeriodicAssessmentsResponse = {
+  items: PendingPeriodicAssessmentItem[];
+};
+
+export type AssessmentReportResponse = {
+  studentId: string;
+  studentName: string;
+  assessments: Assessment[];
+  periodicAssessments?: PeriodicAssessmentItem[];
+  overallAverage: number;
+};
 
 export type TeacherFeedbackScores = {
   clarity: number;

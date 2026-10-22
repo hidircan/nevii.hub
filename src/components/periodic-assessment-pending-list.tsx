@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Button, Card, EmptyState } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
+import type { PeriodicAssessmentDraft } from "@/lib/reports/guidance";
 import { PeriodicAssessmentMobileForm } from "@/components/reports/periodic-assessment-mobile-form";
 
 export type PendingPeriodicItem = {
@@ -13,6 +14,7 @@ export type PendingPeriodicItem = {
   teacherId: string;
   periodStart: string;
   periodEnd: string;
+  draft?: PeriodicAssessmentDraft;
 };
 
 function PendingItemForm({ item }: { item: PendingPeriodicItem }) {
@@ -24,10 +26,11 @@ function PendingItemForm({ item }: { item: PendingPeriodicItem }) {
           <p className="text-sm font-medium text-[var(--color-text)]">{item.studentName}</p>
           <p className="text-xs text-[var(--color-text-muted)]">
             {formatDate(item.periodStart)} – {formatDate(item.periodEnd)}
+            {item.draft ? ` · ${item.draft.lessonCount} ders · Ort. ${item.draft.overallScore.toFixed(1)}/5` : ""}
           </p>
         </div>
         <Button variant={open ? "ghost" : "secondary"} onClick={() => setOpen((v) => !v)}>
-          {open ? "Kapat" : "Değerlendirmeyi doldur"}
+          {open ? "Kapat" : "Özeti İncele ve Onayla"}
         </Button>
       </div>
       {open ? (
@@ -37,6 +40,7 @@ function PendingItemForm({ item }: { item: PendingPeriodicItem }) {
             studentId={item.studentId}
             draftOwner={item.teacherId}
             period={{ periodStart: item.periodStart, periodEnd: item.periodEnd }}
+            draftSummary={item.draft}
           />
         </div>
       ) : null}

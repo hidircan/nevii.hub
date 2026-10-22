@@ -5065,7 +5065,7 @@ export async function upsertMonthlyPlanPayment(input: {
       contractId: null,
       ...enrollmentScopeWhere({ enrollmentId: input.enrollmentId, includeUnlinked: input.includeUnlinked }),
     },
-    select: { id: true, description: true, dueDate: true, installmentPeriodLabel: true, source: true, amount: true, paidAmount: true, status: true },
+    select: { id: true, description: true, dueDate: true, installmentPeriodLabel: true, source: true, amount: true, paidAmount: true, status: true, adjustedBy: true },
   });
   const existing = candidates.find((p) =>
     isMonthlyPlanRowForMonth(
@@ -5092,6 +5092,8 @@ export async function upsertMonthlyPlanPayment(input: {
         amount: input.amount,
         description,
         ...(existing.installmentPeriodLabel ? {} : { installmentPeriodLabel: monthlyPlanPeriodLabel(input.month) }),
+        // 2026-10-23 — sistemin askıya aldığı satıra takvimden tahsilat: askı işareti kalkar (bkz. payments/accrual-rows.ts).
+        ...(existing.adjustedBy?.startsWith("system:") ? { adjustedBy: null, adjustmentReason: null, adjustedAt: null } : {}),
         method: input.method,
       },
     });

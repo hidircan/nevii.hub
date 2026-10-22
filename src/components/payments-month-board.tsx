@@ -3,7 +3,8 @@
 /**
  * 2026-10-20 — Ödemeler ay panosu: seçili ayın satırları, durum filtreleri (istemcide; sunucu turu yok), öğrenci
  * çekmecesi. Satır = bir ödeme satırının o aya düşen payı (bkz. payment-month-view.ts). Durum/etiket/renk tek
- * sözlükten (payments/status.ts). Tahsil et / Düzelt mevcut `PaymentMarkPaidModal` (create / edit) ile yapılır.
+ * sözlükten (payments/status.ts). Bu pano TAKİP ve GÖRÜNÜM içindir — tahsilat alınmaz; tahsilatlar YOKLAMA
+ * TAKVİMİ üzerinden yapılır. Mevcut kaydın düzeltilmesi `PaymentMarkPaidModal` (edit) ile yapılır.
  */
 import { useEffect, useMemo, useState } from "react";
 import Link from "@/components/link";
@@ -21,7 +22,8 @@ import { PaginationControls, usePagination } from "@/components/pagination-contr
 type Filter = "all" | "carryover" | Exclude<PaymentDisplayStatus, "voided" | "closed">;
 const FILTERS: Exclude<Filter, "all" | "carryover">[] = ["overdue", "upcoming", "pending", "partial", "paid"];
 
-type Modal = { row: MonthPaymentRow; mode: "create" | "edit" } | null;
+/** Yalnız mevcut kaydın düzeltilmesi (edit) — yeni tahsilat bu panodan açılmaz. */
+type Modal = { row: MonthPaymentRow } | null;
 
 function isPaymentMethod(value: string | undefined): value is "credit_card" | "cash" | "transfer" {
   return value === "credit_card" || value === "cash" || value === "transfer";
@@ -35,6 +37,7 @@ export function PaymentsMonthBoard({
   canWrite,
   canDelete,
   empty,
+  highlightPaymentId,
 }: {
   /** Boş durum metni (öğrenci detayı: "Açık borç yok"); verilmezse ay metni. */
   empty?: { title: string; hint: string };
@@ -45,6 +48,8 @@ export function PaymentsMonthBoard({
   paidInstallmentCounts?: Record<string, number>;
   canWrite: boolean;
   canDelete: boolean;
+  /** Bildirimden gelen derin bağlantı (`?odeme=`): ilgili satır vurgulanır. */
+  highlightPaymentId?: string;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -74,6 +79,13 @@ export function PaymentsMonthBoard({
 
   return (
     <>
+      <p className="mb-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+        Bu ekran tahsilat almaz — ödemeler{" "}
+        <Link href="/panel/yoklama" className="font-medium text-[var(--color-primary)] hover:underline">
+          Yoklama Takvimi
+        </Link>{" "}
+        üzerinden tahsil edilir. Burada takip, filtreleme ve kayıt düzeltme yapılır.
+      </p>
       <div className="mb-3 flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Durum filtresi">
         <FilterChip active={filter === "all"} onClick={() => setFilter("all")} label="Tümü" count={counts.all ?? 0} />
         {FILTERS.map((f) => (
@@ -140,8 +152,8 @@ export function PaymentsMonthBoard({
         ) : (
           <ul className="divide-y divide-[var(--color-border)]">
             {pageItems.map((r) => (
-              <li key={`${r.id}-${r.month}`}>
-                <PaymentLine row={r} showMonth={filter === "carryover"} onOpenStudent={() => setDrawerStudentId(r.studentId)} {...actions} />
+              <li key={`${r.id}-${r.month}`} id={`odeme-${r.id}`} className={r.id === highlightPaymentId ? "scroll-mt-24 bg-[var(--color-surface-muted)]" : "scroll-mt-24"}>
+                <PaymentLine row={r} showMonth={filter === "carryover"} highlighted={r.id === highlightPaymentId} onOpenStudent={() => setDrawerStudentId(r.studentId)} {...actions} />
               </li>
             ))}
           </ul>
@@ -173,11 +185,10 @@ export function PaymentsMonthBoard({
         <PaymentMarkPaidModal
           paymentId={modal.row.id}
           studentName={modal.row.studentName}
-          defaultAmount={modal.mode === "edit" ? modal.row.rowPaidAmount || modal.row.rowAmount : modal.row.rowAmount - modal.row.rowPaidAmount}
-          mode={modal.mode}
-          initialMethod={modal.mode === "edit" && isPaymentMethod(modal.row.method) ? modal.row.method : undefined}
-          initialNote={modal.mode === "edit" ? modal.row.paymentNote : undefined}
-          initialPaidAt={modal.mode === "edit" ? modal.row.paidAt : undefined}
+          defaultAmount={modal.row.rowPaidAmount || modal.row.rowAmount}
+          initialMethod={isPaymentMethod(modal.row.method) ? modal.row.method : undefined}
+          initialNote={modal.row.paymentNote}
+          initialPaidAt={modal.row.paidAt}
           dueDate={modal.row.dueDate}
           description={modal.row.description}
           source={modal.row.source}
@@ -262,20 +273,10 @@ function RowActions({ row, canWrite, canDelete, onModal, withDelete }: LineActio
   const btn = "rounded-md px-2.5 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50";
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
-      {row.rowAmount - row.rowPaidAmount > 0 ? (
-        <button
-          type="button"
-          disabled={!canWrite}
-          onClick={() => onModal({ row, mode: "create" })}
-          className={cn(btn, "bg-[var(--color-primary)] text-[var(--color-text-inverted)] hover:bg-[var(--color-primary-hover)]")}
-        >
-          Tahsil et
-        </button>
-      ) : null}
       {row.rowPaidAmount > 0 && canWrite ? (
         <button
           type="button"
-          onClick={() => onModal({ row, mode: "edit" })}
+          onClick={() => onModal({ row })}
           title="Mevcut tahsilatı düzenler; yeni tahsilat açmaz."
           className={cn(btn, "border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]")}
         >
@@ -311,12 +312,13 @@ function RowContext({ row, showMonth }: { row: MonthPaymentRow; showMonth?: bool
 function PaymentLine({
   row,
   showMonth,
+  highlighted,
   onOpenStudent,
   ...actions
-}: LineActions & { row: MonthPaymentRow; showMonth: boolean; onOpenStudent: () => void }) {
+}: LineActions & { row: MonthPaymentRow; showMonth: boolean; highlighted?: boolean; onOpenStudent: () => void }) {
   const remainingTone = row.status === "overdue" ? "danger" : row.remaining === 0 ? "muted" : undefined;
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 md:grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] md:items-center md:gap-3">
+    <div className={highlighted ? "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 ring-2 ring-inset ring-[var(--color-primary)] md:grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] md:items-center md:gap-3" : "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 md:grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] md:items-center md:gap-3"}>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-1.5">
           <button
