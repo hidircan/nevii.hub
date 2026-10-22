@@ -1,13 +1,12 @@
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
-import { AddPaymentForm } from "@/components/add-payment-form";
 import { PageHeader } from "@/components/ui";
 import { cn, formatMoney, paymentMethodLabelTr } from "@/lib/utils";
 import { PAYMENT_SCOPE_LABEL, parsePaymentScope, scopePayments, type PaymentScope } from "@/lib/payment-scope";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { listContractEnrollmentLinksForScope, listTerminalContractIdsForScope } from "@/lib/contracts";
-import { effectiveEnrollments, enrollmentDisplayName, makePaymentBranchLabeler } from "@/lib/student-enrollments";
+import { makePaymentBranchLabeler } from "@/lib/student-enrollments";
 import { PaymentsTable, type PaymentRow } from "@/components/payments-table";
 import { PaymentsMonthBoard } from "@/components/payments-month-board";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -222,25 +221,6 @@ export default async function OdemelerPage({
             canDelete={canDelete}
           />
         </>
-      )}
-
-      {canWrite ? (
-        <details className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)]">Yeni ödeme kaydı ekle</summary>
-          <AddPaymentForm
-            students={data.students
-              .filter((st) => st.active)
-              .map((st) => {
-                const list = effectiveEnrollments(st, data.teachers).filter((e) => e.active);
-                return { id: st.id, name: st.name, branches: list.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, list, data.teachers) })) };
-              })}
-            gridClassName="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
-          />
-        </details>
-      ) : (
-        <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          &quot;Tüm kurumlar&quot; görünümündesiniz — ödeme eklemek veya tahsil etmek için üstteki kurum seçiciden tek bir kurum seçin.
-        </p>
       )}
     </div>
   );

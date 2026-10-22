@@ -5,7 +5,6 @@ import { readPaymentById } from "@/lib/store";
 import { paymentTargetHref } from "@/lib/notification-href";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { AddPaymentForm } from "@/components/add-payment-form";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
@@ -120,8 +119,6 @@ export default async function StudentPaymentProfilePage({
     debt.open.filter((p) => remainingAmount(p.amount, p.paidAmount) > 0),
     { studentName: student.name, todayYmd, terminalContractIds: terminalIds, branchLabel: branchOf }
   );
-  const activeBranches = effectiveEnrollments(student, data.teachers).filter((e) => e.active);
-  const branchOptions = activeBranches.map((e) => ({ id: e.id, label: enrollmentDisplayName(e, activeBranches, data.teachers) }));
 
   return (
     <div>
@@ -219,18 +216,6 @@ export default async function StudentPaymentProfilePage({
           </div>
         </Card>
       ) : null}
-
-      <details className="mb-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-        <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">
-          Yeni ödeme kaydı ekle
-        </summary>
-        <AddPaymentForm
-          fixedStudentId={student.id}
-          fixedStudentBranches={branchOptions}
-          defaultAmount={multiBranch ? undefined : (monthlyAmount.netAmount ?? student.monthlyFee)}
-          gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
-        />
-      </details>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Açık borçlar</h2>
       <div className="mb-6">

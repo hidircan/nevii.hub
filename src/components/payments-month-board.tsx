@@ -136,7 +136,7 @@ export function PaymentsMonthBoard({
             title={empty?.title ?? `${monthLabel} için beklenen ödeme yok`}
             hint={
               empty?.hint ??
-              "Bu aya düşen sözleşme taksiti, aylık plan veya elle girilmiş borç bulunmuyor. Önceki/sonraki aya geçebilir veya yeni ödeme kaydı ekleyebilirsiniz."
+              "Bu aya düşen sözleşme taksiti veya aylık plan kaydı bulunmuyor. Önceki veya sonraki aya geçebilirsiniz."
             }
           />
         ) : visible.length === 0 ? (
@@ -420,7 +420,7 @@ function StudentDrawer({
             href={`/panel/odemeler/${studentId}`}
             className="block rounded-lg border border-[var(--color-border)] px-3 py-2 text-center text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
           >
-            Öğrencinin tüm ödemeleri, geçmişi ve yeni ödeme →
+            Öğrencinin tüm ödemeleri ve geçmişi →
           </Link>
         </footer>
       </aside>
