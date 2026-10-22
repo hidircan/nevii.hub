@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
 import { computePendingPeriodicAssessmentPeriods, PERIODIC_ASSESSMENTS_FILE, clearPeriodicAssessments } from "../periodic-assessment";
 import { createPeriodicAssessmentTool, listPendingPeriodicAssessmentsTool, listPeriodicAssessmentsForStudentTool } from "../services/tools";
+import { buildPeriodicAssessmentDraft, LESSON_REPORT_PLACEHOLDERS, PERIODIC_REPORT_PLACEHOLDERS } from "../reports/guidance";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { grantStudentAccess } from "./portal-access-test-helper";
@@ -56,6 +57,101 @@ describe("computePendingPeriodicAssessmentPeriods (saf fonksiyon)", () => {
     );
     expect(pending).toHaveLength(3);
   });
+
+  it("4 tamamlanmış ders olduğunda 28 gün dolmasa bile otomatik 4 derslik dönem üretir", () => {
+    const lessons = [
+      { id: "l1", startAt: "2026-08-10T10:00:00.000Z", status: "completed" as const, studentAttended: true },
+      { id: "l2", startAt: "2026-08-13T10:00:00.000Z", status: "completed" as const, studentAttended: true },
+      { id: "l3", startAt: "2026-08-17T10:00:00.000Z", status: "completed" as const, studentAttended: true },
+      { id: "l4", startAt: "2026-08-20T10:00:00.000Z", status: "completed" as const, studentAttended: true },
+    ];
+    const pending = computePendingPeriodicAssessmentPeriods(
+      { firstLessonAt: "2026-08-10T10:00:00.000Z" },
+      [],
+      now,
+      lessons
+    );
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.periodStart).toBe("2026-08-10T10:00:00.000Z");
+  });
+});
+
+describe("buildPeriodicAssessmentDraft ve pedagojik placeholder rehberliği", () => {
+  it("tüm form alanları için birbirinden farklı, bağlama özel pedagojik placeholder içerir", () => {
+    const lessonValues = Object.values(LESSON_REPORT_PLACEHOLDERS);
+    expect(lessonValues).toHaveLength(8);
+    expect(new Set(lessonValues).size).toBe(8);
+
+    const periodicValues = Object.values(PERIODIC_REPORT_PLACEHOLDERS);
+    expect(periodicValues).toHaveLength(4);
+    expect(new Set(periodicValues).size).toBe(4);
+  });
+
+  it("önceki 4 dersin verilerini ve puanlarını toplayıp otomatik özet ve puan ortalaması üretir", () => {
+    const lessons = [
+      { id: "l1", studentId: "s1", teacherId: "t1", startAt: "2026-08-01T10:00:00.000Z", instrument: "Piyano" as const, status: "completed" as const, studentAttended: true },
+      { id: "l2", studentId: "s1", teacherId: "t1", startAt: "2026-08-08T10:00:00.000Z", instrument: "Piyano" as const, status: "completed" as const, studentAttended: true },
+      { id: "l3", studentId: "s1", teacherId: "t1", startAt: "2026-08-15T10:00:00.000Z", instrument: "Piyano" as const, status: "completed" as const, studentAttended: true },
+      { id: "l4", studentId: "s1", teacherId: "t1", startAt: "2026-08-22T10:00:00.000Z", instrument: "Piyano" as const, status: "completed" as const, studentAttended: true },
+    ];
+    const baseScores = {
+      teknikBecerisi: 4,
+      notaOkuma: 4,
+      muzikalite: 5,
+      ritimDuyusu: 4,
+      calismaDuzeni: 4,
+      evOdeviTamamlama: 5,
+      dersKatilimi: 5,
+      motivasyon: 5,
+      genelIlerleme: 4,
+      hedefeUlasma: 4,
+    };
+    const assessments = [
+      {
+        id: "a1",
+        lessonId: "l1",
+        studentId: "s1",
+        teacherId: "t1",
+        ...baseScores,
+        piecesWorked: "Bach Minuet in G",
+        technicalWork: "Do Majör Gam",
+        strengthNote: "Sağ el pozisyonu çok dengeli.",
+        improvementNote: "Sol el geçişleri yavaş çalışılmalı.",
+        nextStepsNote: "1-8 ölçü metronomla tekrar.",
+        teacherSignedName: "Eğitmen",
+        createdAt: "2026-08-01T11:00:00.000Z",
+      },
+      {
+        id: "a2",
+        lessonId: "l2",
+        studentId: "s1",
+        teacherId: "t1",
+        ...baseScores,
+        piecesWorked: "Bach Minuet in G",
+        etudesWorked: "Czerny Op. 599 No. 12",
+        strengthNote: "Ritim takibi gelişti.",
+        improvementNote: "Legato bağlarına dikkat edilmeli.",
+        nextStepsNote: "9-16 ölçü eklenecek.",
+        teacherSignedName: "Eğitmen",
+        createdAt: "2026-08-08T11:00:00.000Z",
+      },
+    ];
+
+    const draft = buildPeriodicAssessmentDraft({
+      lessons,
+      assessments,
+      periodStart: "2026-08-01T00:00:00.000Z",
+      periodEnd: "2026-08-28T00:00:00.000Z",
+    });
+
+    expect(draft.lessonCount).toBe(4);
+    expect(draft.assessedLessonCount).toBe(2);
+    expect(draft.overallScore).toBeGreaterThanOrEqual(4.3);
+    expect(draft.topicsSummary.piecesWorked).toEqual(["Bach Minuet in G"]);
+    expect(draft.topicsSummary.etudesWorked).toEqual(["Czerny Op. 599 No. 12"]);
+    expect(draft.synthesizedNotes.overallProgressNote).toContain("Bach Minuet in G");
+    expect(draft.synthesizedNotes.strengthsNote).toContain("Sağ el pozisyonu çok dengeli.");
+  });
 });
 
 describe("createPeriodicAssessmentTool — idempotency + eşleşme kontrolü", () => {
@@ -74,8 +170,31 @@ describe("createPeriodicAssessmentTool — idempotency + eşleşme kontrolü", (
       periodStart: target.periodStart,
       periodEnd: target.periodEnd,
       overallProgressNote: "İlk 4 hafta genel olarak olumlu.",
+      scores: {
+        teknikBecerisi: 4,
+        notaOkuma: 4,
+        muzikalite: 5,
+        ritimDuyusu: 4,
+        calismaDuzeni: 4,
+        evOdeviTamamlama: 4,
+        dersKatilimi: 5,
+        motivasyon: 5,
+        genelIlerleme: 4,
+        hedefeUlasma: 4,
+      },
+      teacherSignedName: "Test Öğretmen",
     });
     expect(first.ok).toBe(true);
+
+    const savedList = await listPeriodicAssessmentsForStudentTool(ctx(), { studentId: target.studentId });
+    expect(savedList.ok).toBe(true);
+    if (savedList.ok) {
+      const saved = savedList.data.assessments.find((a) => a.periodStart === target.periodStart);
+      expect(saved).toBeDefined();
+      expect(saved?.overallScore).toBe(4.3);
+      expect(saved?.scores?.muzikalite).toBe(5);
+      expect(saved?.teacherSignedName).toBe("Test Öğretmen");
+    }
 
     const second = await createPeriodicAssessmentTool(ctx(), {
       studentId: target.studentId,

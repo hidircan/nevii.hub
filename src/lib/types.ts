@@ -861,8 +861,24 @@ export interface LessonAssessment extends AssessmentScores {
   updatedAt: string;
 }
 
+export interface PeriodicLessonSummaryItem {
+  lessonId: string;
+  startAt: string;
+  instrument?: string;
+  status?: string;
+  assessed: boolean;
+  overallScore?: number;
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
+  strengthNote?: string;
+  improvementNote?: string;
+  nextStepsNote?: string;
+}
+
 /**
- * Faz 3B — dört haftalık genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
+ * Faz 3B — dört haftalık / 4 derslik genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
  * gönderilmiş (submitted) kayıtlar bulunur — "bekliyor" durumu her zaman
  * TAZE hesaplanır (bkz. src/lib/periodic-assessment/index.ts
  * computePendingPeriodicAssessmentPeriods), ayrı bir "pending" satırı YOK.
@@ -880,6 +896,15 @@ export interface PeriodicAssessment {
   strengthsNote?: string;
   areasForImprovementNote?: string;
   recommendationNote?: string;
+  /** 4 derslik dönemin 1–5 arası 10 kriter puanı (4 ders ortalaması + öğretmen onayı). */
+  scores?: AssessmentScores;
+  /** 10 kriterin ortalaması (1.0 – 5.0). */
+  overallScore?: number;
+  /** Dönem içindeki 4 dersin özet satırları (tarih, branş, konular, puan). */
+  lessonSummaries?: PeriodicLessonSummaryItem[];
+  /** Öğretmenin onay imzası ve onay zamanı. */
+  teacherSignedName?: string;
+  approvedAt?: string;
   submittedBy: string;
   submittedAt: string;
   createdAt: string;
