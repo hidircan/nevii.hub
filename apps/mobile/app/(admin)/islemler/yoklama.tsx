@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
 import { isPast } from "../../../src/lib/date";
-<<<<<<< HEAD
 import {
   AppHeader,
   Button,
@@ -16,10 +15,8 @@ import {
   Screen,
   SearchInput,
   SectionHeader,
+  AppText,
 } from "../../../src/components/ui";
-=======
-import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, LessonCard, LoadingSkeleton, Screen, SearchInput, SectionHeader, AppText } from "../../../src/components/ui";
->>>>>>> origin/release/mobile-review
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useDebouncedSearchQuery } from "../../../src/hooks/use-debounced-value";
 import { useLocale } from "../../../src/i18n/locale-context";

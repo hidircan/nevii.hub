@@ -366,16 +366,16 @@ export default function StudentDetailScreen() {
             return (
               <Card key={`${item.studentId}-${item.periodStart}`}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]}>
                     {tr("tStudent.periodicPendingTitle")}
-                  </Text>
+                  </AppText>
                   {item.draft ? (
                     <StatusBadge label={`${item.draft.overallScore.toFixed(1)} / 5`} tone="info" />
                   ) : null}
                 </View>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                   {tr("tStudent.periodicPendingDesc", { range })}
-                </Text>
+                </AppText>
                 <Button
                   label={tr("tStudent.periodicPendingCta")}
                   size="sm"
@@ -397,20 +397,20 @@ export default function StudentDetailScreen() {
       assessmentReport.data.periodicAssessments &&
       assessmentReport.data.periodicAssessments.length > 0 ? (
         <View style={{ gap: 8, marginBottom: 12 }}>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, fontWeight: "700" }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, fontWeight: "700" }]}>
             {tr("tStudent.periodicHistoryTitle")}
-          </Text>
+          </AppText>
           {assessmentReport.data.periodicAssessments.slice(0, 3).map((pa) => (
             <Card key={pa.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>
                   {pa.periodStart.slice(0, 10)} – {pa.periodEnd.slice(0, 10)}
-                </Text>
+                </AppText>
                 {pa.overallScore !== undefined ? (
                   <StatusBadge label={tr("tStudent.periodicScoreLine", { v: pa.overallScore.toFixed(1) })} tone="success" />
                 ) : null}
               </View>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{pa.overallProgressNote}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{pa.overallProgressNote}</AppText>
             </Card>
           ))}
         </View>
