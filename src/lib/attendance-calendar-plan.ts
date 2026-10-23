@@ -495,6 +495,17 @@ export function resolveContractPlanForMonth(input: {
   };
 }
 
+/**
+ * 2026-10-23 — ay kutusunda gösterilecek ÖDEME bilgisi yok mu? O aya ait hiçbir ödeme satırı yoksa ve dikkat
+ * gerektiren bir durum (birden çok aktif sözleşme, sözleşme döneminde taksitsiz ay) yoksa ay "boş"tur: kutuda ödeme
+ * planı metni gösterilmez. Öğrencinin karttaki aylık ücreti tek başına o aya ait yükümlülük değildir.
+ */
+export function isEmptyMonthPlan(plan: CalendarMonthPlan): boolean {
+  if (plan.state === "no_active_contract") return true;
+  if (plan.state === "student_plan") return plan.paymentIds.length === 0 && !plan.coveredByCombinedFirstCollection;
+  return false;
+}
+
 /** Ayın gerçek plan satırı var mı (sözleşme taksiti VEYA sözleşmesiz planın ödeme satırı)? */
 export function planHasRows(
   plan: CalendarMonthPlan

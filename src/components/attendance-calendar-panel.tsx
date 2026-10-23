@@ -23,7 +23,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import Link from "@/components/link";
 import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
-import type { CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
+import { isEmptyMonthPlan, type CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
+import { DEBT_SOURCE_LABEL } from "@/lib/payment-source-label";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { LessonStatusBadge } from "./lesson-status-badge";
@@ -335,6 +336,8 @@ function MonthClubFees({ fees }: { fees?: MonthResponse["clubFees"] }) {
 }
 
 function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
+  // 2026-10-23 — o aya ait borç/ödeme satırı yoksa kutuda ödeme planı ibaresi yazılmaz (nötr boş ay).
+  if (isEmptyMonthPlan(plan)) return null;
   if (plan.state === "ok") {
     return (
       <p className="text-[10px] text-[var(--color-text-muted)]">
@@ -348,6 +351,7 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
         {" · "}
         {PLAN_STATUS_LABEL[plan.status] ?? plan.status}
         {plan.periodLabel ? ` · ${plan.periodLabel}` : ""}
+        {` · ${DEBT_SOURCE_LABEL.contract}`}
       </p>
     );
   }
@@ -387,8 +391,7 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
             {" · "}
           </>
         ) : null}
-        Sözleşmesiz aylık plan
-        {plan.paymentIds.length === 0 ? " — bu ay henüz ödeme kaydı yok" : ""}
+        {DEBT_SOURCE_LABEL.monthly_plan}
       </p>
     );
   }
@@ -955,8 +958,15 @@ export function AttendanceCalendarPanel({
         {months.map((m) => {
           const key = `${m.year}-${m.month}`;
           const data = byMonth[key];
+          // 2026-10-23 — o aya ait borç/ödeme yok: ödeme metni yok, tahsilat girişi kapalı ("+ Yeni tahsilat ekle"
+          // ile açılır); dersi de yoksa kutu silik görünür.
+          const emptyFinance = !!data && isEmptyMonthPlan(data.plan) && !(data.clubFees?.length);
+          const quietMonth = emptyFinance && data.days.every((d) => d.lessonIds.length === 0);
           return (
-            <div key={key} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+            <div
+              key={key}
+              className={cn("rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3", quietMonth && "opacity-60")}
+            >
               {/* 10. tur iş #7 — kompakt ay başlığı: tutar+tarih BİR satırda,
                   şekil+not+kaydet BİR satırda; eskiden 4 satıra taşan sarma
                   düzeni 2 sabit satıra indi. Tüm alanlar/işlevler korunur;
@@ -977,10 +987,11 @@ export function AttendanceCalendarPanel({
                 {canEdit && !readOnly ? (
                   <PaidMonthEntry
                     collapsed={
-                      (data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
+                      emptyFinance ||
+                      ((data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
                       (data.plan.collections.length > 0 ||
                         (data.plan.state === "student_plan" && !!data.plan.coveredByCombinedFirstCollection)) &&
-                      data.plan.remaining <= 0
+                      data.plan.remaining <= 0)
                     }
                   >
                   <div className="mt-1.5 space-y-1.5">

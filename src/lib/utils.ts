@@ -26,13 +26,6 @@ export function formatDateTime(iso: string) {
   return format(toWallClockDate(parseISO(iso)), "d MMMM yyyy, HH:mm", { locale: tr });
 }
 
-/** Ödeme kaynağı — kullanıcıya görünen kısa etiket. */
-export function paymentSourceLabel(source: string | undefined, hasLessonId?: boolean): string | null {
-  if (source === "lesson_ops" || (!source && hasLessonId)) return "Yoklama takviminden tahsil edildi";
-  if (source === "monthly_plan") return "Aylık plan tahsilatı";
-  if (source === "manual") return "Manuel kayıt";
-  return null;
-}
 
 /** Merkezi ödeme yöntemi → Türkçe etiket (UI'da enum sızmasın). */
 export function paymentMethodLabelTr(method: string | undefined | null): string {
