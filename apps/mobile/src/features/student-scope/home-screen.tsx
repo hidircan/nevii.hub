@@ -1,23 +1,9 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { ChildSwitcher } from "../../student/child-switcher";
 import { useChildSelection, useSelectedStudentId } from "../../student/student-context";
-import {
-  AppHeader,
-  Card,
-  EmptyState,
-  ErrorState,
-  Icon,
-  LessonCard,
-  ListGroup,
-  ListRow,
-  LoadingSkeleton,
-  NotificationCard,
-  ProgressBar,
-  Screen,
-  SectionHeader,
-} from "../../components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LessonCard, ListGroup, ListRow, LoadingSkeleton, NotificationCard, ProgressBar, Screen, SectionHeader, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { CacheStatus } from "../../cache/cache-status";
@@ -217,16 +203,16 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : (
         <Card onPress={() => router.push(`${basePath}/devam-raporu`)}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>
               {tr("home.attendedOf", { a: attendance.data.attended, t: attendance.data.totalLessons })}
-            </Text>
+            </AppText>
             <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
           </View>
           <ProgressBar
             progress={attendance.data.totalLessons ? (attendance.data.attended / attendance.data.totalLessons) * 100 : 0}
             tone="success"
           />
-          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>{tr("home.seeReport")}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}>{tr("home.seeReport")}</AppText>
         </Card>
       )}
 
@@ -255,13 +241,13 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
       ) : (
         <Card onPress={() => router.push(`${basePath}/odemeler`)}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("home.outstanding")}</Text>
-            <Text style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("home.outstanding")}</AppText>
+            <AppText style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
               {formatCurrency(balance.data.outstanding)}
-            </Text>
+            </AppText>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 }}>
-            <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("home.seeAllPayments")}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.primary }]}>{tr("home.seeAllPayments")}</AppText>
             <Icon name="chevron-forward" size={13} color={t.colors.primary} />
           </View>
         </Card>
@@ -276,9 +262,9 @@ export function StudentScopeHomeScreen({ basePath }: { basePath: "/(parent)" | "
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <Icon name="chatbubble-ellipses-outline" size={16} color={t.colors.primary} />
-            <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(latestAssessment.createdAt))}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(latestAssessment.createdAt))}</AppText>
           </View>
-          <Text style={[t.typography.body, { color: t.colors.text }]}>{latestAssessment.strengthNote}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.text }]}>{latestAssessment.strengthNote}</AppText>
         </Card>
       ) : (
         <EmptyState icon="chatbubble-outline" title={tr("home.noTeacherNote")}  compact />

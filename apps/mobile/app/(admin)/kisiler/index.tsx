@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { FlatList, Text, View } from "react-native";
-import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, SearchInput, StatusBadge, StudentCard } from "../../../src/components/ui";
+import { FlatList, View } from "react-native";
+import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, SearchInput, StatusBadge, StudentCard, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useDebouncedSearchQuery } from "../../../src/hooks/use-debounced-value";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -94,10 +94,10 @@ export default function KisilerIndex() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                   <Avatar name={tt.name} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{tt.name}</Text>
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                    <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{tt.name}</AppText>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                       {tt.instruments.join(", ")} · {tr("adm.peopleStudentsCount", { n: tt.activeStudentCount })}
-                    </Text>
+                    </AppText>
                   </View>
                   {tt.performanceLabel === "insufficient_data" ? (
                     <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
@@ -115,10 +115,10 @@ export default function KisilerIndex() {
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                   <Avatar name={s.parentName} />
                   <View style={{ flex: 1 }}>
-                    <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{s.parentName}</Text>
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                    <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>{s.parentName}</AppText>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                       {tr("adm.peopleParentOf", { name: s.name })} · {s.parentPhone}
-                    </Text>
+                    </AppText>
                   </View>
                 </View>
               </Card>

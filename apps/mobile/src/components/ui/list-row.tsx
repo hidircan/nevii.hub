@@ -1,5 +1,6 @@
 import { Children, Fragment, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Icon, type IconName } from "./icon";
 
@@ -25,19 +26,19 @@ export function ListRow({ icon, title, subtitle, meta, onPress }: Props) {
         </View>
       ) : null}
       <View style={styles.texts}>
-        <Text numberOfLines={1} style={[t.typography.bodyStrong, { color: t.colors.text }]}>
+        <AppText numberOfLines={1} style={[t.typography.bodyStrong, { color: t.colors.text }]}>
           {title}
-        </Text>
+        </AppText>
         {subtitle ? (
-          <Text numberOfLines={2} style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+          <AppText numberOfLines={2} style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
             {subtitle}
-          </Text>
+          </AppText>
         ) : null}
       </View>
       {meta ? (
-        <Text numberOfLines={1} style={[t.typography.caption, { color: t.colors.textMuted }]}>
+        <AppText numberOfLines={1} style={[t.typography.caption, { color: t.colors.textMuted }]}>
           {meta}
-        </Text>
+        </AppText>
       ) : null}
       {onPress ? <Icon name="chevron-forward" size={16} color={t.colors.textFaint} /> : null}
     </>

@@ -1,4 +1,5 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Button } from "./button";
@@ -32,8 +33,8 @@ export function ConfirmDialog({
         <Pressable style={[styles.card, { backgroundColor: t.colors.bgRaised }]} onPress={(e) => e.stopPropagation()}>
           {/* Uzun metin + büyük font + küçük ekran: kart taşmaz, içerik kayar. */}
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <Text style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</Text>
-            {message ? <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>{message}</Text> : null}
+            <AppText style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</AppText>
+            {message ? <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>{message}</AppText> : null}
           </ScrollView>
           <View style={styles.actions}>
             <Button label={cancelLabel ?? tr("ui.cancelDefault")} onPress={onCancel} variant="secondary" style={styles.actionButton} />

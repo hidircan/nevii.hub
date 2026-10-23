@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { apiPost } from "../../../src/api/client";
 import { useAuth } from "../../../src/auth/auth-context";
-import { AppHeader, Button, DueDateField, Icon, Screen, SelectField, TextField } from "../../../src/components/ui";
+import { AppHeader, Button, DueDateField, Icon, Screen, SelectField, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -78,7 +78,7 @@ export default function YeniGorev() {
       <AppHeader title={tr("tasks.createTitle")} showBack showNotifications={false} />
       <View style={{ gap: 16 }}>
         <View style={{ gap: 6 }}>
-          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("tasks.typeLabel")}</Text>
+          <AppText style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("tasks.typeLabel")}</AppText>
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
               onPress={() => setIsPersonal(false)}
@@ -96,7 +96,7 @@ export default function YeniGorev() {
               }}
             >
               <Icon name="person-outline" size={16} color={!isPersonal ? t.colors.primaryOn : t.colors.text} />
-              <Text style={[t.typography.bodyStrong, { color: !isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.withStudent")}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: !isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.withStudent")}</AppText>
             </Pressable>
             <Pressable
               onPress={() => {
@@ -117,7 +117,7 @@ export default function YeniGorev() {
               }}
             >
               <Icon name="checkbox-outline" size={16} color={isPersonal ? t.colors.primaryOn : t.colors.text} />
-              <Text style={[t.typography.bodyStrong, { color: isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.personal")}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: isPersonal ? t.colors.primaryOn : t.colors.text }]}>{tr("tasks.personal")}</AppText>
             </Pressable>
           </View>
         </View>
@@ -139,7 +139,7 @@ export default function YeniGorev() {
         <SelectField label={tr("tasks.category")} value={category} options={CATEGORIES.map((c) => ({ label: tr(c.labelKey), value: c.value }))} onChange={setCategory} placeholder={tr("tasks.pickCategory")} />
         <SelectField label={tr("tasks.priority")} value={priority} options={PRIORITIES.map((p) => ({ label: tr(p.labelKey), value: p.value }))} onChange={setPriority} placeholder={tr("tasks.pickPriority")} />
         <DueDateField label={tr("tasks.dueOptional")} value={dueDate} onChange={setDueDate} minimumDate={new Date()} />
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
         <Button label={tr("tasks.createButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>

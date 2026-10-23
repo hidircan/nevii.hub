@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, TextField } from "../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -75,7 +75,7 @@ export default function SilmeTalepleri() {
 
       {error ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{error}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{error}</AppText>
         </Card>
       ) : null}
 
@@ -93,10 +93,10 @@ export default function SilmeTalepleri() {
               <Card key={r.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
+                    <AppText style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
                       {r.email}
-                    </Text>
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{r.role}</Text>
+                    </AppText>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{r.role}</AppText>
                   </View>
                   <StatusBadge
                     label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status}
@@ -104,14 +104,14 @@ export default function SilmeTalepleri() {
                   />
                 </View>
                 {r.reason ? (
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]} numberOfLines={2}>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]} numberOfLines={2}>
                     {tr("adm.delReason", { v: r.reason })}
-                  </Text>
+                  </AppText>
                 ) : null}
                 {r.decisionNote ? (
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]} numberOfLines={2}>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]} numberOfLines={2}>
                     {tr("adm.delDecision", { v: r.decisionNote })}
-                  </Text>
+                  </AppText>
                 ) : null}
                 {isActingOnThis && acting ? (
                   <View style={{ marginTop: 12, gap: 10 }}>

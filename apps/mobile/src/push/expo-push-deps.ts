@@ -11,15 +11,25 @@ import { registerPushToken, resolveAppVariant, type PushDeps } from "./push-regi
  */
 
 export const LESSON_REMINDER_CHANNEL_ID = "lesson-reminders";
+/** Sunucu `push/channels.ts` ile AYNI kimlik — ders dışı bildirimler. */
+export const GENERAL_CHANNEL_ID = "general";
 
 async function ensureAndroidChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
-  await Notifications.setNotificationChannelAsync(LESSON_REMINDER_CHANNEL_ID, {
-    name: "Ders hatırlatmaları",
-    importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: "#FF231F7C",
-  });
+  await Promise.all([
+    Notifications.setNotificationChannelAsync(LESSON_REMINDER_CHANNEL_ID, {
+      name: "Ders hatırlatmaları",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF231F7C",
+    }),
+    Notifications.setNotificationChannelAsync(GENERAL_CHANNEL_ID, {
+      name: "Genel bildirimler",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF231F7C",
+    }),
+  ]);
 }
 
 function permissionOf(status: Notifications.PermissionStatus): "granted" | "denied" | "undetermined" {

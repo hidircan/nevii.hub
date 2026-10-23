@@ -35,6 +35,8 @@ export type MobileSession = {
   tenantId: string;
   teacherId?: string;
   studentId?: string;
+  /** Sunucudan gelen gerçek ad soyad (profil başlığı; e-posta DEĞİL). */
+  fullName?: string | null;
   /** Yalnız STUDENT: SELF = öğrencinin kendisi, GUARDIAN = veli; aktif erişim yoksa null. */
   portalAccessType: PortalAccessType | null;
 };

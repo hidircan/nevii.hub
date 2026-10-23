@@ -1,6 +1,6 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
-import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel, weekdayNameByIndex } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -37,15 +37,15 @@ export default function Musaitlik() {
         ) : res.status === "error" ? (
           <ErrorState message={res.message} onRetry={res.refresh} />
         ) : currentAvailability.length === 0 ? (
-          <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("avail.none")}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("avail.none")}</AppText>
         ) : (
           <View style={{ gap: 4 }}>
             {[...currentAvailability]
               .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
               .map((w, i) => (
-                <Text key={`${w.dayOfWeek}-${i}`} style={[t.typography.body, { color: t.colors.text }]}>
+                <AppText key={`${w.dayOfWeek}-${i}`} style={[t.typography.body, { color: t.colors.text }]}>
                   {weekdayNameByIndex(w.dayOfWeek)}: {w.start}–{w.end}
-                </Text>
+                </AppText>
               ))}
           </View>
         )}
@@ -53,9 +53,9 @@ export default function Musaitlik() {
 
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
         <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
           {tr("avail.note")}
-        </Text>
+        </AppText>
       </View>
 
       <SectionHeader title={tr("avail.pastTitle")} />
@@ -70,16 +70,16 @@ export default function Musaitlik() {
           {[...requests].reverse().map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</AppText>
                 <StatusBadge
                   label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status}
                   tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}
                 />
               </View>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
                 {(r.proposedAvailability ?? []).map((w) => `${weekdayNameByIndex(w.dayOfWeek)} ${w.start}-${w.end}`).join(", ")}
-              </Text>
-              {r.reviewNote ? <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{tr("avail.notePrefix", { v: r.reviewNote })}</Text> : null}
+              </AppText>
+              {r.reviewNote ? <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{tr("avail.notePrefix", { v: r.reviewNote })}</AppText> : null}
             </Card>
           ))}
         </View>

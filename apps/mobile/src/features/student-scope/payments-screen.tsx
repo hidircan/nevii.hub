@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Linking, Text, View } from "react-native";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../components/ui";
+import { Linking, View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../components/ui";
 import { startOnlineCheckout } from "../../payments/mobile-checkout";
 import type { BadgeTone } from "../../components/ui/status-badge";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
@@ -96,14 +96,14 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
           <Card style={{ marginBottom: 4 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("pay.outstanding")}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("pay.outstanding")}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
                   {tr("pay.officialHint")}
-                </Text>
+                </AppText>
               </View>
-              <Text style={[t.typography.cardTitle, { color: res.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
+              <AppText style={[t.typography.cardTitle, { color: res.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
                 {formatCurrency(res.data.outstanding)}
-              </Text>
+              </AppText>
             </View>
             <Button
               label={exporting === "all" ? tr("pay.preparing") : tr("pay.shareAll")}
@@ -116,7 +116,7 @@ export function StudentScopePaymentsScreen({ basePath }: { basePath: "/(parent)"
               style={{ marginTop: 12 }}
             />
             {exportError && exporting === null ? (
-              <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{exportError}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{exportError}</AppText>
             ) : null}
           </Card>
 
@@ -179,11 +179,11 @@ function MonthGroup({
         />
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={2}>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={2}>
           {tr("pay.accrued")}: {formatCurrency(month.accrued)} · {tr("pay.paid")}: {formatCurrency(month.paid)}
           {month.remaining > 0 ? ` · ${tr("pay.remaining")}: ${formatCurrency(month.remaining)}` : ""}
           {month.earliestUnpaidDueDate ? ` · ${tr("pay.due")}: ${longDate(new Date(month.earliestUnpaidDueDate))}` : ""}
-        </Text>
+        </AppText>
         <StatusBadge label={payStatus(month.status).label} tone={payStatus(month.status).tone} />
       </View>
       <View style={{ gap: 10 }}>
@@ -193,24 +193,24 @@ function MonthGroup({
             <Card key={p.id} onPress={() => onOpen(p.id)}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
                     {p.description}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                     {p.status === "partial"
                       ? tr("pay.paidLine", { p: formatCurrency(p.paidAmount), a: formatCurrency(p.amount) })
                       : formatCurrency(p.amount)}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
                     {p.status === "paid" ? tr("pay.paidOn", { d: longDate(new Date(p.paidAt ?? p.dueDate)) }) : tr("pay.dueOn", { d: longDate(new Date(p.dueDate)) })}
                     {p.method ? ` · ${p.method}` : ""}
-                  </Text>
+                  </AppText>
                   {p.lesson ? (
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                       {shortDayMonth(new Date(p.lesson.startAt))} · {p.lesson.teacherName ?? tr("home.teacherFallback")}
                       {p.lesson.branchName ? ` · ${p.lesson.branchName}` : ""}
                       {lessonBadge ? ` · ${lessonBadge.label}` : ""}
-                    </Text>
+                    </AppText>
                   ) : null}
                 </View>
                 <View style={{ alignItems: "flex-end", gap: 6 }}>
@@ -300,39 +300,39 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{payment.description}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{payment.description}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
               {tr("pay.dueOn", { d: longDate(new Date(payment.dueDate)) })}
-            </Text>
+            </AppText>
             {payment.paidAt ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                 {tr("pay.paidDate", { d: longDate(new Date(payment.paidAt)) })}
-              </Text>
+              </AppText>
             ) : null}
             {payment.method ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("pay.method", { v: payment.method })}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("pay.method", { v: payment.method })}</AppText>
             ) : null}
             {payment.contract ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
                 {tr("pay.contractLine", { p: payment.contract.programmeName, n: payment.contract.contractNumber })}
                 {payment.contract.installmentSequence ? ` · ${tr("pay.installment", { n: payment.contract.installmentSequence })}` : ""}
-              </Text>
+              </AppText>
             ) : null}
           </View>
           <StatusBadge label={payStatus(payment.status).label} tone={payStatus(payment.status).tone} />
         </View>
         <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: t.colors.divider }}>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.amount")}</Text>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(payment.amount)}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.amount")}</AppText>
+          <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(payment.amount)}</AppText>
           {payment.status === "partial" ? (
-            <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 4 }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.warning, marginTop: 4 }]}>
               {tr("pay.partialLine", { p: formatCurrency(payment.paidAmount), r: formatCurrency(payment.remaining) })}
-            </Text>
+            </AppText>
           ) : null}
           {payment.paymentNote ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
               {tr("pay.note", { v: payment.paymentNote })}
-            </Text>
+            </AppText>
           ) : null}
         </View>
       </Card>
@@ -341,13 +341,13 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
         <Card style={{ marginTop: 12 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
             <View style={{ flex: 1 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.relatedLesson")}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.relatedLesson")}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
                 {shortDayMonth(new Date(payment.lesson.startAt))} · {payment.lesson.teacherName ?? tr("home.teacherFallback")}
                 {payment.lesson.branchName ? ` · ${payment.lesson.branchName}` : ""}
                 {payment.lesson.roomName ? ` · ${payment.lesson.roomName}` : ""}
                 {payment.lesson.instrument ? ` · ${payment.lesson.instrument}` : ""}
-              </Text>
+              </AppText>
             </View>
             {lessonBadge ? <StatusBadge label={lessonBadge.label} tone={lessonBadge.tone} /> : null}
           </View>
@@ -363,11 +363,11 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
             loading={checkout.state === "busy"}
           />
           {checkout.state === "message" ? (
-            <Text style={[t.typography.caption, { color: t.colors.warning, marginTop: 8 }]}>{checkout.message}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.warning, marginTop: 8 }]}>{checkout.message}</AppText>
           ) : (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
               {tr("pay.providerNote")}
-            </Text>
+            </AppText>
           )}
         </View>
       ) : null}
@@ -377,26 +377,26 @@ export function StudentScopePaymentDetailScreen({ paymentId }: { paymentId: stri
           <Card style={{ marginTop: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <Icon name="receipt-outline" size={18} color={t.colors.primary} />
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.receipt")}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("pay.receipt")}</AppText>
             </View>
             <View style={{ gap: 6 }}>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.reference", { v: receipt.data.receipt.reference })}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.institutionName}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.reference", { v: receipt.data.receipt.reference })}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.institutionName}</AppText>
               {receipt.data.receipt.branchName ? (
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.branchName}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{receipt.data.receipt.branchName}</AppText>
               ) : null}
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.student", { v: receipt.data.receipt.studentName })}</Text>
-              <Text style={[t.typography.body, { color: t.colors.text, marginTop: 4 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("pay.student", { v: receipt.data.receipt.studentName })}</AppText>
+              <AppText style={[t.typography.body, { color: t.colors.text, marginTop: 4 }]}>
                 {tr("pay.collected", { v: formatCurrency(receipt.data.receipt.amount) })}
-              </Text>
+              </AppText>
             </View>
           </Card>
         </>
       ) : receipt.status === "success" && !receipt.data.eligible ? (
         <Card style={{ marginTop: 12 }}>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
             {receipt.data.ineligibleReason ?? tr("pay.receiptPending")}
-          </Text>
+          </AppText>
         </Card>
       ) : null}
     </Screen>

@@ -1,9 +1,9 @@
 import { Redirect, useRouter } from "expo-router";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
 import { portalErrorMessage } from "../src/components/mobile-ui/api-error-message";
-import { AppHeader, Avatar, EmptyState, ErrorState, Icon, LoadingSkeleton } from "../src/components/ui";
+import { AppHeader, Avatar, EmptyState, ErrorState, Icon, LoadingSkeleton, AppText } from "../src/components/ui";
 import { toChildContextView } from "../src/features/parent/child-context";
 import { useApiGet } from "../src/hooks/use-api";
 import { useFocusRefetch } from "../src/hooks/use-focus-refetch";
@@ -41,9 +41,9 @@ export default function SelectChildScreen() {
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
       <AppHeader title={tr("selectChild.heading")} showBack showNotifications={false} />
-      <Text style={[t.typography.body, { color: t.colors.textMuted, paddingHorizontal: 20, marginBottom: 12 }]}>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, paddingHorizontal: 20, marginBottom: 12 }]}>
         {tr("selectChild.subtitle")}
-      </Text>
+      </AppText>
       {!ready ? (
         <View style={{ paddingHorizontal: 20 }}>
           <LoadingSkeleton rows={3} />
@@ -136,13 +136,13 @@ function RowShell({
       >
         <Avatar name={displayName} size={52} photoPath={child.photoPath} />
         <View style={styles.text}>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
             {displayName}
-          </Text>
+          </AppText>
           {detail ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
               {detail}
-            </Text>
+            </AppText>
           ) : null}
         </View>
         <Icon

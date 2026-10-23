@@ -1,23 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPatch, apiPost } from "../../../src/api/client";
-import {
-  AppHeader,
-  Avatar,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  HomeworkCard,
-  LoadingSkeleton,
-  ProgressBar,
-  Screen,
-  SectionHeader,
-  SelectField,
-  StatusBadge,
-  TextField,
-} from "../../../src/components/ui";
+import { AppHeader, Avatar, Button, Card, EmptyState, ErrorState, HomeworkCard, LoadingSkeleton, ProgressBar, Screen, SectionHeader, SelectField, StatusBadge, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
@@ -194,10 +179,10 @@ export default function StudentDetailScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={student.name} size={48} photoPath={student.photoPath} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {[student.studentType, student.instruments.join(", ")].filter(Boolean).join(" · ")} · {tr("tStudent.weeklyLine", { n: student.weeklyLessonCount })}
-            </Text>
+            </AppText>
           </View>
         </View>
       </Card>
@@ -210,13 +195,13 @@ export default function StudentDetailScreen() {
       ) : (
         <Card>
           {score.data.score === null ? (
-            <Text style={[t.typography.body, { color: t.colors.textMuted }]}>
+            <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>
               {tr("tStudent.scoreEmpty")}
-            </Text>
+            </AppText>
           ) : (
             <>
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.scoreOverall")}</Text>
+                <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.scoreOverall")}</AppText>
                 <StatusBadge label={String(score.data.score)} tone={scoreTone(score.data.score)} />
               </View>
               <View style={{ gap: 10 }}>
@@ -225,10 +210,10 @@ export default function StudentDetailScreen() {
                   return (
                     <View key={key}>
                       <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr(SCORE_COMPONENT_KEYS[key])}</Text>
-                        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+                        <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr(SCORE_COMPONENT_KEYS[key])}</AppText>
+                        <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
                           {c.hasData ? `%${Math.round(c.normalizedValue ?? 0)}` : tr("tStudent.noData")}
-                        </Text>
+                        </AppText>
                       </View>
                       <ProgressBar progress={c.hasData ? (c.normalizedValue ?? 0) : 0} height={6} tone={c.hasData ? "info" : "warning"} />
                     </View>
@@ -249,13 +234,13 @@ export default function StudentDetailScreen() {
         <>
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.overallProgress")}</Text>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("tStudent.overallProgress")}</AppText>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</AppText>
             </View>
             <ProgressBar progress={curriculum.data.overallPercent} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
               {tr("tStudent.topicsMastered", { a: curriculum.data.topics.filter((tp) => tp.status === "mastered").length, t: curriculum.data.topics.length })}
-            </Text>
+            </AppText>
 
             {addingTopic ? (
               <View style={{ marginTop: 14, gap: 10 }}>
@@ -277,7 +262,7 @@ export default function StudentDetailScreen() {
                   keyboardType="number-pad"
                 />
                 <TextField label={tr("tStudent.noteOptional")} value={topicNotes} onChangeText={setTopicNotes} placeholder={tr("tStudent.noteExample")} />
-                {topicError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{topicError}</Text> : null}
+                {topicError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{topicError}</AppText> : null}
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setAddingTopic(false)} style={{ flex: 1 }} />
                   <Button label={tr("tStudent.add")} size="sm" onPress={onAddTopic} disabled={!topicTitle.trim() || topicBusy} loading={topicBusy} style={{ flex: 1 }} />
@@ -296,21 +281,21 @@ export default function StudentDetailScreen() {
                 <Card key={topic.id}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{topic.title}</Text>
+                      <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{topic.title}</AppText>
                       {topic.description ? (
-                        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{topic.description}</Text>
+                        <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{topic.description}</AppText>
                       ) : null}
                     </View>
                     <View style={{ alignItems: "flex-end", gap: 4 }}>
                       <StatusBadge label={tr(STATUS_KEY[topic.status])} tone={STATUS_TONE[topic.status]} />
-                      <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>%{topic.progressPercent}</Text>
+                      <AppText style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.bold, fontWeight: "700" }]}>%{topic.progressPercent}</AppText>
                     </View>
                   </View>
                   <View style={{ marginTop: 10 }}>
                     <ProgressBar progress={topic.progressPercent} height={6} tone="info" />
                   </View>
                   {topic.notes ? (
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>{tr("tStudent.notePrefix", { v: topic.notes })}</Text>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>{tr("tStudent.notePrefix", { v: topic.notes })}</AppText>
                   ) : null}
 
                   {editingTopicId === topic.id ? (
@@ -318,7 +303,7 @@ export default function StudentDetailScreen() {
                       <SelectField label={tr("tStudent.status")} value={editStatus} options={STATUS_OPTIONS} onChange={(v) => setEditStatus(v as CurriculumTopicStatus)} />
                       <TextField label={tr("tStudent.progress")} value={editProgress} onChangeText={setEditProgress} keyboardType="number-pad" />
                       <TextField label={tr("tStudent.changeNote")} value={editChangeNote} onChangeText={setEditChangeNote} placeholder={tr("tStudent.changeExample")} />
-                      {editError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{editError}</Text> : null}
+                      {editError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{editError}</AppText> : null}
                       <View style={{ flexDirection: "row", gap: 8 }}>
                         <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setEditingTopicId(null)} style={{ flex: 1 }} />
                         <Button label={tr("tStudent.save")} size="sm" onPress={() => onUpdateTopic(topic.id)} loading={editBusy} style={{ flex: 1 }} />
@@ -351,8 +336,8 @@ export default function StudentDetailScreen() {
         <View style={{ gap: 8 }}>
           {pastLessons.map((l) => (
             <Card key={l.id}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{relativeDayLabel(new Date(l.startAt))}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{l.status}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{relativeDayLabel(new Date(l.startAt))}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{l.status}</AppText>
             </Card>
           ))}
         </View>
@@ -441,18 +426,18 @@ export default function StudentDetailScreen() {
         <View style={{ gap: 10 }}>
           {[...assessments.data.assessments].reverse().slice(0, 5).map((a) => (
             <Card key={a.id}>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginBottom: 6 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginBottom: 6 }]}>
                 {relativeDayLabel(new Date(a.createdAt))} · {a.teacherSignedName}
-              </Text>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</Text>
+              </AppText>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</AppText>
               {a.improvementNote ? (
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
                   {tr("tStudent.improveArea", { v: a.improvementNote })}
-                </Text>
+                </AppText>
               ) : null}
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                 {tr("tStudent.nextSteps", { v: a.nextStepsNote })}
-              </Text>
+              </AppText>
             </Card>
           ))}
         </View>

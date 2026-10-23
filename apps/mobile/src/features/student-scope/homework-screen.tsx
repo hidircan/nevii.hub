@@ -1,9 +1,9 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../api/client";
 import { personaOf, useAuth } from "../../auth/auth-context";
-import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField } from "../../components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, HomeworkCard, LoadingSkeleton, Screen, SectionHeader, TextField, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
@@ -128,30 +128,30 @@ export function StudentScopeHomeworkDetailScreen({ homeworkId }: { homeworkId: s
       <HomeworkCard homework={homework} showStudentName={false} />
 
       <Card style={{ marginTop: 12 }}>
-        <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginBottom: 6 }]}>{tr("hwList.description")}</Text>
-        <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{homework.description}</Text>
+        <AppText style={[t.typography.bodyStrong, { color: t.colors.text, marginBottom: 6 }]}>{tr("hwList.description")}</AppText>
+        <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{homework.description}</AppText>
         {homework.dueDate ? (
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 10 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 10 }]}>
             {tr("hwList.dueDate", { v: format(new Date(homework.dueDate), "yyyy-MM-dd") })}
-          </Text>
+          </AppText>
         ) : null}
       </Card>
 
       <SectionHeader title={tr("hwList.submitSection")} />
       {!canStudentSubmit ? (
         <Card>
-          <Text style={[t.typography.body, { color: t.colors.textMuted }]}>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>
             {isGuardian ? tr("hwList.guardianBlock") : tr("hwList.submittedClosed")}
-          </Text>
+          </AppText>
         </Card>
       ) : submitted ? (
         <Card>
-          <Text style={[t.typography.body, { color: t.colors.success }]}>{tr("hwList.submittedOk")}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.success }]}>{tr("hwList.submittedOk")}</AppText>
         </Card>
       ) : (
         <View style={{ gap: 12 }}>
           <TextField label={tr("hwList.noteLabel")} value={note} onChangeText={setNote} placeholder={tr("hwList.notePlaceholder")} multiline numberOfLines={3} />
-          {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+          {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
           <Button label={tr("hwList.submitButton")} onPress={onSubmit} loading={busy} />
         </View>
       )}

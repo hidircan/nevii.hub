@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Card } from "./card";
 import { Icon, type IconName } from "./icon";
@@ -23,10 +24,10 @@ export function StatCard({ icon, label, value, tone = "neutral", onPress }: Prop
       <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
         <Icon name={icon} size={18} color={iconFg} />
       </View>
-      <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 10 }]}>{value}</Text>
-      <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+      <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 10 }]}>{value}</AppText>
+      <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
         {label}
-      </Text>
+      </AppText>
     </Card>
   );
 }

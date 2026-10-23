@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
+import { View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../components/ui";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
@@ -42,21 +42,21 @@ export function StudentScopeMaterialsScreen() {
         <EmptyState icon="folder-open-outline" title={tr("materials.empty")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
+          {downloadError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</AppText> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
                 <Icon name={m.fileName ? "document-attach-outline" : "book-outline"} size={18} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
                     {m.description}
-                  </Text>
+                  </AppText>
                   <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                     {m.targetInstrument ? <StatusBadge label={m.targetInstrument} tone="info" /> : null}
                     {m.targetLevel ? <StatusBadge label={m.targetLevel} tone="neutral" /> : null}
                   </View>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</Text>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</AppText>
                   {m.fileName ? (
                     <View style={{ marginTop: 10 }}>
                       <Button

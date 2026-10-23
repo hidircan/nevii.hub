@@ -1,17 +1,8 @@
 import { useRouter } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
 import { useSelectedStudentId } from "../../student/student-context";
-import {
-  AppHeader,
-  Card,
-  EmptyState,
-  ErrorState,
-  LoadingSkeleton,
-  ProgressBar,
-  Screen,
-  SectionHeader,
-} from "../../components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, ProgressBar, Screen, SectionHeader, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
@@ -81,13 +72,13 @@ export function ParentAttendanceScreen() {
               accessibilityLabel={attendanceA11yLabel(view)}
               style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}
             >
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("parent.attRateLabel")}</Text>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(view.rate)}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("parent.attRateLabel")}</AppText>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(view.rate)}</AppText>
             </View>
             <ProgressBar progress={view.rate} tone="success" />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
               {tr("parent.attDetail", { a: view.attended, t: view.total })} · {tr("home.seeReport")}
-            </Text>
+            </AppText>
           </Card>
 
           <SectionHeader title={tr("common.details")} />
@@ -97,9 +88,9 @@ export function ParentAttendanceScreen() {
           />
 
           <Card style={{ marginTop: 12 }}>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
               {tr("parent.attendanceNote")}
-            </Text>
+            </AppText>
           </Card>
         </>
       )}

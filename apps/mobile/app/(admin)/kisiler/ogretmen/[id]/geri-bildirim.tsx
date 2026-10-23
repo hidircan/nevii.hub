@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../../../src/lib/date";
 import { useLocale } from "../../../../../src/i18n/locale-context";
@@ -44,13 +44,13 @@ export default function TeacherFeedbackReview() {
             return (
               <Card key={f.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("adm.tchFbAvg", { v: avg.toFixed(1) })}</Text>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("adm.tchFbAvg", { v: avg.toFixed(1) })}</AppText>
                   <StatusBadge label={STATUS_KEY[f.status] ? tr(STATUS_KEY[f.status]) : f.status} tone={f.status === "pending" ? "warning" : "neutral"} />
                 </View>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
                   {f.submitterRole === "PARENT" ? tr("adm.stuRoleGuardian") : tr("adm.stuRoleStudent")} · {relativeDayLabel(new Date(f.createdAt))}
-                </Text>
-                {f.comment ? <Text style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>{f.comment}</Text> : null}
+                </AppText>
+                {f.comment ? <AppText style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>{f.comment}</AppText> : null}
                 {next ? (
                   <Button
                     label={tr("adm.tchFbMarkAs", { status: STATUS_KEY[next] ? tr(STATUS_KEY[next]) : next })}

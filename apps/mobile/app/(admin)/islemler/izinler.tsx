@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { shortDayMonth } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -67,7 +67,7 @@ export default function IzinOnaylari() {
 
       {error ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{error}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{error}</AppText>
         </Card>
       ) : null}
 
@@ -82,21 +82,21 @@ export default function IzinOnaylari() {
           {requests.map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
                   {TYPE_KEY[r.type] ? tr(TYPE_KEY[r.type]) : r.type} · {tr("adm.leaveDays", { n: r.dayCount })}
-                </Text>
+                </AppText>
                 <StatusBadge
                   label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status}
                   tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}
                 />
               </View>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                 {shortDayMonth(new Date(r.startDate))} – {shortDayMonth(new Date(r.endDate))}
-              </Text>
+              </AppText>
               {r.description ? (
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
                   {r.description}
-                </Text>
+                </AppText>
               ) : null}
               {r.status === "pending_approval" ? (
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>

@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./ui/app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { LOCALES, LOCALE_LABEL, type Locale } from "../i18n/locales";
 import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
@@ -35,7 +36,7 @@ export function LanguageSelector({ compact = false }: { compact?: boolean }) {
               selected && { backgroundColor: t.colors.primary },
             ]}
           >
-            <Text
+            <AppText
               style={[
                 t.typography.body,
                 styles.label,
@@ -44,7 +45,7 @@ export function LanguageSelector({ compact = false }: { compact?: boolean }) {
               ]}
             >
               {LOCALE_LABEL[code]}
-            </Text>
+            </AppText>
           </Pressable>
         );
       })}

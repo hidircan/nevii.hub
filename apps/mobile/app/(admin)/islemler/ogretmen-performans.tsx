@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
-import { Text, View } from "react-native";
-import { AppHeader, Avatar, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
+import { View } from "react-native";
+import { AppHeader, Avatar, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -29,11 +29,11 @@ export default function OgretmenPerformans() {
           {ranked.map((tt, i) => (
             <Card key={tt.id} onPress={() => router.push(`/(admin)/kisiler/ogretmen/${tt.id}`)}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <Text style={[t.typography.sectionTitle, { color: t.colors.textFaint, width: 24 }]}>{i + 1}</Text>
+                <AppText style={[t.typography.sectionTitle, { color: t.colors.textFaint, width: 24 }]}>{i + 1}</AppText>
                 <Avatar name={tt.name} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{tt.name}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.tPerfActive", { n: tt.activeStudentCount })}</Text>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{tt.name}</AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.tPerfActive", { n: tt.activeStudentCount })}</AppText>
                 </View>
                 {tt.performanceLabel === "insufficient_data" ? (
                   <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />

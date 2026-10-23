@@ -2,11 +2,11 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { apiDelete, apiPost } from "../../api/client";
 import { useAuth, type AppRole, type AuthUser } from "../../auth/auth-context";
 import { useChildSelection } from "../../student/student-context";
-import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, Icon, Screen, SectionHeader, type IconName } from "../../components/ui";
+import { AppHeader, Avatar, BottomSheet, Card, ConfirmDialog, FilterChip, Icon, Screen, SectionHeader, type IconName, AppText } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { PHOTO_RESIZE_MAX_DIMENSION, PHOTO_JPEG_COMPRESS_QUALITY, buildPhotoUploadRequestBody } from "../../lib/photo-upload";
 import { getLegalLinks } from "../../legal/legal-links";
@@ -15,8 +15,10 @@ import { getActiveLocale } from "../../i18n/locale-store";
 import { useLocale } from "../../i18n/locale-context";
 import { LanguageSelector } from "../../components/language-selector";
 import { useTheme, useThemePreference, type ThemePreference } from "../../theme/theme-context";
+import type { FontScalePreference } from "../../theme/tokens";
 import type { ScheduleResponse, StudentProfile } from "../../types/api";
 import { resolveDisplayName } from "./display-name";
+import { canManageProfilePhoto } from "./feature-flags";
 
 type PhotoOwner = { ownerType: "student" | "teacher" | "user"; ownerId: string };
 
@@ -84,6 +86,12 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; labelKey: string; icon: Ico
   { value: "dark", labelKey: "account.themeDark", icon: "moon-outline" },
 ];
 
+const FONT_SIZE_OPTIONS: Array<{ value: FontScalePreference; labelKey: string }> = [
+  { value: "normal", labelKey: "account.fontSizeNormal" },
+  { value: "large", labelKey: "account.fontSizeLarge" },
+  { value: "xlarge", labelKey: "account.fontSizeXLarge" },
+];
+
 /**
  * Gizlilik/yasal bölüm — hukuki sayfalar uygulama dışında açılır
  * (`legal-links.ts` tek kaynak). Hesap silme: uygulama-içi talep ekranı
@@ -132,8 +140,8 @@ function LegalSection() {
             <View style={styles.optionLeft}>
               <Icon name={row.icon} size={18} color={t.colors.textMuted} />
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{row.label}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{row.label}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 1 }]}>{row.hint}</AppText>
               </View>
             </View>
             <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
@@ -163,7 +171,7 @@ export function AccountScreen(
   const contextProfile = useApiGet<StudentProfile>(
     showChildContext && selection.selectedId ? `/api/v1/students/${selection.selectedId}` : ""
   );
-  const { preference, setPreference } = useThemePreference();
+  const { preference, setPreference, fontSize, setFontSize } = useThemePreference();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
@@ -171,26 +179,30 @@ export function AccountScreen(
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
 
-  // Personel gerçek adı: öğretmenin KENDİ programındaki `teacherName`
-  // (sunucu teacherId sahipliğini doğrular — başka kaynaktan tahmin yok).
-  // Session/user yanıtında isim alanı YOK; e-posta restore'da korunur
-  // (token-storage). Kimlik çözülene kadar iskelet — rol etiketi ada konmaz.
+  // Personel gerçek adı: önce sunucunun `fullName` alanı (TEACHER → Teacher.name,
+  // diğer roller → User.displayName); yoksa eski istemci uyumu için öğretmenin
+  // KENDİ programındaki `teacherName`. E-posta ADA DÖNÜŞMEZ — ayrı iletişim
+  // satırında gösterilir. Kimlik çözülene kadar iskelet; rol etiketi ada konmaz.
   const isTeacher = user?.role === "TEACHER" && !!user?.teacherId;
   // Yalnız öğretmen-adı çözümlemesi için: tek ders yeter (isim tüm kayıtlarda denormalize).
+  const needsTeacherName = isTeacher && !user?.fullName?.trim();
   const teacherSchedule = useApiGet<ScheduleResponse>(
-    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
+    needsTeacherName && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
   );
   const teacherName =
     teacherSchedule.status === "success"
       ? (teacherSchedule.data.lessons.find((l) => l.teacherName?.trim())?.teacherName?.trim() ?? null)
       : null;
-  const resolvedName = user ? resolveDisplayName({ teacherName, email: user.email }) : null;
-  const teacherNamePending = isTeacher && teacherSchedule.status === "loading";
+  const resolvedName = user ? resolveDisplayName({ fullName: user.fullName, teacherName }) : null;
+  const teacherNamePending = needsTeacherName && teacherSchedule.status === "loading";
   // Ad yerine rol etiketi ("Öğretmen") ASLA konmaz — çözülmediyse iskelet
   // (pending) ya da nötr fallback; rol zaten alt satırda gösterilir.
   const displayName = resolvedName;
   const showSkeleton = !displayName && (!user || teacherNamePending);
-  const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
+  // Öğretmenlerde fotoğraf alanı HİÇ gösterilmez (PROFILE_PHOTO_UPLOAD_ENABLED=false);
+  // diğer rollerin mevcut davranışı korunur.
+  const photoEnabled = canManageProfilePhoto(user?.role);
+  const photoOwner = photoEnabled ? resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly }) : null;
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
   async function pickAndUploadPhoto() {
@@ -258,25 +270,27 @@ export function AccountScreen(
 
       <Card>
         <View style={styles.profileRow}>
-          <Pressable
-            onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
-            accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
-            style={{ position: "relative" }}
-          >
-            <Avatar
-              name={displayName ?? tr("account.userFallback")}
-              size={52}
-              photoPath={photoPath}
-              onPhotoLoad={() => setHasPhoto(true)}
-              onPhotoError={() => setHasPhoto(false)}
-            />
-            {photoOwner ? (
-              <View style={[styles.photoEditBadge, { backgroundColor: t.colors.primary, borderColor: t.colors.bgRaised }]}>
-                <Icon name="camera" size={11} color={t.colors.primaryOn} />
-              </View>
-            ) : null}
-          </Pressable>
-          <View style={{ flex: 1 }}>
+          {photoEnabled ? (
+            <Pressable
+              onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
+              accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
+              style={{ position: "relative" }}
+            >
+              <Avatar
+                name={displayName ?? tr("account.userFallback")}
+                size={52}
+                photoPath={photoPath}
+                onPhotoLoad={() => setHasPhoto(true)}
+                onPhotoError={() => setHasPhoto(false)}
+              />
+              {photoOwner ? (
+                <View style={[styles.photoEditBadge, { backgroundColor: t.colors.primary, borderColor: t.colors.bgRaised }]}>
+                  <Icon name="camera" size={11} color={t.colors.primaryOn} />
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1, minWidth: 0 }}>
             {showSkeleton ? (
               // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
               <View accessibilityLabel={tr("account.profileLoading")}>
@@ -285,18 +299,25 @@ export function AccountScreen(
               </View>
             ) : (
               <>
-                <Text
+                <AppText
                   style={[t.typography.cardTitle, { color: t.colors.text }]}
                   numberOfLines={1}
                   accessibilityLabel={displayName ? undefined : tr("account.nameLoadFail")}
                 >
                   {displayName ?? tr("account.userFallback")}
-                </Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                </AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                   {user ? roleLabel(user, tr) : ""}
-                </Text>
+                </AppText>
               </>
             )}
+            {/* E-posta kimlik yerine AYRI satırdır; düzenleme "E-posta değiştir"
+                bağlantısıyla yapılır (araçlar listesi). */}
+            {user?.email ? (
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]} numberOfLines={1}>
+                {user.email}
+              </AppText>
+            ) : null}
           </View>
         </View>
       </Card>
@@ -304,26 +325,26 @@ export function AccountScreen(
       {photoOwner ? (
         <BottomSheet visible={photoSheetOpen} title={tr("account.photoTitle")} onClose={() => setPhotoSheetOpen(false)}>
           <View style={{ gap: 10, paddingBottom: 8 }}>
-            {photoError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{photoError}</Text> : null}
+            {photoError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{photoError}</AppText> : null}
             <Pressable onPress={pickAndUploadPhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
                 <Icon name="image-outline" size={18} color={t.colors.primary} />
-                <Text style={[t.typography.body, { color: t.colors.primary }]}>
+                <AppText style={[t.typography.body, { color: t.colors.primary }]}>
                   {photoBusy ? tr("account.photoProcessing") : hasPhoto ? tr("account.photoReplace") : tr("account.photoPick")}
-                </Text>
+                </AppText>
               </View>
             </Pressable>
             {hasPhoto ? (
               <Pressable onPress={removePhoto} disabled={photoBusy} style={styles.sheetOptionRow}>
                 <View style={styles.optionLeft}>
                   <Icon name="trash-outline" size={18} color={t.colors.danger} />
-                  <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("account.photoRemove")}</Text>
+                  <AppText style={[t.typography.body, { color: t.colors.danger }]}>{tr("account.photoRemove")}</AppText>
                 </View>
               </Pressable>
             ) : null}
             <Pressable onPress={() => setPhotoSheetOpen(false)} disabled={photoBusy} style={styles.sheetOptionRow}>
               <View style={styles.optionLeft}>
-                <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("common.cancel")}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("common.cancel")}</AppText>
               </View>
             </Pressable>
           </View>
@@ -349,10 +370,10 @@ export function AccountScreen(
           <View style={styles.optionLeft}>
             <Icon name="people-outline" size={18} color={t.colors.primary} />
             <View style={{ flex: 1 }}>
-              <Text style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("account.trackedStudent")}</Text>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
+              <AppText style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("account.trackedStudent")}</AppText>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
                 {contextProfile.status === "success" ? contextProfile.data.name : tr("account.trackedLoading")}
-              </Text>
+              </AppText>
             </View>
           </View>
           {selection.isMulti ? <Icon name="swap-horizontal-outline" size={18} color={t.colors.textFaint} /> : null}
@@ -369,7 +390,7 @@ export function AccountScreen(
                 <Pressable onPress={link.onPress} style={styles.optionRow}>
                   <View style={styles.optionLeft}>
                     <Icon name={link.icon} size={18} color={t.colors.textMuted} />
-                    <Text style={[t.typography.body, { color: t.colors.text }]}>{link.label}</Text>
+                    <AppText style={[t.typography.body, { color: t.colors.text }]}>{link.label}</AppText>
                   </View>
                   <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
                 </Pressable>
@@ -392,7 +413,7 @@ export function AccountScreen(
             >
               <View style={styles.optionLeft}>
                 <Icon name={opt.icon} size={18} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{tr(opt.labelKey)}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr(opt.labelKey)}</AppText>
               </View>
               <Icon
                 name={preference === opt.value ? "radio-button-on" : "radio-button-off"}
@@ -405,8 +426,30 @@ export function AccountScreen(
         <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
         <View style={styles.optionRow}>
           <View style={[styles.optionLeft, { flex: 1 }]}>
+            <Icon name="text-outline" size={18} color={t.colors.textMuted} />
+            <View style={{ flex: 1 }}>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("account.fontSize")}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
+                {tr("account.fontSizeHint")}
+              </AppText>
+            </View>
+          </View>
+        </View>
+        <View style={styles.fontSizeRow}>
+          {FONT_SIZE_OPTIONS.map((opt) => (
+            <FilterChip
+              key={opt.value}
+              label={tr(opt.labelKey)}
+              selected={fontSize === opt.value}
+              onPress={() => setFontSize(opt.value)}
+            />
+          ))}
+        </View>
+        <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />
+        <View style={styles.optionRow}>
+          <View style={[styles.optionLeft, { flex: 1 }]}>
             <Icon name="language-outline" size={18} color={t.colors.textMuted} />
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("common.language")}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("common.language")}</AppText>
           </View>
         </View>
         <LanguageSelector compact />
@@ -419,7 +462,7 @@ export function AccountScreen(
         <View style={styles.optionRow}>
           <View style={styles.optionLeft}>
             <Icon name="log-out-outline" size={18} color={t.colors.danger} />
-            <Text style={[t.typography.body, { color: t.colors.danger }]}>{tr("auth.logout")}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.danger }]}>{tr("auth.logout")}</AppText>
           </View>
         </View>
       </Card>
@@ -458,6 +501,8 @@ const styles = StyleSheet.create({
   roleSkeleton: { height: 13, width: "35%", borderRadius: 6, marginTop: 6 },
   optionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
   optionLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  /** Yazı boyutu çipleri — dar ekranda sarmaz, eşit aralıkla yayılır. */
+  fontSizeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: 10, paddingBottom: 4 },
   /** 48pt dokunma hedefi — bkz. iPhone SE dahil erişilebilirlik gereksinimi. */
   sheetOptionRow: { flexDirection: "row", alignItems: "center", minHeight: 48 },
   deletionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48 },

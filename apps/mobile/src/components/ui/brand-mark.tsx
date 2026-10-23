@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Image, StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 
 type Props = {
@@ -27,12 +28,12 @@ export function BrandMark({ size = "md", wordmark = true, wordmarkSize }: Props)
         resizeMode="contain"
       />
       {wordmark ? (
-        <Text
+        <AppText
           numberOfLines={1}
-          style={[t.typography.display, { color: t.colors.text, marginTop: 14, fontSize: wordmarkSize ?? (size === "lg" ? 36 : 30) }]}
+          style={[t.typography.brand, { color: t.colors.text, marginTop: 14, fontSize: wordmarkSize ?? (size === "lg" ? 36 : 30) }]}
         >
           NeviiHub
-        </Text>
+        </AppText>
       ) : null}
     </View>
   );

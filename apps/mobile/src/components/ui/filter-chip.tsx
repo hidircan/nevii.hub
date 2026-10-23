@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { fonts } from "../../theme/tokens";
 
@@ -26,9 +27,9 @@ export function FilterChip({ label, selected, onPress }: Props) {
         },
       ]}
     >
-      <Text style={[styles.label, { color: selected ? t.colors.primaryOn : t.colors.text }]} numberOfLines={1}>
+      <AppText style={[styles.label, { color: selected ? t.colors.primaryOn : t.colors.text }]} numberOfLines={1}>
         {label}
-      </Text>
+      </AppText>
     </Pressable>
   );
 }
@@ -42,5 +43,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  label: { fontFamily: fonts.serifSemibold, fontSize: 15, fontWeight: "600" },
+  label: { fontFamily: fonts.semibold, fontSize: 15, fontWeight: "600" },
 });

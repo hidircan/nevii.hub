@@ -1,4 +1,5 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./ui/app-text";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
 import { fonts } from "../theme/tokens";
@@ -14,10 +15,10 @@ export function PlaceholderScreen({ title, note }: { title: string; note: string
   const { t: tr } = useLocale();
   return (
     <ScrollView contentContainerStyle={[styles.container, { backgroundColor: t.colors.bg }]}>
-      <Text style={[styles.title, { color: t.colors.text }]}>{title}</Text>
+      <AppText style={[styles.title, { color: t.colors.text }]}>{title}</AppText>
       <View style={[styles.card, { backgroundColor: t.colors.bgMuted, borderColor: t.colors.border }]}>
-        <Text style={[styles.badge, { color: t.colors.primary }]}>{tr("ui.comingSoon")}</Text>
-        <Text style={[styles.note, { color: t.colors.textMuted }]}>{note}</Text>
+        <AppText style={[styles.badge, { color: t.colors.primary }]}>{tr("ui.comingSoon")}</AppText>
+        <AppText style={[styles.note, { color: t.colors.textMuted }]}>{note}</AppText>
       </View>
     </ScrollView>
   );
@@ -27,6 +28,6 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, padding: 16 },
   title: { fontSize: 24, fontWeight: "700", marginBottom: 12 },
   card: { borderWidth: 1, borderRadius: 12, padding: 16, gap: 6 },
-  badge: { fontFamily: fonts.serifBold, fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
-  note: { fontFamily: fonts.serif, fontSize: 16, lineHeight: 22 },
+  badge: { fontFamily: fonts.bold, fontSize: 14, fontWeight: "700", textTransform: "uppercase" },
+  note: { fontFamily: fonts.regular, fontSize: 16, lineHeight: 22 },
 });

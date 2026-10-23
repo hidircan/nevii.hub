@@ -2,9 +2,9 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, Icon, Screen, TextField } from "../../../src/components/ui";
+import { AppHeader, Button, Card, Icon, Screen, TextField, AppText } from "../../../src/components/ui";
 import { ALLOWED_ATTACHMENT_MIME_TYPES, validateAttachment } from "../../../src/lib/attachment-validation";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -83,18 +83,18 @@ export default function YeniMateryal() {
         <TextField label={tr("teachMat.descField")} value={description} onChangeText={setDescription} placeholder={tr("teachMat.descEx")} multiline numberOfLines={4} />
 
         <View style={{ gap: 6 }}>
-          <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("teachMat.attachLabel")}</Text>
+          <AppText style={[t.typography.label, { color: t.colors.textMuted }]}>{tr("teachMat.attachLabel")}</AppText>
           {attachment ? (
             <Card>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Icon name="document-attach-outline" size={20} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
                     {attachment.fileName}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
                     {Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB
-                  </Text>
+                  </AppText>
                 </View>
                 <Pressable onPress={() => setAttachment(null)} hitSlop={8} accessibilityLabel={tr("teachMat.removeFile")}>
                   <Icon name="close-circle" size={20} color={t.colors.textMuted} />
@@ -118,18 +118,18 @@ export default function YeniMateryal() {
               }}
             >
               <Icon name="attach-outline" size={18} color={t.colors.primary} />
-              <Text style={[t.typography.body, { color: t.colors.primary }]}>
+              <AppText style={[t.typography.body, { color: t.colors.primary }]}>
                 {attaching ? tr("teachMat.uploading") : tr("teachMat.attachCta")}
-              </Text>
+              </AppText>
             </Pressable>
           )}
-          {attachError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{attachError}</Text> : null}
+          {attachError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{attachError}</AppText> : null}
         </View>
 
-        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
           {tr("teachMat.visibleNote")}
-        </Text>
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        </AppText>
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
         <Button label={tr("teachMat.share")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>
     </Screen>

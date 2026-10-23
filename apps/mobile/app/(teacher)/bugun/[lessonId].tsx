@@ -1,27 +1,12 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
-import {
-  AppHeader,
-  Avatar,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  HomeworkCard,
-  Icon,
-  LiveLessonTimer,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-  StatusBadge,
-} from "../../../src/components/ui";
+import { AppHeader, Avatar, AttendanceStatusBadge, Button, Card, EmptyState, ErrorState, HomeworkCard, Icon, LiveLessonTimer, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useNow } from "../../../src/hooks/use-now";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { format, isPast } from "../../../src/lib/date";
-import { lessonStatusBadge } from "../../../src/lib/lesson-status";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { HomeworkResponse, ScheduleResponse } from "../../../src/types/api";
@@ -37,7 +22,8 @@ export default function LessonDetailScreen() {
   // Salt-okunur ders detayı: öğretmen yalnız kendi programını görüntüler.
   // Yoklama, ders başlatma/bitirme bu yüzeyde YOK — mutasyonlar yalnız
   // yönetici akışındadır. Reddedilecek aksiyona götürmek yerine buton
-  // hiç gösterilmez, yerine net bilgi metni konur.
+  // hiç gösterilmez, yerine net bilgi metni konur. Yoklama STATÜSÜ ise
+  // salt-okunur rozet olarak gösterilir (yöneticiyle aynı renk/eşleme).
   // Ders yalnız öğretmenin KENDİ programından bulunur (sunucu teacherId sahipliğini doğrular);
   // listede yoksa "bulunamadı" gösterilir — başka bir kaynaktan tahmin edilmez.
   // Detay tek dersi ID ile bulur — kesilme payı için üst sınırla çekilir.
@@ -73,9 +59,7 @@ export default function LessonDetailScreen() {
     );
   }
 
-  const badge = lessonStatusBadge(lesson);
   const past = isPast(lesson.endAt, now);
-
   return (
     <Screen onRefresh={schedule.refresh} refreshing={false}>
       <AppHeader title={lesson.studentName ?? tr("teach.studentFallback")} showBack showNotifications={false} />
@@ -84,14 +68,14 @@ export default function LessonDetailScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={lesson.studentName ?? "?"} size={48} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? tr("teach.studentFallback")}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? tr("teach.studentFallback")}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {format(new Date(lesson.startAt), "HH:mm")}–{format(new Date(lesson.endAt), "HH:mm")}
               {lesson.instrument ? ` · ${lesson.instrument}` : ""}
               {lesson.roomName ? ` · ${lesson.roomName}` : ""}
-            </Text>
+            </AppText>
           </View>
-          <StatusBadge label={badge.label} tone={badge.tone} />
+          <AttendanceStatusBadge lesson={lesson} size="md" />
         </View>
       </Card>
 
@@ -105,9 +89,9 @@ export default function LessonDetailScreen() {
 
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
         <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
           {tr("teach.attendanceAdminOnly")}
-        </Text>
+        </AppText>
       </View>
 
       <SectionHeader title={tr("teach.actions")} />
@@ -150,9 +134,9 @@ export default function LessonDetailScreen() {
 
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
         <Icon name="information-circle-outline" size={14} color={t.colors.textFaint} />
-        <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>
           {tr("teach.contactNote")}
-        </Text>
+        </AppText>
       </View>
 
     </Screen>

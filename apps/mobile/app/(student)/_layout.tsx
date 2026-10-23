@@ -14,9 +14,10 @@ export default function StudentLayout() {
           headerShown: false,
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64 },
+          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64, paddingTop: 6, paddingBottom: 6 },
           tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
-          tabBarItemStyle: { paddingVertical: 6 },
+          tabBarItemStyle: { paddingVertical: 4, justifyContent: "center" },
+          tabBarIconStyle: { marginBottom: 0 },
         }}
       >
         <Tabs.Screen

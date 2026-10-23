@@ -1,9 +1,17 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+<<<<<<< HEAD
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { apiPost } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { AppHeader, Button, Card, Screen, ScoreSelector, SectionHeader, StatusBadge, TextField } from "../../src/components/ui";
+=======
+import { useState } from "react";
+import { StyleSheet, View } from "react-native";
+import { apiPost } from "../../src/api/client";
+import { useAuth } from "../../src/auth/auth-context";
+import { AppHeader, Button, Screen, ScoreSelector, TextField, AppText } from "../../src/components/ui";
+>>>>>>> origin/release/mobile-review
 import { useApiGet } from "../../src/hooks/use-api";
 import { useLocale } from "../../src/i18n/locale-context";
 import { relativeDayLabel } from "../../src/lib/date";
@@ -180,10 +188,17 @@ export default function AssessmentScreen() {
       <Screen>
         <AppHeader title={isPeriodic ? tr("assess.periodicTitle") : tr("assess.title")} showBack showNotifications={false} />
         <View style={styles.doneBox}>
+<<<<<<< HEAD
           <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("assess.saved")}</Text>
           <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
             {isPeriodic ? tr("assess.periodicSavedBody") : tr("assess.savedBody")}
           </Text>
+=======
+          <AppText style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("assess.saved")}</AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+            {tr("assess.savedBody")}
+          </AppText>
+>>>>>>> origin/release/mobile-review
           <Button label={tr("eval.close")} onPress={() => router.back()} variant="secondary" style={{ marginTop: 16 }} fullWidth={false} />
         </View>
       </Screen>
@@ -396,7 +411,7 @@ export default function AssessmentScreen() {
           numberOfLines={3}
         />
 
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
 
         <Button label={tr("assess.save")} onPress={onSubmitLesson} disabled={!canSubmitLesson} loading={busy} />
       </View>

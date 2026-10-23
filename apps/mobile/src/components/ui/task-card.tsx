@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { isPast, relativeDayLabel } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
@@ -53,21 +54,21 @@ export function TaskCard({ task, onPress, onComplete }: Props) {
         ) : null}
 
         <View style={styles.content}>
-          <Text
+          <AppText
             style={[t.typography.cardTitle, { color: t.colors.text, textDecorationLine: isDone ? "line-through" : "none" }]}
             numberOfLines={2}
           >
             {task.title}
-          </Text>
+          </AppText>
           <View style={styles.metaRow}>
             {priority ? <StatusBadge label={priority.label} tone={priority.tone} /> : null}
             {task.category ? <StatusBadge label={task.category} tone="neutral" /> : null}
             {task.dueDate ? (
               <View style={styles.metaItem}>
                 <Icon name="time-outline" size={13} color={overdue ? t.colors.danger : t.colors.textMuted} />
-                <Text style={[t.typography.caption, { color: overdue ? t.colors.danger : t.colors.textMuted }]}>
+                <AppText style={[t.typography.caption, { color: overdue ? t.colors.danger : t.colors.textMuted }]}>
                   {relativeDayLabel(new Date(task.dueDate))}
-                </Text>
+                </AppText>
               </View>
             ) : null}
           </View>

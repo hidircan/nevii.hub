@@ -1,15 +1,6 @@
 import { useRouter } from "expo-router";
-import { FlatList, RefreshControl, Text, View } from "react-native";
-import {
-  AppHeader,
-  Card,
-  EmptyState,
-  ErrorState,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-  StatusBadge,
-} from "../../components/ui";
+import { FlatList, RefreshControl, View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
@@ -96,22 +87,22 @@ function MakeupRow({ item, onPress }: { item: MakeupLedgerItem; onPress: () => v
       <Card onPress={onPress}>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={1}>
               {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || tr("makeup.fallbackRow")}
-            </Text>
+            </AppText>
             {item.sourceLesson ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                 {tr("makeup.missedLesson", { v: when(item.sourceLesson.startAt) })}
-              </Text>
+              </AppText>
             ) : null}
             {item.confirmedLesson ? (
-              <Text style={[t.typography.caption, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
                 {tr("makeup.confirmedLesson", { v: when(item.confirmedLesson.startAt) })}
-              </Text>
+              </AppText>
             ) : isOpenMakeup(item.status) ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                 {tr("makeup.notPlanned")}
-              </Text>
+              </AppText>
             ) : null}
           </View>
           <StatusBadge label={badge.label} tone={badge.tone} />
@@ -181,23 +172,23 @@ export function StudentScopeMakeupDetailScreen({
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={2}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={2}>
               {[item.teacherName, item.instrument].filter(Boolean).join(" · ") || tr("makeup.fallbackRow")}
-            </Text>
+            </AppText>
             {item.branchName ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.branchName}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.branchName}</AppText>
             ) : null}
           </View>
           <StatusBadge label={badge.label} tone={badge.tone} />
         </View>
         {item.decidedAt ? (
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 8 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 8 }]}>
             {tr("makeup.decided", { v: when(item.decidedAt) })}
-          </Text>
+          </AppText>
         ) : null}
-        <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>
           {tr("makeup.validUntil", { v: shortDayMonth(new Date(item.expiresAt)) })}
-        </Text>
+        </AppText>
       </Card>
 
       <SectionHeader title={tr("makeup.missedSection")} />
@@ -211,7 +202,7 @@ export function StudentScopeMakeupDetailScreen({
         <>
           <SectionHeader title={tr("makeup.reasonSection")} />
           <Card>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{item.reason}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{item.reason}</AppText>
           </Card>
         </>
       ) : null}
@@ -224,15 +215,15 @@ export function StudentScopeMakeupDetailScreen({
         />
       ) : (
         <Card>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
             {isOpenMakeup(item.status) ? tr("makeup.willAppear") : tr("makeup.noPlannedLesson")}
-          </Text>
+          </AppText>
         </Card>
       )}
 
       {item.policyNote.trim() ? (
         <Card style={{ marginTop: 12 }}>
-          <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{item.policyNote}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{item.policyNote}</AppText>
         </Card>
       ) : null}
       <View style={{ height: 24 }} />
@@ -254,7 +245,7 @@ function LessonRefCard({
   if (!lesson) {
     return (
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{emptyText ?? tr("makeup.noLesson")}</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{emptyText ?? tr("makeup.noLesson")}</AppText>
       </Card>
     );
   }
@@ -263,14 +254,14 @@ function LessonRefCard({
     <Card onPress={() => onOpen(lesson.id)}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
         <View style={{ flex: 1 }}>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>
             {shortDayMonth(new Date(lesson.startAt))} · {span(lesson.startAt, lesson.endAt)}
-          </Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+          </AppText>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
             {[lesson.teacherName, lesson.instrument].filter(Boolean).join(" · ")}
             {lesson.branchName ? ` · ${lesson.branchName}` : ""}
             {lesson.roomName ? ` · ${lesson.roomName}` : ""}
-          </Text>
+          </AppText>
         </View>
         <StatusBadge label={badge.label} tone={badge.tone} />
       </View>

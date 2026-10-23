@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../components/ui";
+import { View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../components/ui";
 import type { BadgeTone } from "../../components/ui/status-badge";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
@@ -73,15 +73,15 @@ export function StudentScopeContractsScreen({ basePath }: { basePath: "/(parent)
             <Card key={c.id} onPress={() => router.push(`${basePath}/sozlesmeler/${c.id}`)}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]} numberOfLines={2}>
                     {badge.typeLabel(c.contractType)} · {c.programmeName}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                     {shortDayMonth(new Date(c.enrollmentStartDate))} – {shortDayMonth(new Date(c.enrollmentEndDate))} · {formatCurrency(c.totalContractAmount)}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
                     {tr("contracts.number", { n: c.contractNumber })}
-                  </Text>
+                  </AppText>
                 </View>
                 <StatusBadge label={badge.status(c.status).label} tone={badge.status(c.status).tone} />
               </View>
@@ -158,28 +158,28 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
       <Card>
         <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>
               {badge.typeLabel(contract.contractType)} · {contract.programmeName}
-            </Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+            </AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
               {tr("contracts.numberVer", { n: contract.contractNumber, v: contract.versionNumber })}
-            </Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            </AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {tr("contracts.period", { a: shortDayMonth(new Date(contract.enrollmentStartDate)), b: shortDayMonth(new Date(contract.enrollmentEndDate)), m: contract.durationMonths })}
-            </Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            </AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {tr("contracts.signatory", { v: contract.signatoryFullName })}
-            </Text>
+            </AppText>
           </View>
           <StatusBadge label={badge.status(contract.status).label} tone={badge.status(contract.status).tone} />
         </View>
         <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: t.colors.divider }}>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("contracts.total")}</Text>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(contract.totalContractAmount)}</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("contracts.total")}</AppText>
+          <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 2 }]}>{formatCurrency(contract.totalContractAmount)}</AppText>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
             {tr("contracts.monthly", { a: formatCurrency(contract.monthlyAmount), n: contract.installmentCount })}
             {contract.depositAmount ? ` · ${tr("contracts.deposit", { v: formatCurrency(contract.depositAmount) })}` : ""}
-          </Text>
+          </AppText>
         </View>
       </Card>
 
@@ -192,13 +192,13 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
             <Card key={ins.paymentId}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>
                     {tr("contracts.installmentN", { n: ins.sequence })}{ins.periodLabel ? ` · ${ins.periodLabel}` : ""}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                     {tr("contracts.dueLine", { d: shortDayMonth(new Date(ins.dueDate)), a: formatCurrency(ins.amount) })}
                     {ins.paidAmount > 0 ? ` · ${tr("contracts.paidLine", { v: formatCurrency(ins.paidAmount) })}` : ""}
-                  </Text>
+                  </AppText>
                 </View>
                 <StatusBadge label={badge.status(ins.status).label} tone={badge.status(ins.status).tone} />
               </View>
@@ -218,15 +218,15 @@ export function StudentScopeContractDetailScreen({ contractId }: { contractId: s
           />
           {shareError ? (
             <Card style={{ marginTop: 8 }}>
-              <Text style={[t.typography.caption, { color: t.colors.danger }]}>{shareError}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{shareError}</AppText>
             </Card>
           ) : null}
         </>
       ) : (
         <Card>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
             {tr("contracts.noDocument")}
-          </Text>
+          </AppText>
         </Card>
       )}
     </Screen>

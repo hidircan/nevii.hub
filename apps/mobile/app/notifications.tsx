@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, SectionList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, SectionList, StyleSheet, View } from "react-native";
 import { apiGet, apiPost } from "../src/api/client";
 import { useAuth, personaOf } from "../src/auth/auth-context";
 import { CacheStatus } from "../src/cache/cache-status";
 import { getProductionBackend, readCacheEntry, writeCacheEntry } from "../src/cache/cache-store";
 import { subscribeToScopes } from "../src/cache/refresh-bus";
-import { AppHeader, EmptyState, ErrorState, LoadingSkeleton, NotificationCard, Screen } from "../src/components/ui";
+import { AppHeader, EmptyState, ErrorState, LoadingSkeleton, NotificationCard, Screen, AppText } from "../src/components/ui";
 import { groupByDay } from "../src/lib/group-by-day";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
@@ -129,9 +129,9 @@ export default function NotificationsScreen() {
           ).map((g) => ({ title: g.label, data: g.items }))}
           keyExtractor={(item) => item.id}
           renderSectionHeader={({ section }) => (
-            <Text style={[t.typography.label, { color: t.colors.textMuted, backgroundColor: t.colors.bg, paddingVertical: 8 }]}>
+            <AppText style={[t.typography.label, { color: t.colors.textMuted, backgroundColor: t.colors.bg, paddingVertical: 8 }]}>
               {section.title.toUpperCase()}
-            </Text>
+            </AppText>
           )}
           renderItem={({ item }) => (
             <View style={styles.row}>
@@ -147,9 +147,9 @@ export default function NotificationsScreen() {
             loadingMore ? (
               <ActivityIndicator style={styles.footer} color={t.colors.textMuted} />
             ) : loadMoreError ? (
-              <Text style={[t.typography.label, styles.footer, { color: t.colors.danger }]} onPress={loadMore}>
+              <AppText style={[t.typography.label, styles.footer, { color: t.colors.danger }]} onPress={loadMore}>
                 {tr("notifications.loadMoreFailed")}
-              </Text>
+              </AppText>
             ) : null
           }
         />

@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, ScoreSelector, TextField } from "../../components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, ScoreSelector, TextField, AppText } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useLocale } from "../../i18n/locale-context";
@@ -79,10 +79,10 @@ export function DegerlendirmeFormScreen() {
       <Screen>
         <AppHeader title={tr("eval.title")} showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
         <View style={{ alignItems: "center", paddingTop: 60 }}>
-          <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("eval.thanks")}</Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+          <AppText style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("eval.thanks")}</AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
             {tr("eval.thanksBody")}
-          </Text>
+          </AppText>
           <Button label={tr("eval.close")} onPress={() => router.back()} variant="secondary" fullWidth={false} style={{ marginTop: 16 }} />
         </View>
       </Screen>
@@ -96,9 +96,9 @@ export function DegerlendirmeFormScreen() {
       <Card style={{ marginBottom: 16, backgroundColor: t.colors.infoSoft }}>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Icon name="shield-checkmark-outline" size={16} color={t.colors.info} />
-          <Text style={[t.typography.caption, { color: t.colors.info, flex: 1 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.info, flex: 1 }]}>
             {tr("eval.anonHint")}
-          </Text>
+          </AppText>
         </View>
       </Card>
 
@@ -109,7 +109,7 @@ export function DegerlendirmeFormScreen() {
 
         <TextField label={tr("eval.commentLabel")} value={comment} onChangeText={setComment} multiline numberOfLines={3} />
 
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
         {alreadySubmitted.status === "error" ? <ErrorState message={alreadySubmitted.message} onRetry={alreadySubmitted.refresh} /> : null}
 
         <Button label={tr("common.send")} onPress={onSubmit} disabled={!allScored || busy} loading={busy} />

@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { StyleSheet, View } from "react-native";
 import { interpolate, lookup } from "../../i18n/locales";
 import { getActiveLocale } from "../../i18n/locale-store";
 import { useTheme } from "../../theme/theme-context";
@@ -46,7 +47,7 @@ export function NotificationCard({ notification, onPress }: Props) {
           <Icon name={icon} size={17} color={unread ? t.colors.primary : t.colors.textMuted} />
         </View>
         <View style={styles.content}>
-          <Text
+          <AppText
             style={[
               unread ? t.typography.bodyStrong : t.typography.body,
               { color: t.colors.text, fontWeight: unread ? "700" : "500" },
@@ -54,15 +55,15 @@ export function NotificationCard({ notification, onPress }: Props) {
             numberOfLines={2}
           >
             {notification.title ?? notification.category ?? lookup(getActiveLocale(), "ui.notificationFallback")}
-          </Text>
+          </AppText>
           {notification.body ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={2}>
               {notification.body}
-            </Text>
+            </AppText>
           ) : null}
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
             {timeAgo(notification.createdAt)}
-          </Text>
+          </AppText>
         </View>
         {unread ? <View style={[styles.dot, { backgroundColor: t.colors.primary }]} /> : null}
       </View>

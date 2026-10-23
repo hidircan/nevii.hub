@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Image, StyleSheet, View } from "react-native";
 import { lookup } from "../../i18n/locales";
 import { getActiveLocale } from "../../i18n/locale-store";
 import { useTheme } from "../../theme/theme-context";
@@ -95,7 +96,7 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
 
   return (
     <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
-      <Text style={{ color: fg, fontFamily: fonts.serifBold, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</Text>
+      <AppText style={{ color: fg, fontFamily: fonts.bold, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</AppText>
     </View>
   );
 }

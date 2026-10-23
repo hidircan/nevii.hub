@@ -1,4 +1,5 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Button } from "./button";
@@ -10,7 +11,7 @@ export function LoadingState({ label }: { label?: string }) {
   return (
     <View style={styles.center}>
       <ActivityIndicator color={t.colors.primary} />
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10 }]}>{label ?? tr("ui.loading")}</Text>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10 }]}>{label ?? tr("ui.loading")}</AppText>
     </View>
   );
 }
@@ -30,12 +31,12 @@ export function ErrorState({ message, onRetry, code }: { message: string; onRetr
           color={isAccessScope ? t.colors.textMuted : t.colors.danger}
         />
       </View>
-      <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>
+      <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>
         {isAccessScope ? tr("ui.noAccess") : tr("ui.wentWrong")}
-      </Text>
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, textAlign: "center" }]}>
+      </AppText>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, textAlign: "center" }]}>
         {message}
-      </Text>
+      </AppText>
       {onRetry && !isAccessScope ? (
         <Button label={tr("ui.retry")} onPress={onRetry} variant="secondary" size="sm" fullWidth={false} style={{ marginTop: 16 }} />
       ) : null}
@@ -50,10 +51,10 @@ export function DevUnreachableState({ apiBaseUrl }: { apiBaseUrl: string }) {
   return (
     <View style={[styles.center, { padding: 24 }]}>
       <Icon name="cloud-offline-outline" size={26} color={t.colors.textMuted} />
-      <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>{tr("ui.unreachableTitle")}</Text>
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+      <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>{tr("ui.unreachableTitle")}</AppText>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
         {tr("ui.unreachableBody", { url: apiBaseUrl })}
-      </Text>
+      </AppText>
     </View>
   );
 }

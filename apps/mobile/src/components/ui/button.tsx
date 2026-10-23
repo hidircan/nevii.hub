@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from "react-native";
+import { AppText } from "./app-text";
+import { ActivityIndicator, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Icon, type IconName } from "./icon";
 
@@ -67,13 +68,13 @@ export function Button({
         <>
           {icon ? <Icon name={icon} size={size === "sm" ? 16 : 18} color={p.fg} /> : null}
           {/* Uzun Türkçe etiketler taşmaz: en fazla 2 satır, ortalı. */}
-          <Text
+          <AppText
             numberOfLines={2}
             ellipsizeMode="tail"
-            style={[styles.label, { color: p.fg, fontFamily: t.fonts.serifSemibold, fontSize: size === "sm" ? 15 : 17, textAlign: "center" }]}
+            style={[styles.label, { color: p.fg, fontFamily: t.fonts.semibold, fontSize: size === "sm" ? 15 : 17, textAlign: "center" }]}
           >
             {label}
-          </Text>
+          </AppText>
         </>
       )}
     </Pressable>

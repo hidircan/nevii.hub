@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { AppText } from "./ui/app-text";
+import { View } from "react-native";
 import { Card, ErrorState, LoadingSkeleton, ProgressBar, SectionHeader, StatusBadge } from "./ui";
 import { useApiGet } from "../hooks/use-api";
 import { useLocale } from "../i18n/locale-context";
@@ -26,9 +27,9 @@ function ComponentRow({ label, component, detail }: { label: string; component: 
   return (
     <View style={{ marginTop: 14 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{label}</Text>
+        <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{label}</AppText>
         {value ? (
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text, fontWeight: "700" }]}>{value}</Text>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text, fontWeight: "700" }]}>{value}</AppText>
         ) : (
           <StatusBadge label={tr("perf.insufficient")} tone="neutral" />
         )}
@@ -36,7 +37,7 @@ function ComponentRow({ label, component, detail }: { label: string; component: 
       <View style={{ marginTop: 8 }}>
         <ProgressBar progress={component.hasData ? component.normalizedValue ?? 0 : 0} tone="primary" />
       </View>
-      <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{detail}</Text>
+      <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{detail}</AppText>
     </View>
   );
 }
@@ -58,9 +59,9 @@ export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) 
   return (
     <>
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("perf.last30Days")} · {periodStart} — {periodEnd}</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("perf.last30Days")} · {periodStart} — {periodEnd}</AppText>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("perf.totalScore")}</Text>
+          <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("perf.totalScore")}</AppText>
           {r.score === null ? (
             <StatusBadge label={tr("perf.insufficient")} tone="neutral" />
           ) : (
@@ -72,9 +73,9 @@ export function TeacherPerformanceV2Panel({ teacherId }: { teacherId: string }) 
             <ProgressBar progress={r.score} tone={scoreTone(r.score)} height={10} />
           </View>
         ) : (
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
             {tr("perf.noComponentData")}
-          </Text>
+          </AppText>
         )}
       </Card>
 

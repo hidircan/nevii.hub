@@ -1,19 +1,8 @@
 import { useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
 import { useSelectedStudentId } from "../../student/student-context";
-import {
-  AppHeader,
-  Avatar,
-  Card,
-  EmptyState,
-  ErrorState,
-  ListGroup,
-  ListRow,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-} from "../../components/ui";
+import { AppHeader, Avatar, Card, EmptyState, ErrorState, ListGroup, ListRow, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
 import { useFocusRefetch } from "../../hooks/use-focus-refetch";
@@ -107,18 +96,18 @@ function ChildContextBody({
         >
           <Avatar name={view.name} size={52} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
               {view.name}
-            </Text>
+            </AppText>
             {view.line1 ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                 {view.line1}
-              </Text>
+              </AppText>
             ) : null}
             {view.line2 ? (
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
                 {view.line2}
-              </Text>
+              </AppText>
             ) : null}
           </View>
         </View>
@@ -144,7 +133,7 @@ function ChildContextBody({
         hitSlop={8}
         style={{ marginTop: 16, alignItems: "center", justifyContent: "center", paddingVertical: 12, minHeight: 48 }}
       >
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>{tr("parent.refreshInfo")}</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.bold, fontWeight: "700" }]}>{tr("parent.refreshInfo")}</AppText>
       </Pressable>
     </>
   );

@@ -1,5 +1,5 @@
-import { Text, View } from "react-native";
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatCard } from "../../../src/components/ui";
+import { View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatCard, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -28,9 +28,9 @@ export default function OdevRaporu() {
           </View>
 
           <Card>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
               {tr("adm.hwRepReviewed", { s: res.data.submittedCount, r: res.data.reviewedCount })}
-            </Text>
+            </AppText>
           </Card>
 
           <SectionHeader title={tr("adm.hwRepByTeacher")} />
@@ -41,11 +41,11 @@ export default function OdevRaporu() {
               {res.data.byTeacher.map((row) => (
                 <Card key={row.teacherId}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{row.teacherName}</Text>
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+                    <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{row.teacherName}</AppText>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
                       {row.submittedCount}/{row.assignedCount}
                       {row.assignedCount > 0 ? ` (%${Math.round((row.submittedCount / row.assignedCount) * 100)})` : ""}
-                    </Text>
+                    </AppText>
                   </View>
                 </Card>
               ))}

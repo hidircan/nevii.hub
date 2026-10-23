@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../api/client";
-import { AppHeader, Button, Screen, TextField } from "../../components/ui";
+import { AppHeader, Button, Screen, TextField, AppText } from "../../components/ui";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 
@@ -71,8 +71,8 @@ export function ChangePasswordScreen() {
           error={mismatch ? tr("reset.mismatch") : undefined}
         />
 
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
-        {done ? <Text style={[t.typography.caption, { color: t.colors.success }]}>{tr("account.passwordChanged")}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
+        {done ? <AppText style={[t.typography.caption, { color: t.colors.success }]}>{tr("account.passwordChanged")}</AppText> : null}
 
         <Button label={tr("password.updateButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>

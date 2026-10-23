@@ -1,4 +1,5 @@
-import { Text } from "react-native";
+import { AppText } from "../../src/components/ui/app-text";
+
 import { ListScreen } from "../../src/components/list-screen";
 import { useApiGet } from "../../src/hooks/use-api";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -20,7 +21,7 @@ export default function ParentBildirimler() {
       emptyLabel={tr("lists.notifEmpty")}
       keyExtractor={(n) => n.id}
       renderItem={(n) => (
-        <Text style={{ fontFamily: fonts.serif, fontWeight: n.readAt ? "400" : "700", fontSize: 17 }}>{n.title ?? n.category ?? tr("lists.notifFallback")}</Text>
+        <AppText style={{ fontFamily: fonts.regular, fontWeight: n.readAt ? "400" : "700", fontSize: 17 }}>{n.title ?? n.category ?? tr("lists.notifFallback")}</AppText>
       )}
     />
   );

@@ -1,6 +1,7 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Platform, Pressable, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { shortDayMonth } from "../../lib/date";
@@ -22,7 +23,7 @@ export function DueDateField({ label, value, onChange, minimumDate, placeholder 
 
   return (
     <View style={{ gap: 6 }}>
-      <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{label}</Text>
+      <AppText style={[t.typography.label, { color: t.colors.textMuted }]}>{label}</AppText>
       <Pressable
         onPress={() => setOpen(true)}
         style={{
@@ -38,9 +39,9 @@ export function DueDateField({ label, value, onChange, minimumDate, placeholder 
         }}
       >
         <Icon name="calendar-outline" size={18} color={t.colors.textMuted} />
-        <Text style={[t.typography.body, { color: value ? t.colors.text : t.colors.textMuted }]}>
+        <AppText style={[t.typography.body, { color: value ? t.colors.text : t.colors.textMuted }]}>
           {value ? `${shortDayMonth(value)} ${value.getFullYear()}` : (placeholder ?? tr("ui.pickDate"))}
-        </Text>
+        </AppText>
       </Pressable>
       {open ? (
         <DateTimePicker

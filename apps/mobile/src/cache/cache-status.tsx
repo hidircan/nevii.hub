@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { AppText } from "../components/ui/app-text";
+import { StyleSheet, View } from "react-native";
 import { useLocale } from "../i18n/locale-context";
 import { getActiveLocale } from "../i18n/locale-store";
 import { useTheme } from "../theme/theme-context";
@@ -21,10 +22,10 @@ export function CacheStatus({ cachedAt, isStale }: { cachedAt: string | null; is
   return (
     <View style={styles.row} accessibilityLabel={`${tr("ui.lastUpdate", { label })}${staleSuffix}`}>
       <View style={[styles.dot, { backgroundColor: isStale ? t.colors.warning : t.colors.success }]} />
-      <Text style={[t.typography.caption, { color: t.colors.textFaint }]} numberOfLines={1}>
+      <AppText style={[t.typography.caption, { color: t.colors.textFaint }]} numberOfLines={1}>
         {tr("ui.lastUpdate", { label })}
         {isStale ? ` · ${tr("ui.mayBeStale")}` : ""}
-      </Text>
+      </AppText>
     </View>
   );
 }

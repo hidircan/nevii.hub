@@ -30,6 +30,11 @@ export async function notifyUserIfEnabled(input: {
    */
   dedupeKey?: string;
   windowMs?: number;
+  /**
+   * Push köprüsünü atla — yalnız push'u KENDİSİ yöneten çağıranlar
+   * (ders hatırlatma sweep'i) kullanır; çift push'u engeller.
+   */
+  skipPush?: boolean;
 }): Promise<NotifyOutcome> {
   try {
     const enabled = await isCategoryEnabledForUser(input.tenantId, input.userId, input.category);
@@ -53,6 +58,7 @@ export async function notifyUserIfEnabled(input: {
       title: input.title,
       body: input.body,
       dedupeKey: input.dedupeKey,
+      skipPush: input.skipPush,
     });
     return result.status;
   } catch (error) {
@@ -81,6 +87,7 @@ export async function notifyStudentIfEnabled(input: {
   body: string;
   dedupeKey?: string;
   windowMs?: number;
+  skipPush?: boolean;
 }): Promise<NotifyOutcome[]> {
   try {
     const { getUserIdByStudentId, getParentUserIdsByStudentId } = await import("./auth/users");

@@ -1,5 +1,5 @@
-import { Text, View } from "react-native";
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader } from "../../../src/components/ui";
+import { View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -35,7 +35,7 @@ export default function TeacherGeriBildirim() {
       ) : (
         <>
           <Card>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.basedOn", { n: res.data.responseCount })}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.basedOn", { n: res.data.responseCount })}</AppText>
           </Card>
 
           <SectionHeader title={tr("fbSum.criteriaTitle")} />
@@ -43,8 +43,8 @@ export default function TeacherGeriBildirim() {
             <View style={{ gap: 10 }}>
               {Object.entries(res.data.criteriaAverages ?? {}).map(([key, value]) => (
                 <View key={key} style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={[t.typography.body, { color: t.colors.text }]}>{CRITERIA_KEY[key] ? tr(CRITERIA_KEY[key]) : key}</Text>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>{value.toFixed(1)}/5</Text>
+                  <AppText style={[t.typography.body, { color: t.colors.text }]}>{CRITERIA_KEY[key] ? tr(CRITERIA_KEY[key]) : key}</AppText>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>{value.toFixed(1)}/5</AppText>
                 </View>
               ))}
             </View>
@@ -53,16 +53,16 @@ export default function TeacherGeriBildirim() {
           <SectionHeader title={tr("fbSum.continueTitle")} />
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Card style={{ flex: 1 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.success }]}>{res.data.continueDistribution?.yes ?? 0}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.yes")}</Text>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.success }]}>{res.data.continueDistribution?.yes ?? 0}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.yes")}</AppText>
             </Card>
             <Card style={{ flex: 1 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.warning }]}>{res.data.continueDistribution?.unsure ?? 0}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.unsure")}</Text>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.warning }]}>{res.data.continueDistribution?.unsure ?? 0}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.unsure")}</AppText>
             </Card>
             <Card style={{ flex: 1 }}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.danger }]}>{res.data.continueDistribution?.no ?? 0}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.no")}</Text>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.danger }]}>{res.data.continueDistribution?.no ?? 0}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("fbSum.no")}</AppText>
             </Card>
           </View>
 
@@ -72,7 +72,7 @@ export default function TeacherGeriBildirim() {
               <View style={{ gap: 10 }}>
                 {res.data.sharedComments.map((c, i) => (
                   <Card key={i}>
-                    <Text style={[t.typography.body, { color: t.colors.text }]}>{c}</Text>
+                    <AppText style={[t.typography.body, { color: t.colors.text }]}>{c}</AppText>
                   </Card>
                 ))}
               </View>

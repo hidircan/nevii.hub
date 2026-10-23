@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, TextField } from "../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { format } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -87,25 +87,25 @@ export default function Telafi() {
             return (
               <Card key={r.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>
                     {r.studentName ?? tr("adm.mkStudentFb")} · {r.teacherName ?? tr("adm.mkTeacherFb")}
-                  </Text>
+                  </AppText>
                   <StatusBadge label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status} tone={r.status === "confirmed" ? "success" : "warning"} />
                 </View>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{r.instrument} · {r.reason}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{r.instrument} · {r.reason}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
                   {tr("adm.mkValid", { d: format(new Date(r.expiresAt), "yyyy-MM-dd") })}
-                </Text>
+                </AppText>
                 {slot ? (
-                  <Text style={[t.typography.caption, { color: t.colors.info, marginTop: 4 }]}>
+                  <AppText style={[t.typography.caption, { color: t.colors.info, marginTop: 4 }]}>
                     {tr("adm.mkSuggested", { d: format(new Date(slot.startAt), "yyyy-MM-dd"), t: format(new Date(slot.startAt), "HH:mm") })}
-                  </Text>
+                  </AppText>
                 ) : null}
 
                 {isActingOnThis ? (
                   <View style={{ marginTop: 12, gap: 10 }}>
                     <TextField label={tr("adm.mkNoteLabel")} value={note} onChangeText={setNote} placeholder={tr("adm.mkNotePh")} />
-                    {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+                    {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       <Button label={tr("ui.cancelDefault")} variant="secondary" size="sm" onPress={() => setActing(null)} style={{ flex: 1 }} />
                       <Button

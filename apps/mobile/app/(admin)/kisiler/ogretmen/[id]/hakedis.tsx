@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { format, formatCurrency } from "../../../../../src/lib/date";
 import { useLocale } from "../../../../../src/i18n/locale-context";
@@ -55,7 +55,7 @@ export default function TeacherPayouts() {
       <AppHeader title={tr("adm.tchPayTitle")} showBack showNotifications={false} />
 
       <Button label={tr("adm.tchPayCreate")} onPress={createThisMonth} loading={creating} icon="add-circle-outline" style={{ marginBottom: 16 }} />
-      {error ? <Text style={[t.typography.caption, { color: t.colors.danger, marginBottom: 12 }]}>{error}</Text> : null}
+      {error ? <AppText style={[t.typography.caption, { color: t.colors.danger, marginBottom: 12 }]}>{error}</AppText> : null}
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={3} />
@@ -68,12 +68,12 @@ export default function TeacherPayouts() {
           {res.data.payouts.map((p) => (
             <Card key={p.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{formatCurrency(p.totalAmount)}</Text>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{formatCurrency(p.totalAmount)}</AppText>
                 <StatusBadge label={p.status === "paid" ? tr("payout.paid") : tr("payout.pending")} tone={p.status === "paid" ? "success" : "warning"} />
               </View>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
                 {format(new Date(p.periodStart), "yyyy-MM-dd")} – {format(new Date(p.periodEnd), "yyyy-MM-dd")}
-              </Text>
+              </AppText>
               {p.status !== "paid" ? (
                 <Button label={tr("adm.stuPayConfirm")} size="sm" variant="secondary" loading={markingId === p.id} onPress={() => markPaid(p.id)} style={{ marginTop: 10 }} fullWidth={false} />
               ) : null}

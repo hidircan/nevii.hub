@@ -39,6 +39,8 @@ function db(): Promise<DbModules> {
   return dbModules;
 }
 import { uid } from "../utils";
+import { logger } from "../logger";
+import { isNotificationCategory } from "../notification-categories";
 import type { Notification as DbNotification } from "@prisma/client";
 import type { Notification } from "../types";
 
@@ -142,6 +144,13 @@ export type CreateNotificationInput = {
    * tekrar bildirimi engellenmez.
    */
   dedupeKey?: string;
+  /**
+   * Push köprüsünü ATLA. Yalnız push'u kendisi yöneten çağıranlar kullanır
+   * (ders hatırlatma sweep'i: PII-minimize + alıcı doğrulaması + ayrı
+   * `pushSent` sayacı). Verilmezse satır `created` olduğunda push da
+   * gönderilir (`push/sender.ts` — `PUSH_ENABLED` kapalıysa sessizce atlanır).
+   */
+  skipPush?: boolean;
 };
 
 export type CreateNotificationResult = {
@@ -244,14 +253,70 @@ export async function createNotification(
     body: input.body,
     createdAt: new Date().toISOString(),
   };
-  if (isDbMode) return createNotificationDb(input, record);
-  return mutateAllUnderLock<CreateNotificationResult>((all) => {
-    const existing = all.find((n) => n.id === record.id);
-    if (existing) {
-      return { next: null, result: { status: "duplicate", notification: toPublicNotification(existing) } };
+  let result: CreateNotificationResult;
+  if (isDbMode) {
+    result = await createNotificationDb(input, record);
+  } else {
+    result = await mutateAllUnderLock<CreateNotificationResult>((all) => {
+      const existing = all.find((n) => n.id === record.id);
+      if (existing) {
+        return { next: null, result: { status: "duplicate", notification: toPublicNotification(existing) } };
+      }
+      return { next: [...all, record], result: { status: "created", notification: toPublicNotification(record) } };
+    });
+  }
+  // Yeni satır → push. Tekilleştirilmiş (`duplicate`) satırda push YOK:
+  // aynı olayın ikinci bildirimi kullanıcının tepsini tekrar çalmamalı.
+  // Hata bildirim yazımını ASLA bozmaz (helper kendi içinde yutar + loglar).
+  if (result.status === "created" && !input.skipPush) {
+    await deliverPushForNotification(record);
+  }
+  return result;
+}
+
+/**
+ * Push köprüsü — bildirim satırı yazıldıktan sonra cihazlara da düşürür.
+ * `PUSH_ENABLED=true` + `EXPO_PUSH_ACCESS_TOKEN` yoksa HİÇBİR HTTP çağrısı
+ * yapılmaz (mevcut davranış korunur). Kategori tercihi `pushEnabled=false`
+ * ise gönderim yoktur (bkz. push/sender.ts). Ham push token'ı loglanmaz.
+ */
+async function deliverPushForNotification(record: StoredNotification): Promise<void> {
+  if (!isNotificationCategory(record.kind)) return;
+  try {
+    const { isPushActive } = await import("../push/config");
+    if (!isPushActive()) return;
+    const userId = record.targetUserId
+      ? record.targetUserId
+      : record.targetStudentId
+        ? await (await import("../auth/users")).getUserIdByStudentId(record.tenantId, record.targetStudentId)
+        : null;
+    if (!userId) return;
+    const [{ deliverPushForUser }, { pushChannelForCategory }] = await Promise.all([
+      import("../push/sender"),
+      import("../push/channels"),
+    ]);
+    const result = await deliverPushForUser(record.tenantId, userId, record.kind, {
+      title: record.title,
+      body: record.body,
+      data: { kind: record.kind },
+      channelId: pushChannelForCategory(record.kind),
+    });
+    if (result.outcome === "failed") {
+      logger.warn("push gönderilemedi", {
+        tenantId: record.tenantId,
+        userId,
+        kind: record.kind,
+        sent: result.sent,
+        invalidated: result.invalidated,
+      });
     }
-    return { next: [...all, record], result: { status: "created", notification: toPublicNotification(record) } };
-  });
+  } catch (error) {
+    logger.warn("push köprüsü hata", {
+      tenantId: record.tenantId,
+      kind: record.kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function listNotificationsForUserDb(recipient: NotificationRecipient): Promise<Notification[]> {

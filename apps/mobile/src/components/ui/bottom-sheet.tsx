@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
@@ -27,7 +28,7 @@ export function BottomSheet({ visible, title, onClose, children, fullHeight = fa
             <View style={[styles.handle, { backgroundColor: t.colors.border }]} />
             {title ? (
               <View style={styles.header}>
-                <Text style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</Text>
+                <AppText style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</AppText>
                 <Pressable accessibilityLabel="Kapat" onPress={onClose} hitSlop={8}>
                   <Icon name="close" size={22} color={t.colors.textMuted} />
                 </Pressable>

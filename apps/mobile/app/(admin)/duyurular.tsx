@@ -1,4 +1,5 @@
-import { Text } from "react-native";
+import { AppText } from "../../src/components/ui/app-text";
+
 import { ListScreen } from "../../src/components/list-screen";
 import { useApiGet } from "../../src/hooks/use-api";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -21,13 +22,13 @@ export default function AdminDuyurular() {
       keyExtractor={(a) => a.id}
       renderItem={(a) => (
         <>
-          <Text style={{ fontFamily: fonts.serifBold, fontWeight: "700", fontSize: 17 }}>
+          <AppText style={{ fontFamily: fonts.bold, fontWeight: "700", fontSize: 17 }}>
             {a.pinned ? "📌 " : ""}
             {a.title}
-          </Text>
-          <Text numberOfLines={2} style={{ fontFamily: fonts.serif, marginTop: 2, fontSize: 15, opacity: 0.7 }}>
+          </AppText>
+          <AppText numberOfLines={2} style={{ fontFamily: fonts.regular, marginTop: 2, fontSize: 15, opacity: 0.7 }}>
             {a.body}
-          </Text>
+          </AppText>
         </>
       )}
     />

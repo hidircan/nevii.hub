@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, ProgressBar, Screen, SectionHeader } from "../../components/ui";
+import { View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, ProgressBar, Screen, SectionHeader, AppText } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
@@ -87,15 +87,15 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("growth.overall")}</Text>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("growth.overall")}</AppText>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</AppText>
           </View>
           <ProgressBar progress={curriculum.data.overallPercent} />
           {curriculum.data.topics.length > 0 ? (
             <View style={{ gap: 10, marginTop: 14 }}>
               {curriculum.data.topics.slice(0, 5).map((topic) => (
                 <View key={topic.id}>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 4 }]}>{topic.title}</Text>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 4 }]}>{topic.title}</AppText>
                   <ProgressBar progress={topic.progressPercent} height={6} tone="info" />
                 </View>
               ))}
@@ -127,9 +127,9 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
         <View style={{ gap: 10 }}>
           {[...assessments.data.assessments].reverse().slice(0, 3).map((a) => (
             <Card key={a.id}>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginBottom: 6 }]}>{relativeDayLabel(new Date(a.createdAt))}</Text>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("growth.nextSteps", { v: a.nextStepsNote })}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginBottom: 6 }]}>{relativeDayLabel(new Date(a.createdAt))}</AppText>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{a.strengthNote}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("growth.nextSteps", { v: a.nextStepsNote })}</AppText>
             </Card>
           ))}
         </View>
@@ -139,15 +139,15 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
       <Card onPress={() => router.push(`${basePath}/gelisim/materyaller`)}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <Icon name="folder-open-outline" size={18} color={t.colors.primary} />
-          <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>{tr("growth.viewMaterials")}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>{tr("growth.viewMaterials")}</AppText>
           <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
         </View>
       </Card>
 
       <SectionHeader title={tr("growth.evaluation")} />
-      <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 10 }]}>
+      <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 10 }]}>
         {tr("growth.evaluationHint")}
-      </Text>
+      </AppText>
       {profile.status === "loading" || schedule.status === "loading" ? (
         <LoadingSkeleton rows={1} />
       ) : eligibleTeachers.length === 0 ? (
@@ -164,11 +164,11 @@ export function StudentScopeGelisimScreen({ basePath }: { basePath: "/(parent)" 
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Icon name="star-outline" size={18} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{teacher.teacherName || tr("home.teacherFallback")}</Text>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{teacher.teacherName || tr("home.teacherFallback")}</AppText>
                   {teacher.lastLessonAt ? (
-                    <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                    <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                       {tr("growth.lastLesson", { v: relativeDayLabel(new Date(teacher.lastLessonAt)) })}
-                    </Text>
+                    </AppText>
                   ) : null}
                 </View>
                 <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />

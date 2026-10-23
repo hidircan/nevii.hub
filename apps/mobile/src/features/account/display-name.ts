@@ -1,24 +1,24 @@
 /**
  * Profil kimliği çözümleme — saf, test edilebilir.
  *
- * Öncelik: personelin gerçek adı (TEACHER: kendi programındaki `teacherName`;
- * sunucu sahipliği doğrular) > e-posta > null.
+ * Öncelik: sunucunun `mobile/session` yanıtındaki `fullName` (TEACHER için
+ * `Teacher.name`, diğer roller için `User.displayName`) → öğretmenin kendi
+ * programındaki `teacherName` (eski istemci/sunucu uyumu) → `null`.
  *
- * `null` = kimlik henüz çözülmedi → çağıran taraf iskelet gösterir; rol
- * etiketi ("Öğretmen") ASLA ad yerine konmaz — ayrı satırda rol olarak
- * gösterilir (kök neden: restore sonrası boş e-posta + `email || rol`
- * zinciri adı rol etiketine düşürüyordu).
+ * E-posta ADA DÖNÜŞMEZ: e-posta ayrı bir iletişim satırıdır, kimlik yerine
+ * geçmez. `null` = kimlik henüz çözülmedi → çağıran taraf iskelet gösterir;
+ * rol etiketi ("Öğretmen") ASLA ad yerine konmaz.
  */
 export function resolveDisplayName({
+  fullName,
   teacherName,
-  email,
 }: {
+  fullName?: string | null;
   teacherName?: string | null;
-  email?: string | null;
 }): string | null {
-  const name = teacherName?.trim();
-  if (name) return name;
-  const mail = email?.trim();
-  if (mail) return mail;
+  const full = fullName?.trim();
+  if (full) return full;
+  const teacher = teacherName?.trim();
+  if (teacher) return teacher;
   return null;
 }
