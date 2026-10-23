@@ -151,17 +151,14 @@ export default async function GrupDersiPage({ params }: { params: Promise<{ grou
             <GroupLessonActionButton
               body={{ action: "sync", groupLessonId: g.id }}
               label="Satırları yenile"
-              doneText={(d) => {
-                const x = d as { created: number; skippedClosedDays: number };
-                return `${x.created} eksik katılımcı satırı eklendi${x.skippedClosedDays ? `; ${x.skippedClosedDays} oturum kapalı güne denk geldiği için atlandı` : ""}.`;
-              }}
+              doneText="{created} eksik katılımcı satırı eklendi; kapalı güne denk gelen {skippedClosedDays} oturum atlandı."
             />
             <GroupLessonActionButton
               body={{ action: "end", groupLessonId: g.id }}
               label="Grubu sonlandır"
               danger
               confirmText={`"${g.name}" sonlandırılsın mı? Gelecek ve yoklamasız oturumlar iptal edilir; geçmiş korunur.`}
-              doneText={(d) => `Grup sonlandırıldı; ${(d as { cancelled: number }).cancelled} gelecek satır iptal edildi.`}
+              doneText="Grup sonlandırıldı; {cancelled} gelecek satır iptal edildi."
             />
           </div>
         </Card>
