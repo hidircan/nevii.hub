@@ -28,12 +28,12 @@ describe("mod dallanması — memory, json ile AYNI yolu kullanır", () => {
     // isMemoryMode'a bakan ikinci bir dal eklenirse bu parite bozulur.
     expect(NOTIF_CODE).not.toMatch(/STORE_MODE/);
     expect(NOTIF_CODE).not.toMatch(/isMemoryMode/);
-    expect(NOTIF_CODE).toMatch(/if \(isDbMode\) return createNotificationDb/);
+    expect(NOTIF_CODE).toMatch(/if \(isDbMode\) \{\s*result = await createNotificationDb\(input, record\);/);
   });
 
   it("satır kimliği mod dallanmasından ÖNCE türetilir (üç mod aynı id'yi üretir)", () => {
     const idLine = NOTIF_CODE.indexOf("notificationRowId(input, new Date())");
-    const branchLine = NOTIF_CODE.indexOf("if (isDbMode) return createNotificationDb");
+    const branchLine = NOTIF_CODE.indexOf("if (isDbMode) {");
     expect(idLine).toBeGreaterThan(-1);
     expect(branchLine).toBeGreaterThan(-1);
     expect(idLine).toBeLessThan(branchLine);

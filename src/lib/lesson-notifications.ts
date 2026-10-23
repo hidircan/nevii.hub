@@ -443,6 +443,9 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
                 body,
                 dedupeKey: reminderDedupeKey(fresh.id, teacherUserId, offset.category, fresh.startAt),
                 windowMs: offset.windowMs,
+                // Push'u bu sweep KENDİSİ gönderiyor (PII + sayaç) — merkezi
+                // köprü ikinci kez göndermesin.
+                skipPush: true,
               });
               summary[r]++;
               const push = await deliverPushForUser(t.tenantId, teacherUserId, offset.category, {
@@ -478,6 +481,8 @@ export async function sweepLessonReminders(now: Date = new Date()): Promise<Remi
                 body,
                 dedupeKey: reminderDedupeKey(fresh.id, userId, offset.category, fresh.startAt),
                 windowMs: offset.windowMs,
+                // Çift push yok — sweep kendi `deliverPushForUser` çağrısını yapar.
+                skipPush: true,
               });
               summary[r]++;
               const showName = await isPushEnabledForUser(t.tenantId, userId, "push_include_student_name");

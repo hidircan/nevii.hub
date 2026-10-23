@@ -22,6 +22,13 @@ type FetchFn = typeof fetch;
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
 /**
+ * Tek istek için üst sınır. `createNotification` push'u beklediği için
+ * (serverless'ta yanıt sonrası promise'ler garanti çalışmaz) Expo API'nin
+ * askıda kalması bildirim yazımını süresiz kilitlememeli.
+ */
+const PUSH_REQUEST_TIMEOUT_MS = 10_000;
+
+/**
  * Kullanıcının etkin cihazlarına push gönderir. Önce push tercihi
  * (`pushEnabled`) kontrol edilir — kapalıysa gönderim YOK.
  */
@@ -54,6 +61,7 @@ export async function deliverPushForUser(
     try {
       const res = await fetchFn(EXPO_PUSH_URL, {
         method: "POST",
+        signal: AbortSignal.timeout(PUSH_REQUEST_TIMEOUT_MS),
         headers: {
           "content-type": "application/json",
           ...(token ? { authorization: `Bearer ${token}` } : {}),

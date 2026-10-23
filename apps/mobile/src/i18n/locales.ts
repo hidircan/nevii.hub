@@ -1325,6 +1325,9 @@ const tr = {
   notifSettings: {
     empty: "Şu anda size özel bir bildirim ayarı bulunmuyor.",
     saveFailed: "Kaydedilemedi. Lütfen tekrar deneyin.",
+    pushOnHint: "Ders, ödev, ödeme ve duyurular cihazınıza da gönderilir.",
+    pushOffHint: "Kapalıyken yalnız uygulama içi bildirim görürsünüz.",
+    pushUnavailable: "Cihaz bildirimleri şu anda sunucuda etkin değil; yalnız uygulama içi bildirim alırsınız.",
     devSection: "Geliştirici",
     devTitle: "Test bildirimi gönder",
     devHint: "Yalnız bu cihaza (kendi oturumuna) tek bildirim gönderir.",
@@ -2665,6 +2668,9 @@ const en: Strings = {
   notifSettings: {
     empty: "There are no notification settings for you right now.",
     saveFailed: "Could not save. Please try again.",
+    pushOnHint: "Lesson, homework, payment and announcement alerts also go to your device.",
+    pushOffHint: "When off, you only see in-app notifications.",
+    pushUnavailable: "Device notifications are not enabled on the server yet; you will only get in-app notifications.",
     devSection: "Developer",
     devTitle: "Send test notification",
     devHint: "Sends a single notification to this device (your own session).",
