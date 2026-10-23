@@ -79,7 +79,7 @@ export default async function GrupDersiOturumPage({ params }: { params: Promise<
             label="Bu oturumu iptal et"
             danger
             confirmText="Bu oturum tüm öğrenciler için iptal edilsin mi? Gerekirse grup ekranından ek oturum ekleyebilirsiniz."
-            doneText={(d) => `Oturum iptal edildi (${(d as { cancelled: number }).cancelled} satır).`}
+            doneText="Oturum iptal edildi ({cancelled} satır)."
           />
         </Card>
       ) : null}

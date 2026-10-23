@@ -206,7 +206,8 @@ export function GroupLessonActionButton({
   body: Record<string, unknown>;
   label: string;
   confirmText?: string;
-  doneText: (data: unknown) => string;
+  /** Sunucu bileşeninden gelir → fonksiyon olamaz; `{alan}` yer tutucuları yanıt verisiyle doldurulur. */
+  doneText: string;
   danger?: boolean;
 }) {
   const router = useRouter();
@@ -218,7 +219,7 @@ export function GroupLessonActionButton({
     setMsg(null);
     const r = await send(body);
     setBusy(false);
-    setMsg(r.ok ? { ok: true, text: doneText(r.data) } : { ok: false, text: r.message });
+    setMsg(r.ok ? { ok: true, text: doneText.replace(/\{(\w+)\}/g, (_, k: string) => String((r.data as Record<string, unknown> | null)?.[k] ?? "")) } : { ok: false, text: r.message });
     if (r.ok) router.refresh();
   }
   return (
