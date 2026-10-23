@@ -1597,3 +1597,13 @@ Devamı (aynı gün): otomatik iptal ile yönetici iptali AYRI işaretlenmeli (`
 satırı ayı "karşılar" ve öğrenci yeniden uygun olunca borç bir daha doğmaz. Satır açan/kapatan her akış (gece işi,
 sözleşme oluştur/iptal) öğrenci kilidi altında taze satırla ve sözleşme yeniden kontrolüyle tek noktadan yazar
 (`payments/accrual-rows.ts`); `upsertMonthlyPlanPayment` iptal satırını da eşlediği için açma yolu olarak kullanılmaz.
+
+## 2026-10-23 — Öğretmenin yazdığı 4 haftalık rapor "bekleyen dönem değil" diye reddediliyordu
+
+Bekleyen listesi dönemi 120 günlük ders penceresinden, gönderim ise öğrencinin TÜM geçmişinden yeniden türetip
+birebir eşitlik arıyordu. 4'lü ders grupları dizinin başından kesildiği için iki dilimde sınırlar kaydı; haftada 2 ders
+alan öğrencide listelenen dönemin gönderimi reddedildi, ilk ders tarihi boş öğrencide hepsi (eski kodla yeniden
+üretildi). Aynı fonksiyon 28 günlük takvim dönemlerini ilk dersten bugüne üretip her açılışta onlarca "bekleyen" biriktirdi.
+**Ders:** liste ile yazma aynı anahtarı FARKLI veri diliminden hesaplıyorsa eşitlik kontrolü veri kaybettirir; yazmada
+kural doğrula (kendi dersi aralıkta var mı, gönderilmiş raporla çakışıyor mu) ve @@unique'i idempotency için kullan.
+"Bekleyen" üreten kural geçmişe sınırsız bakmamalı (öğrenci×öğretmen başına en çok bir dönem, 60 gün taban).
