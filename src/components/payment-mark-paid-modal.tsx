@@ -9,8 +9,8 @@ import {
   formatMoney,
   formatPaymentCollectionSummary,
   paymentMethodLabelTr,
-  paymentSourceLabel,
 } from "@/lib/utils";
+import { paymentSourceLabel } from "@/lib/payment-source-label";
 
 type PaymentMethod = "credit_card" | "cash" | "transfer";
 
@@ -101,7 +101,7 @@ export function PaymentMarkPaidModal({
 
   const parsedAmount = Number(amount);
   const amountValid = Number.isFinite(parsedAmount) && parsedAmount > 0;
-  const sourceLabel = paymentSourceLabel(source, Boolean(lessonId));
+  const sourceLabel = paymentSourceLabel({ source, lessonId });
   const methodLabel = paymentMethodLabelTr(method);
   const collectionSummary = formatPaymentCollectionSummary({
     paidAt: initialPaidAt,

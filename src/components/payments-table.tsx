@@ -12,8 +12,8 @@ import {
   formatMoney,
   formatPaymentCollectionSummary,
   paymentMethodLabelTr,
-  paymentSourceLabel,
 } from "@/lib/utils";
+import { paymentSourceLabel } from "@/lib/payment-source-label";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
 import { PaymentDeleteDialog } from "@/components/payment-delete-dialog";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
@@ -198,7 +198,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
               </tr>
             ) : (
               pageItems.map((p) => {
-                const sourceLabel = paymentSourceLabel(p.source, Boolean(p.lessonId));
+                const sourceLabel = paymentSourceLabel(p);
                 return (
                 <tr key={p.id} className="border-b border-[var(--color-border)]">
                   <td className="px-4 py-3 font-medium text-[var(--color-text)]">

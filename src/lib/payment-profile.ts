@@ -149,36 +149,9 @@ export function collectedAmountOf(p: Pick<Payment, "status" | "amount" | "paidAm
   return Math.max(0, p.paidAmount ?? 0);
 }
 
-/**
- * 2026-10-04 — BORÇ KAYNAĞI (tek tablo `Payment`; satır ikinci bir yerden toplanmaz).
- * - contract: güncel sözleşmenin dondurulmuş taksidi (`contractId`)
- * - registration: kayıt anı ilk tahsilatı (sözleşmeye bağlanmamışsa)
- * - monthly_plan: sözleşmesiz öğrencinin aylık plan satırı (Yoklama Takvimi / Ödemeler)
- * - lesson: ders bazlı otomatik tahsilat (Geldi/İşlendi)
- * - manual: elle girilen bağımsız borç/tahakkuk
- * Tahsilat = satırdaki `paidAmount`; iptal (voided) ve iptal/yenilenmiş sözleşmenin ödenmemiş
- * kalanı borç değildir (`isLiveObligation`). İade ayrı bir satır türü değildir: yanlış tahsilat
- * ters kayıtla (tahsilatı geri alma) düzeltilir, borç yeniden canlanır.
- */
-export type DebtSourceKey = "contract" | "registration" | "monthly_plan" | "club" | "lesson" | "manual";
-
-export const DEBT_SOURCE_LABEL: Record<DebtSourceKey, string> = {
-  contract: "Sözleşme taksidi",
-  registration: "Kayıt ilk tahsilatı",
-  monthly_plan: "Sözleşmesiz aylık plan",
-  club: "Kulüp ücreti",
-  lesson: "Ders bazlı tahsilat",
-  manual: "Elle girilen borç",
-};
-
-export function debtSourceOf(p: Pick<Payment, "source" | "contractId" | "lessonId">): DebtSourceKey {
-  if (p.contractId) return "contract";
-  if (p.source === "registration_first_payment") return "registration";
-  if (p.source === "monthly_plan") return "monthly_plan";
-  if (p.source === "club") return "club";
-  if (p.source === "lesson_ops" || p.lessonId) return "lesson";
-  return "manual";
-}
+// 2026-10-23 — kaynak türü ve adı tek yerde (`payment-source-label.ts`); buradan da dışa verilir.
+import { DEBT_SOURCE_LABEL, debtSourceOf, type DebtSourceKey } from "./payment-source-label";
+export { DEBT_SOURCE_LABEL, debtSourceOf, type DebtSourceKey };
 
 export type StudentDebtSummary = {
   openTotal: number;
