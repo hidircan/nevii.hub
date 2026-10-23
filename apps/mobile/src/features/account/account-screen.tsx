@@ -18,6 +18,7 @@ import { useTheme, useThemePreference, type ThemePreference } from "../../theme/
 import type { FontScalePreference } from "../../theme/tokens";
 import type { ScheduleResponse, StudentProfile } from "../../types/api";
 import { resolveDisplayName } from "./display-name";
+import { canManageProfilePhoto } from "./feature-flags";
 
 type PhotoOwner = { ownerType: "student" | "teacher" | "user"; ownerId: string };
 
@@ -178,26 +179,30 @@ export function AccountScreen(
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [hasPhoto, setHasPhoto] = useState(false);
 
-  // Personel gerçek adı: öğretmenin KENDİ programındaki `teacherName`
-  // (sunucu teacherId sahipliğini doğrular — başka kaynaktan tahmin yok).
-  // Session/user yanıtında isim alanı YOK; e-posta restore'da korunur
-  // (token-storage). Kimlik çözülene kadar iskelet — rol etiketi ada konmaz.
+  // Personel gerçek adı: önce sunucunun `fullName` alanı (TEACHER → Teacher.name,
+  // diğer roller → User.displayName); yoksa eski istemci uyumu için öğretmenin
+  // KENDİ programındaki `teacherName`. E-posta ADA DÖNÜŞMEZ — ayrı iletişim
+  // satırında gösterilir. Kimlik çözülene kadar iskelet; rol etiketi ada konmaz.
   const isTeacher = user?.role === "TEACHER" && !!user?.teacherId;
   // Yalnız öğretmen-adı çözümlemesi için: tek ders yeter (isim tüm kayıtlarda denormalize).
+  const needsTeacherName = isTeacher && !user?.fullName?.trim();
   const teacherSchedule = useApiGet<ScheduleResponse>(
-    isTeacher && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
+    needsTeacherName && user?.teacherId ? `/api/v1/teachers/${user.teacherId}/schedule?limit=1` : ""
   );
   const teacherName =
     teacherSchedule.status === "success"
       ? (teacherSchedule.data.lessons.find((l) => l.teacherName?.trim())?.teacherName?.trim() ?? null)
       : null;
-  const resolvedName = user ? resolveDisplayName({ teacherName, email: user.email }) : null;
-  const teacherNamePending = isTeacher && teacherSchedule.status === "loading";
+  const resolvedName = user ? resolveDisplayName({ fullName: user.fullName, teacherName }) : null;
+  const teacherNamePending = needsTeacherName && teacherSchedule.status === "loading";
   // Ad yerine rol etiketi ("Öğretmen") ASLA konmaz — çözülmediyse iskelet
   // (pending) ya da nötr fallback; rol zaten alt satırda gösterilir.
   const displayName = resolvedName;
   const showSkeleton = !displayName && (!user || teacherNamePending);
-  const photoOwner = resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly });
+  // Öğretmenlerde fotoğraf alanı HİÇ gösterilmez (PROFILE_PHOTO_UPLOAD_ENABLED=false);
+  // diğer rollerin mevcut davranışı korunur.
+  const photoEnabled = canManageProfilePhoto(user?.role);
+  const photoOwner = photoEnabled ? resolvePhotoOwner(user, { forceUserPhoto: ownAccountPhotoOnly }) : null;
   const photoPath = photoOwner ? `/api/v1/${photoOwner.ownerType}s/${photoOwner.ownerId}/photo?v=${photoVersion}` : null;
 
   async function pickAndUploadPhoto() {
@@ -265,25 +270,27 @@ export function AccountScreen(
 
       <Card>
         <View style={styles.profileRow}>
-          <Pressable
-            onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
-            accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
-            style={{ position: "relative" }}
-          >
-            <Avatar
-              name={displayName ?? tr("account.userFallback")}
-              size={52}
-              photoPath={photoPath}
-              onPhotoLoad={() => setHasPhoto(true)}
-              onPhotoError={() => setHasPhoto(false)}
-            />
-            {photoOwner ? (
-              <View style={[styles.photoEditBadge, { backgroundColor: t.colors.primary, borderColor: t.colors.bgRaised }]}>
-                <Icon name="camera" size={11} color={t.colors.primaryOn} />
-              </View>
-            ) : null}
-          </Pressable>
-          <View style={{ flex: 1 }}>
+          {photoEnabled ? (
+            <Pressable
+              onPress={() => (photoOwner ? setPhotoSheetOpen(true) : undefined)}
+              accessibilityLabel={photoOwner ? tr("account.photoChange") : undefined}
+              style={{ position: "relative" }}
+            >
+              <Avatar
+                name={displayName ?? tr("account.userFallback")}
+                size={52}
+                photoPath={photoPath}
+                onPhotoLoad={() => setHasPhoto(true)}
+                onPhotoError={() => setHasPhoto(false)}
+              />
+              {photoOwner ? (
+                <View style={[styles.photoEditBadge, { backgroundColor: t.colors.primary, borderColor: t.colors.bgRaised }]}>
+                  <Icon name="camera" size={11} color={t.colors.primaryOn} />
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+          <View style={{ flex: 1, minWidth: 0 }}>
             {showSkeleton ? (
               // Kimlik çözülürken yanlış metin gösterilmez — iskelet.
               <View accessibilityLabel={tr("account.profileLoading")}>
@@ -304,6 +311,13 @@ export function AccountScreen(
                 </AppText>
               </>
             )}
+            {/* E-posta kimlik yerine AYRI satırdır; düzenleme "E-posta değiştir"
+                bağlantısıyla yapılır (araçlar listesi). */}
+            {user?.email ? (
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]} numberOfLines={1}>
+                {user.email}
+              </AppText>
+            ) : null}
           </View>
         </View>
       </Card>

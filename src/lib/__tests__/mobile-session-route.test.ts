@@ -19,6 +19,7 @@ type Session = {
   tenantId: string;
   teacherId?: string;
   studentId?: string;
+  fullName?: string | null;
   portalAccessType: "SELF" | "GUARDIAN" | null;
 };
 
@@ -50,6 +51,13 @@ describe("GET /api/v1/mobile/session", () => {
     const { status, body } = await session(accessToken);
     expect(status).toBe(200);
     expect(body.data).toMatchObject({ role: "TEACHER", loginRole: "TEACHER", teacherId: "t1", tenantId: DEFAULT_TENANT_ID, portalAccessType: null });
+  });
+
+  it("TEACHER: fullName gerçek ad soyad (e-posta DEĞİL) — profil başlığı bunu kullanır", async () => {
+    const { accessToken } = await login("turgay.hosbas@niluferacar.com.tr", "demo-teacher-csv-1");
+    const { body } = await session(accessToken);
+    expect(body.data.fullName).toBe("Turgay Hoşbaş");
+    expect(body.data.fullName).not.toContain("@");
   });
 
   it("BRANCH_MANAGER (unified kurum): efektif SCHOOL_ADMIN + loginRole BRANCH_MANAGER, 403 DEĞİL", async () => {

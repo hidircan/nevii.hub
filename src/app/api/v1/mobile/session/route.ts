@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api/handler";
 import { ok } from "@/lib/services/result";
 import { resolvePortalStudent } from "@/lib/portal-context";
+import { resolveSessionFullName } from "@/lib/mobile/session-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,19 @@ export const dynamic = "force-dynamic";
  * geriye uyumluluk için bu durumda eski alanlar (pasif studentId +
  * accessType) ESKİSİ GİBİ döner; yeni istemci `portalStatus`'e bakıp doğru
  * pasif ekranı gösterir.
+ *
+ * `fullName` — profil başlığında e-posta yerine gösterilecek gerçek ad
+ * soyad (TEACHER: Teacher.name → User.displayName, diğer roller:
+ * User.displayName; bulunamazsa null → istemci iskelet çizer).
  */
 export const GET = withApiHandler(
   async ({ ctx, searchParams }) => {
+    // Profil başlığı için gerçek ad soyad (e-posta değil) — bkz. resolveSessionFullName.
+    const fullName = await resolveSessionFullName({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      teacherId: ctx.teacherId,
+    });
     if (ctx.role !== "STUDENT") {
       return ok({
         userId: ctx.userId,
@@ -33,6 +44,7 @@ export const GET = withApiHandler(
         tenantId: ctx.tenantId,
         teacherId: ctx.teacherId,
         studentId: ctx.studentId,
+        fullName,
         portalAccessType: null,
         portalStatus: "no-access",
         students: [],
@@ -49,6 +61,7 @@ export const GET = withApiHandler(
       teacherId: ctx.teacherId,
       studentId:
         resolved.status === "ok" ? resolved.studentId : (passiveFallback?.studentId ?? undefined),
+      fullName,
       portalAccessType:
         resolved.status === "ok" ? resolved.accessType : (passiveFallback?.accessType ?? null),
       portalStatus: resolved.status,
