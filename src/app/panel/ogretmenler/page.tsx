@@ -12,6 +12,7 @@ import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2"
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherListView } from "@/components/teacher-list-view";
 import { TEACHER_ROW_GRID } from "@/lib/teacher-list-filter";
+import { teacherFeeRuleRequired } from "@/lib/teacher-payout";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +87,9 @@ export default async function OgretmenlerPage() {
     if (daysLeft !== null && daysLeft < 0) out.push({ label: "Sözleşme süresi doldu", href: "bilgiler", tone: "danger" });
     else if (daysLeft !== null && daysLeft <= 30) out.push({ label: `Sözleşme ${daysLeft} gün içinde bitiyor`, href: "bilgiler", tone: "warning" });
     if (t.availability.length === 0) out.push({ label: "Müsaitlik tanımlı değil", href: "musaitlik", tone: "warning" });
-    if (canManage && !teachersWithFee.has(t.id)) out.push({ label: "Hakediş ücreti tanımlı değil", href: "hakedis", tone: "warning" });
+    // Sabit-ücret aylarında ücret kuralı kullanılmaz — uyarı yalnız kuralın gerçekten gerektiği aylarda.
+    if (canManage && !teachersWithFee.has(t.id) && teacherFeeRuleRequired(data, t.id, format(now, "yyyy-MM")))
+      out.push({ label: "Hakediş ücreti tanımlı değil", href: "hakedis", tone: "warning" });
     return out;
   }
 

@@ -2,7 +2,7 @@ import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
-import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
+import { computeTeacherEarningsWithRevisions, teacherFeeRuleRequired } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
 import { loadTeacherPageContext } from "./_context";
 import { MiniStat } from "./_components/fields";
@@ -76,7 +76,12 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
       tone: "warning",
     });
   }
-  if (teacherFeeRules.length === 0 && canManage) {
+  // Sabit-ücret aylarında ücret kuralı kullanılmaz — uyarı yalnız kuralın gerçekten gerektiği aylarda.
+  if (
+    teacherFeeRules.length === 0 &&
+    canManage &&
+    teacherFeeRuleRequired(data, teacher.id, `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
+  ) {
     alerts.push({
       key: "no-fee",
       label: "Saatlik hakediş ücreti tanımlanmamış",

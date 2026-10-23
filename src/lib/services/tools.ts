@@ -211,12 +211,14 @@ import {
   payoutDrift,
   recomputePayoutData,
   resolveFeeRule,
+  resolvePayoutPolicySources,
   setPayoutPolicyForMonthData,
   payoutPeriodDayKey,
   payoutsOverlappingMonth,
   findPayoutCoveringLesson,
   type TeacherEarningsResult,
   type TeacherPayoutPaymentMethodInfo,
+  type PayoutPolicyResolution,
 } from "../teacher-payout";
 import {
   activeAdjustments,
@@ -8375,6 +8377,8 @@ export async function computeTeacherPayoutTool(
       cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
       /** Kalemin kaynağı: gerçek program dersi mi, silinmiş/işlenmemiş/demo mu. */
       lineSources: Record<string, PayoutLineSource>;
+      /** Dönemin kapsadığı aylarda hangi politika ne kaynaktan yönetiyor (explicit/inherited/default). */
+      policySources: Record<string, PayoutPolicyResolution>;
     }
   >
 > {
@@ -8459,7 +8463,8 @@ export async function computeTeacherPayoutTool(
     ? { id: cancelled.id, cancelledAt: cancelled.cancelledAt, cancelReason: cancelled.cancelReason, hadPayments: (cancelled.payments ?? []).length > 0 }
     : null;
 
-  return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources });
+  const policySources = resolvePayoutPolicySources(data, v.data.teacherId, v.data.periodStart, v.data.periodEnd);
+  return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources, policySources });
 }
 
 /**

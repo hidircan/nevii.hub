@@ -228,7 +228,7 @@ import { readData, readReferenceData } from "./store";
 import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
-import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
+import type { PayoutPolicyResolution, RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
 import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory, PaymentDueRange, StudentType } from "./types";
 import type { ImportPreview } from "./import/types";
 import type { ImportCommitResult } from "./import/commit-result";
@@ -4042,6 +4042,7 @@ export type ComputeTeacherPayoutActionResult =
       existingPayout: ExistingPayoutSummary | null;
       cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
       lineSources: Record<string, PayoutLineSource>;
+      policySources: Record<string, PayoutPolicyResolution>;
     } & Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] })
   | { ok: false; message: string };
 

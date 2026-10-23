@@ -31,6 +31,7 @@ import {
 } from "@/lib/actions";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
+import { filterPayoutLines, type PayoutLineFilterStatus } from "@/lib/payout-line-filter";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Nakit", transfer: "Havale" };
 const STATUS_LABEL: Record<string, string> = { pending: "Bekliyor", partial: "Kısmi ödendi", paid: "Ödendi", cancelled: "İptal" };
@@ -82,6 +83,10 @@ export function TeacherPayoutDashboard({
   const [createMethod, setCreateMethod] = useState<"" | "cash" | "transfer">("");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, Draft>>({});
+  const [lineQuery, setLineQuery] = useState("");
+  const [lineDay, setLineDay] = useState("");
+  const [lineStatus, setLineStatus] = useState<PayoutLineFilterStatus>("all");
+  const [exceptionsOnly, setExceptionsOnly] = useState(false);
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [form, setForm] = useState({ reason: "", password: "", amount: "", date: "", method: "" as "" | "cash" | "transfer", note: "" });
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -91,11 +96,19 @@ export function TeacherPayoutDashboard({
   const hasPayments = (existing?.paidAmount ?? 0) > 0.005;
   const periodLabel = format(new Date(year, month - 1, 1), "MMMM yyyy", { locale: tr });
 
+  function clearLineFilters() {
+    setLineQuery("");
+    setLineDay("");
+    setLineStatus("all");
+    setExceptionsOnly(false);
+  }
+
   async function load(y = year, m = month, keepMessage = false) {
     setLoading(true);
     if (!keepMessage) setMessage(null);
     setEditing(false);
     setDraft({});
+    clearLineFilters();
     const { periodStart, periodEnd } = periodFor(y, m);
     setResult(await actionComputeTeacherPayout({ teacherId, periodStart, periodEnd }));
     setLoading(false);
@@ -165,6 +178,12 @@ export function TeacherPayoutDashboard({
   }
   const draftTotal = result.ok ? Math.round(result.lines.reduce((s, l) => s + effectiveLine(l).amount, 0) * 100) / 100 : 0;
   const changedLines = Object.values(draft).filter((d) => d.minutes || d.hourlyRate || d.amount).length;
+  // Ders kalemleri filtreleri (local state — liste zaten yüklü, sunucuya gidilmez).
+  const allLines = result.ok ? result.lines : [];
+  const visibleLines = result.ok
+    ? filterPayoutLines(result.lines, result.lineSources, { query: lineQuery, day: lineDay || undefined, status: lineStatus, exceptionsOnly })
+    : [];
+  const lineFiltersActive = lineQuery.trim() !== "" || lineDay !== "" || lineStatus !== "all" || exceptionsOnly;
 
   const needsPassword =
     dialog !== null &&
@@ -335,7 +354,7 @@ export function TeacherPayoutDashboard({
                 tone={(existing?.balance ?? 0) < 0 ? "danger" : "warning"}
               />
             </dl>
-            <PolicyLine byMonth={result.pricingByMonth} />
+            <PolicyLine byMonth={result.pricingByMonth} sources={result.policySources} />
           </Card>
 
           {/* Uyarılar */}
@@ -466,10 +485,57 @@ export function TeacherPayoutDashboard({
           <Card className="overflow-x-auto p-0">
             <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
               <h3 className="text-sm font-semibold">Ders kalemleri</h3>
-              <span className="text-xs text-[var(--color-text-muted)]">{existing?.hasSnapshot ? "Kayıttaki (donmuş) döküm" : "Canlı hesap"}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {lineFiltersActive ? `${visibleLines.length}/${allLines.length} ders · ` : ""}
+                {existing?.hasSnapshot ? "Kayıttaki (donmuş) döküm" : "Canlı hesap"}
+              </span>
             </div>
+            {allLines.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-2.5">
+                <input
+                  type="search"
+                  value={lineQuery}
+                  onChange={(e) => setLineQuery(e.target.value)}
+                  placeholder="Öğrenci, şube veya branş ara"
+                  aria-label="Ders kalemlerinde ara"
+                  className="min-w-[180px] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text)]"
+                />
+                <input
+                  type="date"
+                  value={lineDay}
+                  onChange={(e) => setLineDay(e.target.value)}
+                  aria-label="Güne göre süz"
+                  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-muted)]"
+                />
+                <Select value={lineStatus} onChange={(e) => setLineStatus(e.target.value as PayoutLineFilterStatus)} className="w-auto !py-1.5 text-sm" aria-label="Duruma göre süz">
+                  <option value="all">Tüm durumlar</option>
+                  <option value="clean">Sorunsuz</option>
+                  <option value="duration-exception">Süre istisnası</option>
+                  <option value="missing-fee-rule">Ücret kuralı eksik</option>
+                  <option value="missing-student">Öğrenci eksik</option>
+                  <option value="missing-branch">Şube eksik</option>
+                  <option value="revised">Revize</option>
+                </Select>
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)]">
+                  <input type="checkbox" checked={exceptionsOnly} onChange={(e) => setExceptionsOnly(e.target.checked)} />
+                  Yalnız istisnalılar
+                </label>
+                {lineFiltersActive ? (
+                  <button type="button" onClick={clearLineFilters} className="text-xs font-medium text-[var(--color-text-muted)] hover:text-rose-600">
+                    Filtreleri temizle
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {result.lines.length === 0 ? (
               <p className="p-6 text-center text-sm text-[var(--color-text-muted)]">{periodLabel} döneminde hakedişe konu ders yok.</p>
+            ) : visibleLines.length === 0 ? (
+              <div className="p-6 text-center">
+                <p className="text-sm text-[var(--color-text-muted)]">Bu filtrelerle eşleşen ders yok.</p>
+                <button type="button" onClick={clearLineFilters} className="mt-2 text-sm font-medium text-amber-700 hover:underline">
+                  Filtreleri temizle
+                </button>
+              </div>
             ) : (
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -483,7 +549,7 @@ export function TeacherPayoutDashboard({
                   </tr>
                 </thead>
                 <tbody>
-                  {result.lines.map((line) => {
+                  {visibleLines.map((line) => {
                     const src = result.lineSources[line.lessonId];
                     return (
                       <tr key={line.lessonId} className="border-t border-[var(--color-border)]">
@@ -773,23 +839,34 @@ function Alert({ tone, children }: { tone: "danger" | "warning" | "info"; childr
   );
 }
 
-function PolicyLine({ byMonth }: { byMonth: Record<string, { policy: string; rate30?: number; rate40?: number; rate50?: number }> }) {
+function PolicyLine({
+  byMonth,
+  sources,
+}: {
+  byMonth: Record<string, { policy: string; rate30?: number; rate40?: number; rate50?: number }>;
+  sources?: Record<string, { source: "explicit" | "inherited" | "default"; fromMonth?: string }>;
+}) {
   const entries = Object.entries(byMonth ?? {});
   if (entries.length === 0) return null;
   return (
     <p className="mt-3 text-xs text-[var(--color-text-muted)]">
       Politika:{" "}
-      {entries.map(([m, t], i) => (
-        <span key={m}>
-          {i > 0 ? " · " : ""}
-          {entries.length > 1 ? `${m}: ` : ""}
-          <strong className="text-[var(--color-text)]">
-            {t.policy === "fixed_duration"
-              ? `Süreye göre sabit (30 dk ${formatMoney(t.rate30 ?? 0)} · 40 dk ${formatMoney(t.rate40 ?? 0)} · 50 dk ${formatMoney(t.rate50 ?? 0)})`
-              : "Öğretmen bazlı dakika ücreti"}
-          </strong>
-        </span>
-      ))}
+      {entries.map(([m, t], i) => {
+        const s = sources?.[m];
+        return (
+          <span key={m}>
+            {i > 0 ? " · " : ""}
+            {entries.length > 1 ? `${m}: ` : ""}
+            <strong className="text-[var(--color-text)]">
+              {t.policy === "fixed_duration"
+                ? `Süreye göre sabit (30 dk ${formatMoney(t.rate30 ?? 0)} · 40 dk ${formatMoney(t.rate40 ?? 0)} · 50 dk ${formatMoney(t.rate50 ?? 0)})`
+                : "Öğretmen bazlı dakika ücreti"}
+            </strong>
+            {s?.source === "inherited" ? ` (${s.fromMonth ?? "önceki ay"} seçiminden devralındı)` : ""}
+            {s?.source === "default" ? " (varsayılan — bu ay için seçim yapılmadı)" : ""}
+          </span>
+        );
+      })}
       {" — "}
       <Link href="/panel/hakedisler" className="underline">
         Hakedişler ekranından değiştir

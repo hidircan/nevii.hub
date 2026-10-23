@@ -262,6 +262,35 @@ export function resolvePayoutPolicy(data: Pick<AppData, "teacherPayoutPolicies">
   return resolvePayoutPolicyWithSource(data, teacherId, month).terms;
 }
 
+/**
+ * Bir öğretmenin ücret kuralına ihtiyacı var mı — TEK karar noktası.
+ * Sabit ücret (`fixed_duration`) aylarında öğretmen dakika-ücreti kuralı
+ * KULLANILMAZ; bu yüzden "Hakediş ücreti tanımlı değil" uyarısı da
+ * üretilmemelidir (Olcay vakası: geçmişte öğretmen-ücretli politika vardı,
+ * güncel politika sabit — uyarı yanlış alarm veriyordu).
+ */
+export function teacherFeeRuleRequired(
+  data: Pick<AppData, "teacherPayoutPolicies">,
+  teacherId: string,
+  month: string
+): boolean {
+  return resolvePayoutPolicy(data, teacherId, month).policy !== "fixed_duration";
+}
+
+/** Bir dönemin kapsadığı ayların politika + kaynak bilgisi (ekran açıklaması için). */
+export function resolvePayoutPolicySources(
+  data: Pick<AppData, "teacherPayoutPolicies">,
+  teacherId: string,
+  periodStart: string,
+  periodEnd: string
+): Record<string, PayoutPolicyResolution> {
+  const out: Record<string, PayoutPolicyResolution> = {};
+  for (let m = toDayKey(periodStart).slice(0, 7); m <= toDayKey(periodEnd).slice(0, 7); m = nextMonthKey(m)) {
+    out[m] = resolvePayoutPolicyWithSource(data, teacherId, m);
+  }
+  return out;
+}
+
 function termsOf(p: TeacherPayoutPolicyTerms): TeacherPayoutPolicyTerms {
   return p.policy === "fixed_duration"
     ? { policy: p.policy, rate30: p.rate30, rate40: p.rate40, rate50: p.rate50 }
