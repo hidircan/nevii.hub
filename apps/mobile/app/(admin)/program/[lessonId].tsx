@@ -1,22 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import {
-  AppHeader,
-  Avatar,
-  Button,
-  Card,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-  SelectField,
-  StatusBadge,
-  TextField,
-} from "../../../src/components/ui";
+import { AppHeader, Avatar, Button, Card, ConfirmDialog, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, SelectField, StatusBadge, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { format } from "../../../src/lib/date";
@@ -165,36 +151,36 @@ export default function AdminLessonDetail() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
           <Avatar name={lesson.studentName ?? "?"} size={44} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? tr("adm.lesRoleStudent")}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.lesRoleStudent")}</Text>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.studentName ?? tr("adm.lesRoleStudent")}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.lesRoleStudent")}</AppText>
           </View>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={lesson.teacherName ?? "?"} size={44} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? tr("adm.lesRoleTeacher")}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.lesRoleTeacher")}</Text>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? tr("adm.lesRoleTeacher")}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr("adm.lesRoleTeacher")}</AppText>
           </View>
         </View>
       </Card>
 
       <Card style={{ marginTop: 12 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={[t.typography.body, { color: t.colors.text }]}>
+          <AppText style={[t.typography.body, { color: t.colors.text }]}>
             {format(new Date(lesson.startAt), "HH:mm")}–{format(new Date(lesson.endAt), "HH:mm")}
-          </Text>
+          </AppText>
           <StatusBadge label={badge.label} tone={badge.tone} />
         </View>
         <View style={{ gap: 6, marginTop: 10 }}>
-          {lesson.instrument ? <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.lesInstrument", { v: lesson.instrument })}</Text> : null}
-          {lesson.roomName ? <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.lesRoom", { v: lesson.roomName })}</Text> : null}
+          {lesson.instrument ? <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.lesInstrument", { v: lesson.instrument })}</AppText> : null}
+          {lesson.roomName ? <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.lesRoom", { v: lesson.roomName })}</AppText> : null}
         </View>
       </Card>
 
       <SectionHeader title={tr("adm.lesAttTitle")} />
       {opsError ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</AppText>
         </Card>
       ) : null}
       {lesson.status === "cancelled" ? (
@@ -241,7 +227,7 @@ export default function AdminLessonDetail() {
       <SectionHeader title={tr("adm.lesReassignTitle")} />
       {reassignedOk ? (
         <Card style={{ borderColor: t.colors.success, backgroundColor: t.colors.successSoft }}>
-          <Text style={[t.typography.body, { color: t.colors.success }]}>{tr("adm.lesReassignOk")}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.success }]}>{tr("adm.lesReassignOk")}</AppText>
         </Card>
       ) : null}
       {!reassignOpen ? (
@@ -279,7 +265,7 @@ export default function AdminLessonDetail() {
             </>
           ) : null}
 
-          {reassignError ? <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 12 }]}>{reassignError}</Text> : null}
+          {reassignError ? <AppText style={[t.typography.caption, { color: t.colors.danger, marginTop: 12 }]}>{reassignError}</AppText> : null}
 
           <View style={{ flexDirection: "row", gap: 8, marginTop: 16 }}>
             <Button

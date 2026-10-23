@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { format } from "../../lib/date";
 import { useTheme } from "../../theme/theme-context";
@@ -28,13 +29,13 @@ export function StudentCard({ student, onPress }: Props) {
       <View style={styles.row}>
         <Avatar name={student.name} photoPath={student.photoPath} />
         <View style={styles.content}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
+          <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
             {student.name}
-          </Text>
+          </AppText>
           {subtitleParts.length > 0 ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
               {subtitleParts.join(" · ")}
-            </Text>
+            </AppText>
           ) : null}
           <View style={styles.badgeRow}>
             {typeof student.score === "number" ? (

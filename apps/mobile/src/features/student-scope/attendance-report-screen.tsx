@@ -1,16 +1,7 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import {
-  AppHeader,
-  Card,
-  EmptyState,
-  ErrorState,
-  FilterChip,
-  LoadingSkeleton,
-  Screen,
-  StatusBadge,
-} from "../../components/ui";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../components/ui";
 import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
@@ -127,9 +118,9 @@ export function AttendanceReportScreen({
               onPress={() => pickDirection(d)}
               style={[styles.segmentBtn, { backgroundColor: active ? t.colors.primary : "transparent" }]}
             >
-              <Text style={[t.typography.bodyStrong, { color: active ? t.colors.primaryOn : t.colors.textMuted }]}>
+              <AppText style={[t.typography.bodyStrong, { color: active ? t.colors.primaryOn : t.colors.textMuted }]}>
                 {d === "past" ? tr("att.past") : tr("att.upcoming")}
-              </Text>
+              </AppText>
             </Pressable>
           );
         })}
@@ -176,14 +167,14 @@ export function AttendanceReportScreen({
           ListFooterComponent={
             canGrow ? (
               <Card onPress={() => setLimit((n) => n + PAGE_STEP)} style={styles.more}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.primary, textAlign: "center" }]}>
+                <AppText style={[t.typography.bodyStrong, { color: t.colors.primary, textAlign: "center" }]}>
                   {tr("att.showMore", { a: items.length, t: total })}
-                </Text>
+                </AppText>
               </Card>
             ) : items.length > 0 ? (
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center", marginVertical: 12 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center", marginVertical: 12 }]}>
                 {tr("att.records", { n: total })}
-              </Text>
+              </AppText>
             ) : null
           }
           refreshControl={<RefreshControl refreshing={false} onRefresh={res.refresh} tintColor={t.colors.primary} />}
@@ -211,27 +202,27 @@ function LedgerRow({ item, basePath }: { item: AttendanceLedgerItem; basePath: "
     <Card onPress={() => router.push(`${basePath}/dersler/${item.lessonId}`)}>
       <View style={styles.row}>
         <View style={[styles.dateBlock, { backgroundColor: t.colors.bgMuted }]}>
-          <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{start.getDate()}</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{shortDayMonth(start).split(" ")[1] ?? ""}</Text>
+          <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{start.getDate()}</AppText>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{shortDayMonth(start).split(" ")[1] ?? ""}</AppText>
         </View>
         <View style={styles.body}>
           <View style={styles.titleRow}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]} numberOfLines={1}>
               {item.teacherName ?? tr("home.teacherFallback")}
               {item.instrument ? ` · ${item.instrument}` : ""}
-            </Text>
+            </AppText>
             <StatusBadge label={badge.label} tone={badge.tone} />
           </View>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
             {format(start, "HH:mm")}–{format(end, "HH:mm")}
             {item.durationMinutes ? ` · ${tr("att.minutesShort", { n: item.durationMinutes })}` : ""}
             {item.branchName ? ` · ${item.branchName}` : ""}
             {item.roomName ? ` · ${item.roomName}` : ""}
-          </Text>
+          </AppText>
           {item.statusChangedAt ? (
-            <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
+            <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
               {shortDayMonth(new Date(item.statusChangedAt))} {format(new Date(item.statusChangedAt), "HH:mm")} {tr("att.updatedAt")}
-            </Text>
+            </AppText>
           ) : null}
           {item.makeup ? (
             <Pressable
@@ -241,9 +232,9 @@ function LedgerRow({ item, basePath }: { item: AttendanceLedgerItem; basePath: "
               onPress={() => router.push(`${basePath}/telafiler/${item.makeup!.requestId}`)}
               style={{ marginTop: 2, alignSelf: "flex-start" }}
             >
-              <Text style={[t.typography.caption, { color: t.colors.primary }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.primary }]} numberOfLines={1}>
                 {item.makeup.role === "source" ? tr("att.makeupFrom") : tr("att.makeupLesson")}
-              </Text>
+              </AppText>
             </Pressable>
           ) : null}
         </View>

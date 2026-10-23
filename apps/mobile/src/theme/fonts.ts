@@ -1,26 +1,29 @@
 import { useMemo } from "react";
-import { Platform } from "react-native";
-import { useFonts, Gloock_400Regular } from "@expo-google-fonts/gloock";
+import { useFonts } from "expo-font";
+import { Gloock_400Regular } from "@expo-google-fonts/gloock";
 import {
-  NotoSerif_400Regular,
-  NotoSerif_500Medium,
-  NotoSerif_600SemiBold,
-  NotoSerif_700Bold,
-} from "@expo-google-fonts/noto-serif";
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
 
 /**
- * Uygulama fontları — Gloock (display/marka) + Noto Serif gövde ailesi
- * (400/500/600/700; iOS ve Android'de AYNI dosyalar). `false` dönerse
- * arayüz fallback'le çizilir; arayüz ASLA fontu bekleyip bloklanmaz.
- * Native splash, font hazır olana kadar (en fazla kısa bir üst sınırla)
- * tutulur — bkz. app/_layout.tsx.
+ * Uygulama fontları — Inter (gövde + başlık, 400/500/600/700) ve Gloock
+ * (yalnız marka kelimesi, bkz. `components/ui/brand-mark.tsx`). Serif gövde
+ * ailesi kaldırıldı; tek tipografi ailesi okunabilirlik ve tutarlılık
+ * sağlar. `false` dönerse arayüz fallback'le çizilir — font beklenirken
+ * arayüz ASLA kilitlenmez (bkz. app/_layout.tsx güvenlik supabı).
  */
 export function useAppFonts(): boolean {
   const map = useMemo(
-    () =>
-      Platform.OS === "web"
-        ? { Gloock_400Regular }
-        : { Gloock_400Regular, NotoSerif_400Regular, NotoSerif_500Medium, NotoSerif_600SemiBold, NotoSerif_700Bold },
+    () => ({
+      Gloock_400Regular,
+      Inter_400Regular,
+      Inter_500Medium,
+      Inter_600SemiBold,
+      Inter_700Bold,
+    }),
     []
   );
   const [loaded] = useFonts(map);

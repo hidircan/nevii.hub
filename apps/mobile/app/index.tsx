@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Redirect } from "expo-router";
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { API_BASE_URL } from "../src/api/client";
 import {
@@ -14,7 +14,7 @@ import {
 import { personaOf, useAuth, type AuthUser } from "../src/auth/auth-context";
 import { unsupportedCopy } from "../src/auth/role-to-persona";
 import { useChildSelection } from "../src/student/student-context";
-import { BrandMark, Button, Icon, type IconName } from "../src/components/ui";
+import { BrandMark, Button, Icon, type IconName, AppText } from "../src/components/ui";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -42,9 +42,9 @@ export default function Index() {
       <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
         <View style={styles.center}>
           <BrandMark size="lg" wordmarkSize={34} />
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 10 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 10 }]}>
             {tr("gate.brandLine")}
-          </Text>
+          </AppText>
           <ActivityIndicator color={t.colors.primary} style={{ marginTop: 28 }} />
         </View>
       </SafeAreaView>
@@ -209,10 +209,10 @@ function GateScreen({ icon, title, body, primary, secondary }: { icon: IconName;
         <View style={[styles.logo, { backgroundColor: t.colors.bgMuted }]}>
           <Icon name={icon} size={30} color={t.colors.textMuted} />
         </View>
-        <Text accessibilityRole="header" style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 20, textAlign: "center" }]}>
+        <AppText accessibilityRole="header" style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 20, textAlign: "center" }]}>
           {title}
-        </Text>
-        <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, textAlign: "center" }]}>{body}</Text>
+        </AppText>
+        <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, textAlign: "center" }]}>{body}</AppText>
         <View style={{ alignSelf: "stretch", gap: 10, marginTop: 28 }}>
           <Button label={primary.label} onPress={primary.onPress} />
           <Button label={secondary.label} onPress={secondary.onPress} variant="secondary" />

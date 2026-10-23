@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 import { Card } from "./card";
 import { Icon, type IconName } from "./icon";
@@ -17,9 +18,9 @@ export function ActionCard({ icon, label, onPress }: Props) {
       <View style={[styles.iconWrap, { backgroundColor: t.colors.primarySoft }]}>
         <Icon name={icon} size={20} color={t.colors.primary} />
       </View>
-      <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 10 }]} numberOfLines={2}>
+      <AppText style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 10 }]} numberOfLines={2}>
         {label}
-      </Text>
+      </AppText>
     </Card>
   );
 }

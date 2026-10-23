@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../api/client";
 import { useAuth } from "../../auth/auth-context";
-import { AppHeader, Button, Card, Screen, TextField } from "../../components/ui";
+import { AppHeader, Button, Card, Screen, TextField, AppText } from "../../components/ui";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 
@@ -66,10 +66,10 @@ export function ChangeEmailScreen() {
       <Screen>
         <AppHeader title={tr("account.changeEmail")} showBack showNotifications={false} />
         <Card>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("emailChange.sentTitle")}</Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("emailChange.sentTitle")}</AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8 }]}>
             {tr("emailChange.sentBody", { email: sentTo })}
-          </Text>
+          </AppText>
           <View style={{ marginTop: 16 }}>
             <Button label={tr("emailChange.resendOther")} variant="secondary" onPress={() => setSentTo(null)} />
           </View>
@@ -83,10 +83,10 @@ export function ChangeEmailScreen() {
       <AppHeader title={tr("account.changeEmail")} showBack showNotifications={false} />
 
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{tr("emailChange.currentEmail")}</Text>
-        <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{tr("emailChange.currentEmail")}</AppText>
+        <AppText style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 2 }]} numberOfLines={1}>
           {user?.email ?? "—"}
-        </Text>
+        </AppText>
       </Card>
 
       <View style={{ gap: 14, marginTop: 16 }}>
@@ -130,15 +130,15 @@ export function ChangeEmailScreen() {
 
         {error ? (
           <View accessibilityLiveRegion="polite" style={{ borderRadius: 10, padding: 12, backgroundColor: t.colors.dangerSoft }}>
-            <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText>
           </View>
         ) : null}
 
         <Button label={busy ? tr("emailChange.sending") : tr("emailChange.sendLink")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
 
-        <Text style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center" }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint, textAlign: "center" }]}>
           {tr("emailChange.footnote")}
-        </Text>
+        </AppText>
       </View>
     </Screen>
   );

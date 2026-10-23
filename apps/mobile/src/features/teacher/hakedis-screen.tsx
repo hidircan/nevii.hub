@@ -1,6 +1,6 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useAuth } from "../../auth/auth-context";
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { format, formatCurrency } from "../../lib/date";
 import { useLocale } from "../../i18n/locale-context";
@@ -37,14 +37,14 @@ export function HakedisScreen({ header }: { header: "tab" | "back" }) {
           {res.data.payouts.map((p) => (
             <Card key={p.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{formatCurrency(p.totalAmount)}</Text>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{formatCurrency(p.totalAmount)}</AppText>
                 <StatusBadge label={p.status === "paid" ? tr("payout.paid") : tr("payout.pending")} tone={p.status === "paid" ? "success" : "warning"} />
               </View>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
                 {format(new Date(p.periodStart), "yyyy-MM-dd")} – {format(new Date(p.periodEnd), "yyyy-MM-dd")} · {tr("payout.hours", { n: Math.round(p.totalMinutes / 60) })}
-              </Text>
+              </AppText>
               {p.paidAt ? (
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{tr("payout.paidOn", { d: format(new Date(p.paidAt), "yyyy-MM-dd") })}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{tr("payout.paidOn", { d: format(new Date(p.paidAt), "yyyy-MM-dd") })}</AppText>
               ) : null}
             </Card>
           ))}

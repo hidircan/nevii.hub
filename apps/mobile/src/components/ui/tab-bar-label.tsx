@@ -1,5 +1,6 @@
-import { Text, type ColorValue } from "react-native";
-import { fonts } from "../../theme/tokens";
+import type { ColorValue } from "react-native";
+import { useTheme } from "../../theme/theme-context";
+import { AppText } from "./app-text";
 
 type Props = {
   children: string;
@@ -8,15 +9,26 @@ type Props = {
 };
 
 /**
- * Sekme etiketi — 15pt Noto Serif, dar ekranda 2 satıra sarar (ellipsis
- * YOK; örn. "Öğrencilerim" 320pt genişlikte kırılır). 4 portalda AYNI
- * bileşen kullanılır (tutarlılık); boyut küçültülmez, dokunma hedefi
- * korunur (satır artarsa sekme yükselir).
+ * Sekme etiketi — 13pt Inter, 64pt'lik çubukta dikey ortalı; dar ekranda
+ * 2 satıra sarar (ellipsis YOK; örn. "Öğrencilerim" 320pt genişlikte
+ * kırılır). 4 portalda AYNI bileşen kullanılır (tutarlılık); dokunma hedefi
+ * korunur. Uzun etiket + büyük yazı boyutunda satır artarsa sekme yükselir.
  */
 export function TabBarLabel({ children, color }: Props) {
+  const t = useTheme();
   return (
-    <Text numberOfLines={2} style={{ fontFamily: fonts.serif, fontSize: 15, lineHeight: 18, color, textAlign: "center" }}>
+    <AppText
+      numberOfLines={2}
+      ellipsizeMode="tail"
+      style={{
+        fontFamily: t.fonts.medium,
+        fontSize: 13,
+        lineHeight: 16,
+        color,
+        textAlign: "center",
+      }}
+    >
       {children}
-    </Text>
+    </AppText>
   );
 }

@@ -1,20 +1,7 @@
 import { useState } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Linking, Pressable, View } from "react-native";
 import { apiPost } from "../src/api/client";
-import {
-  AppHeader,
-  Button,
-  Card,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  Icon,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-  StatusBadge,
-  TextField,
-} from "../src/components/ui";
+import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField, AppText } from "../src/components/ui";
 import { useApiGet } from "../src/hooks/use-api";
 import { getLegalLinks } from "../src/legal/legal-links";
 import { useLocale } from "../src/i18n/locale-context";
@@ -81,7 +68,7 @@ export default function HesapSilmeTalebi() {
 
       {error ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{error}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{error}</AppText>
         </Card>
       ) : null}
 
@@ -94,17 +81,17 @@ export default function HesapSilmeTalebi() {
           <SectionHeader title={tr("deletion.activeRequest")} />
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]} numberOfLines={2}>
+              <AppText style={[t.typography.body, { color: t.colors.text, flex: 1 }]} numberOfLines={2}>
                 {res.data.open.reason || tr("deletion.defaultReason")}
-              </Text>
+              </AppText>
               <StatusBadge
                 label={STATUS_KEY[res.data.open.status] ? tr(STATUS_KEY[res.data.open.status]!) : res.data.open.status}
                 tone={res.data.open.status === "approved" ? "success" : "warning"}
               />
             </View>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
               {tr("deletion.underReview")}
-            </Text>
+            </AppText>
             {res.data.open.status === "pending" ? (
               <Button label={tr("deletion.withdraw")} variant="secondary" style={{ marginTop: 12 }} loading={busy} onPress={withdraw} />
             ) : null}
@@ -114,16 +101,16 @@ export default function HesapSilmeTalebi() {
         <>
           <SectionHeader title={tr("deletion.meaning")} />
           <Card>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>
               {tr("deletion.meaningBody")}
-            </Text>
-            <Text
+            </AppText>
+            <AppText
               style={[t.typography.body, { color: t.colors.primary, marginTop: 10 }]}
               onPress={() => void Linking.openURL(links.accountDeletionUrl)}
               accessibilityRole="link"
             >
               {tr("deletion.moreInfo")}
-            </Text>
+            </AppText>
           </Card>
 
           <SectionHeader title={tr("deletion.newRequest")} />
@@ -137,9 +124,9 @@ export default function HesapSilmeTalebi() {
               hitSlop={8}
             >
               <Icon name={confirmed ? "checkbox" : "square-outline"} size={22} color={confirmed ? t.colors.primary : t.colors.textMuted} />
-              <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>
+              <AppText style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>
                 {tr("deletion.confirmText")}
-              </Text>
+              </AppText>
             </Pressable>
             <Button
               label={tr("deletion.submit")}
@@ -158,9 +145,9 @@ export default function HesapSilmeTalebi() {
                 {res.data.history.map((h) => (
                   <Card key={h.id}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={1}>
+                      <AppText style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]} numberOfLines={1}>
                         {h.reason || tr("deletion.defaultReason")}
-                      </Text>
+                      </AppText>
                       <StatusBadge label={STATUS_KEY[h.status] ? tr(STATUS_KEY[h.status]!) : h.status} tone="neutral" />
                     </View>
                   </Card>

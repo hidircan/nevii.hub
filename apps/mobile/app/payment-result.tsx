@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { personaOf, useAuth } from "../src/auth/auth-context";
-import { Button, EmptyState, Screen } from "../src/components/ui";
+import { Button, EmptyState, Screen, AppText } from "../src/components/ui";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -32,9 +32,9 @@ export default function PaymentResultScreen() {
           title={success ? tr("payResult.done") : tr("payResult.notDone")}
           description={success ? tr("payResult.pendingBody") : tr("payResult.failBody")}
         />
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, textAlign: "center", marginTop: 4 }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted, textAlign: "center", marginTop: 4 }]}>
           {tr("payResult.note")}
-        </Text>
+        </AppText>
         <View style={{ marginTop: 16 }}>
           <Button label={tr("payResult.backToList")} onPress={() => router.replace(listRoute as never)} />
         </View>

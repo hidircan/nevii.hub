@@ -1,5 +1,5 @@
-import { Text, View } from "react-native";
-import { Card } from "../../components/ui";
+import { View } from "react-native";
+import { Card, AppText } from "../../components/ui";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type { AttendanceLedgerResponse } from "../../types/api";
@@ -35,8 +35,8 @@ export function AttendanceCounters({ counts, onOpen }: { counts: Counts; onOpen:
             style={{ flex: 1, opacity: c.value > 0 ? 1 : 0.55 }}
             onPress={c.value > 0 ? () => onOpen(c.status) : undefined}
           >
-            <Text style={[t.typography.screenTitle, { color: c.color }]}>{c.value}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{c.label}</Text>
+            <AppText style={[t.typography.screenTitle, { color: c.color }]}>{c.value}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{c.label}</AppText>
           </Card>
         ))}
       </View>
@@ -44,8 +44,8 @@ export function AttendanceCounters({ counts, onOpen }: { counts: Counts; onOpen:
         <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           {extra.map((c) => (
             <Card key={c.key} style={{ flex: 1 }} onPress={() => onOpen(c.status)}>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text }]}>{c.value}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{c.label}</Text>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.text }]}>{c.value}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{c.label}</AppText>
             </Card>
           ))}
           {Array.from({ length: Math.max(0, 3 - extra.length) }).map((_, i) => (

@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Avatar, Icon } from "../components/ui";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Avatar, Icon, AppText } from "../components/ui";
 import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
 import { useChildSelection } from "./student-context";
@@ -31,10 +31,10 @@ export function ChildSwitcher({ childName }: { childName?: string }) {
     >
       <Avatar name={childName ?? tr("selectChild.fallbackName")} size={40} />
       <View style={styles.text}>
-        <Text style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("ui.followedStudent")}</Text>
-        <Text style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
+        <AppText style={[t.typography.label, { color: t.colors.textFaint }]}>{tr("ui.followedStudent")}</AppText>
+        <AppText style={[t.typography.bodyStrong, { color: t.colors.text, marginTop: 1 }]} numberOfLines={1}>
           {childName ?? tr("ui.chooseStudent")}
-        </Text>
+        </AppText>
       </View>
       <Icon name="swap-horizontal-outline" size={20} color={t.colors.primary} />
       <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />

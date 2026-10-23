@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen } from "../../../src/components/ui";
+import { View } from "react-native";
+import { AppHeader, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
@@ -37,10 +37,10 @@ export default function Katalog() {
           <View style={{ gap: 10 }}>
             {branches.data.branches.map((b) => (
               <Card key={b.id}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{b.name}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{b.name}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                   {b.address} · {b.city} · {b.phone}
-                </Text>
+                </AppText>
               </Card>
             ))}
           </View>
@@ -58,10 +58,10 @@ export default function Katalog() {
           <View style={{ gap: 10 }}>
             {rooms.data.rooms.map((r) => (
               <Card key={r.id}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{r.name}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{r.name}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                   {tr("adm.catCapacity", { n: r.capacity })} · {r.instruments.join(", ") || tr("adm.catAllInst")}
-                </Text>
+                </AppText>
               </Card>
             ))}
           </View>
@@ -77,21 +77,21 @@ export default function Katalog() {
           <View style={{ gap: 10 }}>
             {instruments.data.staticInstruments.map((name) => (
               <Card key={name}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{name}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{name}</AppText>
               </Card>
             ))}
             {instruments.data.entries.map((e) => (
               <Card key={e.id}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{e.name}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{e.name}</AppText>
               </Card>
             ))}
           </View>
         )
       ) : null}
 
-      <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 16, textAlign: "center" }]}>
+      <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 16, textAlign: "center" }]}>
         {tr("adm.catFootnote")}
-      </Text>
+      </AppText>
     </Screen>
   );
 }

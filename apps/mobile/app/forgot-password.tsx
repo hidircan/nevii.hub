@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiPost } from "../src/api/client";
-import { Button, Icon, TextField } from "../src/components/ui";
+import { Button, Icon, TextField, AppText } from "../src/components/ui";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -48,25 +48,25 @@ export default function ForgotPasswordScreen() {
           <View style={[styles.logo, { backgroundColor: t.colors.primarySoft }]}>
             <Icon name="key-outline" size={28} color={t.colors.primary} />
           </View>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("forgot.title")}</Text>
+          <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("forgot.title")}</AppText>
 
           {sent ? (
             <>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
                 {sent.message}
-              </Text>
+              </AppText>
 
               {sent.devResetToken ? (
                 <View style={[styles.devBox, { backgroundColor: t.colors.warningSoft, borderColor: t.colors.warning }]}>
-                  <Text style={[t.typography.caption, { color: t.colors.warning, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>
+                  <AppText style={[t.typography.caption, { color: t.colors.warning, fontFamily: t.fonts.bold, fontWeight: "700" }]}>
                     {tr("forgot.devOnly")}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                     {tr("forgot.devHint")}
-                  </Text>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 8, letterSpacing: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 8, letterSpacing: 2 }]}>
                     {sent.devResetToken}
-                  </Text>
+                  </AppText>
                 </View>
               ) : null}
 
@@ -81,9 +81,9 @@ export default function ForgotPasswordScreen() {
             </>
           ) : (
             <>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 28 }]}>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 28 }]}>
                 {tr("forgot.hint")}
-              </Text>
+              </AppText>
 
               <View style={styles.form}>
                 <TextField
@@ -99,7 +99,7 @@ export default function ForgotPasswordScreen() {
                 {error ? (
                   <View style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}>
                     <Icon name="alert-circle" size={16} color={t.colors.danger} />
-                    <Text style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</Text>
+                    <AppText style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</AppText>
                   </View>
                 ) : null}
 

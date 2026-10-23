@@ -1,4 +1,5 @@
-import { Text } from "react-native";
+import { AppText } from "../../src/components/ui/app-text";
+
 import { ListScreen } from "../../src/components/list-screen";
 import { useApiGet } from "../../src/hooks/use-api";
 import { useLocale } from "../../src/i18n/locale-context";
@@ -21,8 +22,8 @@ export default function TeacherOdevlerim() {
       keyExtractor={(h) => h.id}
       renderItem={(h) => (
         <>
-          <Text style={{ fontFamily: fonts.serifBold, fontWeight: "700", fontSize: 17 }}>{h.title}</Text>
-          {h.studentName ? <Text style={{ fontFamily: fonts.serif, marginTop: 2, fontSize: 15, opacity: 0.7 }}>{h.studentName}</Text> : null}
+          <AppText style={{ fontFamily: fonts.bold, fontWeight: "700", fontSize: 17 }}>{h.title}</AppText>
+          {h.studentName ? <AppText style={{ fontFamily: fonts.regular, marginTop: 2, fontSize: 15, opacity: 0.7 }}>{h.studentName}</AppText> : null}
         </>
       )}
     />

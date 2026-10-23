@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
@@ -38,16 +39,16 @@ export function LiveLessonTimer({ actualStartAt, scheduledEndAt }: Props) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <Icon name="time-outline" size={16} color={overtime ? t.colors.warning : t.colors.primary} />
-      <Text
+      <AppText
         style={[
           t.typography.cardTitle,
           { color: overtime ? t.colors.warning : t.colors.text, fontVariant: ["tabular-nums"] },
         ]}
       >
         {formatElapsed(now - startMs)}
-      </Text>
+      </AppText>
       {overtime ? (
-        <Text style={[t.typography.caption, { color: t.colors.warning }]}>{tr("ui.overtimeDone")}</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.warning }]}>{tr("ui.overtimeDone")}</AppText>
       ) : null}
     </View>
   );

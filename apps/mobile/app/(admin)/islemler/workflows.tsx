@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { apiPatch } from "../../../src/api/client";
-import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -36,13 +36,13 @@ export default function Workflows() {
           {res.data.workflows.map((w) => (
             <Card key={w.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>{w.name}</Text>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>{w.name}</AppText>
                 <Pressable onPress={() => toggle(w.id, w.enabled)} disabled={busyId === w.id} hitSlop={8}>
                   <Icon name={w.enabled ? "toggle" : "toggle-outline"} size={32} color={w.enabled ? t.colors.primary : t.colors.textFaint} />
                 </Pressable>
               </View>
               {w.description ? (
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{w.description}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{w.description}</AppText>
               ) : null}
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8, alignItems: "center" }}>
                 {w.lastRunAt ? (

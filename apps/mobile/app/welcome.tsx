@@ -1,8 +1,8 @@
 import { Redirect, useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
-import { BrandMark, Icon, type IconName } from "../src/components/ui";
+import { BrandMark, Icon, type IconName, AppText } from "../src/components/ui";
 import { LanguageSelector } from "../src/components/language-selector";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
@@ -58,9 +58,9 @@ export default function WelcomeScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <BrandMark size="lg" />
-        <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 12, textAlign: "center" }]}>
+        <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 12, textAlign: "center" }]}>
           {tr("welcome.subtitle")}
-        </Text>
+        </AppText>
 
         <View style={styles.entries}>
           {PERSONA_ENTRIES.map((entry) => (
@@ -79,18 +79,18 @@ export default function WelcomeScreen() {
                 <Icon name={entry.icon} size={24} color={t.colors.primary} />
               </View>
               <View style={styles.entryText}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr(entry.titleKey)}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr(entry.descKey)}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 6 }]}>{tr(entry.ctaKey)}</Text>
+                <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr(entry.titleKey)}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{tr(entry.descKey)}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.primary, marginTop: 6 }]}>{tr(entry.ctaKey)}</AppText>
               </View>
               <Icon name="chevron-forward" size={18} color={t.colors.textFaint} />
             </Pressable>
           ))}
         </View>
 
-        <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 20, textAlign: "center" }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 20, textAlign: "center" }]}>
           {tr("welcome.footnote")}
-        </Text>
+        </AppText>
 
         <View style={styles.language}>
           <LanguageSelector compact />

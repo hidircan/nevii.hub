@@ -45,5 +45,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     height: 44,
   },
-  input: { flex: 1, fontFamily: fonts.serif, fontSize: 17, height: "100%" },
+  input: { flex: 1, fontFamily: fonts.regular, fontSize: 17, height: "100%" },
 });

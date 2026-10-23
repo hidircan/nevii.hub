@@ -1,24 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Linking, Text, View } from "react-native";
+import { Linking, View } from "react-native";
 import { apiPost } from "../../../../src/api/client";
-import {
-  AppHeader,
-  Avatar,
-  Button,
-  Card,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  HomeworkCard,
-  LoadingSkeleton,
-  Screen,
-  ProgressBar,
-  SectionHeader,
-  SelectField,
-  StatusBadge,
-  TextField,
-} from "../../../../src/components/ui";
+import { AppHeader, Avatar, Button, Card, ConfirmDialog, EmptyState, ErrorState, HomeworkCard, LoadingSkeleton, Screen, ProgressBar, SectionHeader, SelectField, StatusBadge, TextField, AppText } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { useNow } from "../../../../src/hooks/use-now";
 import { formatCurrency, isPast, shortDayMonth } from "../../../../src/lib/date";
@@ -154,17 +138,17 @@ export default function AdminStudentDetail() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={student.name} size={52} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{student.name}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {student.instruments.join(", ")} · {tr("adm.stuTeacherLine", { name: student.teacherName ?? "—" })}
-            </Text>
+            </AppText>
           </View>
         </View>
       </Card>
 
       <SectionHeader title={tr("adm.stuProgram")} />
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.text }]}>{upcoming === null ? tr("adm.stuLoading") : tr("adm.stuUpcoming", { n: upcoming })}</Text>
+        <AppText style={[t.typography.body, { color: t.colors.text }]}>{upcoming === null ? tr("adm.stuLoading") : tr("adm.stuUpcoming", { n: upcoming })}</AppText>
       </Card>
 
       <SectionHeader title={tr("adm.stuAttendance")} />
@@ -174,9 +158,9 @@ export default function AdminStudentDetail() {
         <ErrorState message={attendance.message} onRetry={attendance.refresh} />
       ) : (
         <Card>
-          <Text style={[t.typography.body, { color: t.colors.text }]}>
+          <AppText style={[t.typography.body, { color: t.colors.text }]}>
             {tr("adm.stuAttended", { a: attendance.data.attended, t: attendance.data.totalLessons, b: attendance.data.absent })}
-          </Text>
+          </AppText>
         </Card>
       )}
 
@@ -188,8 +172,8 @@ export default function AdminStudentDetail() {
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("adm.stuOverall")}</Text>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</Text>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("adm.stuOverall")}</AppText>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>%{Math.round(curriculum.data.overallPercent)}</AppText>
           </View>
           <ProgressBar progress={curriculum.data.overallPercent} />
         </Card>
@@ -219,10 +203,10 @@ export default function AdminStudentDetail() {
         <View style={{ gap: 10 }}>
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.stuOutstanding")}</Text>
-              <Text style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.stuOutstanding")}</AppText>
+              <AppText style={[t.typography.cardTitle, { color: balance.data.outstanding > 0 ? t.colors.danger : t.colors.success }]}>
                 {formatCurrency(balance.data.outstanding)}
-              </Text>
+              </AppText>
             </View>
           </Card>
           {balance.data.payments
@@ -231,15 +215,15 @@ export default function AdminStudentDetail() {
             .map((p) => (
               <Card key={p.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>{p.description}</Text>
+                  <AppText style={[t.typography.body, { color: t.colors.text, flex: 1 }]}>{p.description}</AppText>
                   <StatusBadge label={formatCurrency(p.amount - p.paidAmount)} tone="warning" />
                 </View>
-                <Text
+                <AppText
                   style={[t.typography.caption, { color: t.colors.primary, marginTop: 8 }]}
                   onPress={() => setConfirmingPaymentId(p.id)}
                 >
                   {tr("adm.stuMarkPaid")}
-                </Text>
+                </AppText>
               </Card>
             ))}
         </View>
@@ -256,8 +240,8 @@ export default function AdminStudentDetail() {
         <View style={{ gap: 8 }}>
           {documents.data.documents.slice(0, 5).map((d) => (
             <Card key={d.id}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{d.kind} — {d.reference}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{shortDayMonth(new Date(d.createdAt))}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{d.kind} — {d.reference}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{shortDayMonth(new Date(d.createdAt))}</AppText>
             </Card>
           ))}
         </View>
@@ -273,36 +257,36 @@ export default function AdminStudentDetail() {
       ) : (
         <Card>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{consent.data.consent.representativeName}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{consent.data.consent.representativeName}</AppText>
             <StatusBadge
               label={CONSENT_STATUS_KEY[consent.data.consent.status] ? tr(CONSENT_STATUS_KEY[consent.data.consent.status]) : consent.data.consent.status}
               tone={consent.data.consent.status === "granted" ? "success" : "neutral"}
             />
           </View>
           {consent.data.consent.scopes.length > 0 ? (
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("adm.stuScope", { v: consent.data.consent.scopes.join(", ") })}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>{tr("adm.stuScope", { v: consent.data.consent.scopes.join(", ") })}</AppText>
           ) : null}
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{shortDayMonth(new Date(consent.data.consent.grantedAt))}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{shortDayMonth(new Date(consent.data.consent.grantedAt))}</AppText>
         </Card>
       )}
 
       <SectionHeader title={tr("adm.stuParent")} />
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.text }]}>{student.parentName}</Text>
-        <Text
+        <AppText style={[t.typography.body, { color: t.colors.text }]}>{student.parentName}</AppText>
+        <AppText
           style={[t.typography.body, { color: t.colors.primary, marginTop: 6 }]}
           onPress={() => void Linking.openURL(telHref(student.parentPhone))}
           accessibilityRole="link"
           accessibilityLabel={tr("adm.stuCallA11y", { phone: student.parentPhone })}
         >
           {student.parentPhone} →
-        </Text>
+        </AppText>
       </Card>
 
       <SectionHeader title={tr("adm.stuAccess")} actionLabel={inviteOpen ? undefined : tr("adm.stuInvite")} onAction={inviteOpen ? undefined : () => setInviteOpen(true)} />
       {actionError ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</AppText>
         </Card>
       ) : null}
       {inviteOpen ? (
@@ -337,12 +321,12 @@ export default function AdminStudentDetail() {
             <Card key={a.userId}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
+                  <AppText style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
                     {a.email || tr("adm.stuNoEmail")}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                     {a.accessType === "GUARDIAN" ? tr("adm.stuRoleGuardian") : tr("adm.stuRoleStudent")}
-                  </Text>
+                  </AppText>
                 </View>
                 <StatusBadge
                   label={ACCESS_STATUS_KEY[a.status] ? tr(ACCESS_STATUS_KEY[a.status]) : a.status}

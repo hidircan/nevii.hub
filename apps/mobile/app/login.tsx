@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../src/auth/auth-context";
-import { BrandMark, Button, Icon, TextField } from "../src/components/ui";
+import { BrandMark, Button, Icon, TextField, AppText } from "../src/components/ui";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -88,16 +88,16 @@ export default function LoginScreen() {
             style={styles.backRow}
           >
             <Icon name="chevron-back" size={18} color={t.colors.textMuted} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("login.home")}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("login.home")}</AppText>
           </Pressable>
 
           <BrandMark size="md" />
-          <Text accessibilityRole="header" style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 14, textAlign: "center" }]}>
+          <AppText accessibilityRole="header" style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 14, textAlign: "center" }]}>
             {heading}
-          </Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+          </AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
             {subheading}
-          </Text>
+          </AppText>
 
           <View style={styles.form}>
             <TextField
@@ -150,13 +150,13 @@ export default function LoginScreen() {
               hitSlop={8}
               style={styles.forgotLink}
             >
-              <Text style={[t.typography.caption, { color: t.colors.primary }]}>{tr("auth.forgotPassword")}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.primary }]}>{tr("auth.forgotPassword")}</AppText>
             </Pressable>
 
             {notice && !error ? (
               <View style={[styles.errorBox, { backgroundColor: t.colors.primarySoft }]}>
                 <Icon name="information-circle" size={16} color={t.colors.primary} />
-                <Text style={[t.typography.caption, { color: t.colors.text, flex: 1 }]}>{notice}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.text, flex: 1 }]}>{notice}</AppText>
               </View>
             ) : null}
 
@@ -166,16 +166,16 @@ export default function LoginScreen() {
                 style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}
               >
                 <Icon name="alert-circle" size={16} color={t.colors.danger} />
-                <Text style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</AppText>
               </View>
             ) : null}
 
             <Button label={busy ? tr("auth.loggingIn") : tr("auth.loginButton")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
           </View>
 
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 24, textAlign: "center" }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 24, textAlign: "center" }]}>
             {tr("login.footnote")}
-          </Text>
+          </AppText>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

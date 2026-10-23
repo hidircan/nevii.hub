@@ -1,8 +1,8 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../src/api/client";
-import { AppHeader, Button, Card, ConfirmDialog, Icon, Screen, SelectField, TextField } from "../../../../src/components/ui";
+import { AppHeader, Button, Card, ConfirmDialog, Icon, Screen, SelectField, TextField, AppText } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { useLocale } from "../../../../src/i18n/locale-context";
 import { useTheme } from "../../../../src/theme/theme-context";
@@ -66,11 +66,11 @@ export default function YeniDuyuru() {
         <Card style={{ backgroundColor: t.colors.infoSoft }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Icon name="people-outline" size={16} color={t.colors.info} />
-            <Text style={[t.typography.body, { color: t.colors.info }]}>{tr("adm.anncReach", { n: recipientCount })}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.info }]}>{tr("adm.anncReach", { n: recipientCount })}</AppText>
           </View>
         </Card>
 
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
 
         <Button label={tr("adm.anncSend")} onPress={() => setConfirming(true)} disabled={!canSubmit} loading={busy} />
       </View>

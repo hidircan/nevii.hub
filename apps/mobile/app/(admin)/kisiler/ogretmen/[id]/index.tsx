@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
-import { AppHeader, Avatar, Card, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge } from "../../../../../src/components/ui";
+import { Pressable, View } from "react-native";
+import { AppHeader, Avatar, Card, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { useNow } from "../../../../../src/hooks/use-now";
 import { format, isPast } from "../../../../../src/lib/date";
@@ -60,20 +60,20 @@ export default function TeacherDetailScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={teacher?.name ?? "?"} size={52} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{teacher?.name}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{teacher?.instruments.join(", ")}</Text>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{teacher?.name}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{teacher?.instruments.join(", ")}</AppText>
           </View>
         </View>
         <View style={{ gap: 6, marginTop: 12 }}>
-          <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{teacher?.phone}</Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{teacher?.email}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{teacher?.phone}</AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{teacher?.email}</AppText>
         </View>
       </Card>
 
       <SectionHeader title={tr("adm.tchPerf")} />
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchPerfDesc")}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchPerfDesc")}</AppText>
           {teacher?.performanceLabel === "insufficient_data" ? (
             <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
           ) : (
@@ -89,7 +89,7 @@ export default function TeacherDetailScreen() {
       <Pressable onPress={() => router.push(`/(admin)/kisiler/ogretmen/${id}/performans` as never)}>
         <Card>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchV2Desc")}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("adm.tchV2Desc")}</AppText>
             {perfV2.status === "success" ? (
               perfV2.data.score === null ? (
                 <StatusBadge label={tr("adm.dashInsufficient")} tone="neutral" />
@@ -105,31 +105,31 @@ export default function TeacherDetailScreen() {
               <StatusBadge label={tr("adm.stuLoading")} tone="neutral" />
             )}
           </View>
-          <Text style={[t.typography.caption, { color: t.colors.primary, marginTop: 10 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.primary, marginTop: 10 }]}>
             {tr("adm.tchDetailsLink")}
-          </Text>
+          </AppText>
         </Card>
       </Pressable>
 
       <SectionHeader title={tr("adm.tchSched")} />
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.text }]}>
+        <AppText style={[t.typography.body, { color: t.colors.text }]}>
           {upcomingCount === null ? tr("adm.stuLoading") : tr("adm.stuUpcoming", { n: upcomingCount })}
-        </Text>
-        <Text style={[t.typography.body, { color: t.colors.text, marginTop: 6 }]}>{tr("adm.tPerfActive", { n: teacher?.activeStudentCount ?? 0 })}</Text>
-        <Text
+        </AppText>
+        <AppText style={[t.typography.body, { color: t.colors.text, marginTop: 6 }]}>{tr("adm.tPerfActive", { n: teacher?.activeStudentCount ?? 0 })}</AppText>
+        <AppText
           style={[t.typography.caption, { color: t.colors.primary, marginTop: 10 }]}
           onPress={() => router.push("/(admin)/program")}
         >
           {tr("adm.tchViewSched")}
-        </Text>
+        </AppText>
       </Card>
 
       <SectionHeader title={tr("adm.tchTasks")} />
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.text }]}>
+        <AppText style={[t.typography.body, { color: t.colors.text }]}>
           {openTaskCount === null ? tr("adm.stuLoading") : tr("adm.tchOpenTasks", { n: openTaskCount })}
-        </Text>
+        </AppText>
       </Card>
 
       <SectionHeader title={tr("adm.tchOther")} />
@@ -147,7 +147,7 @@ export default function TeacherDetailScreen() {
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                 <Icon name={link.icon} size={16} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{link.label}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{link.label}</AppText>
               </View>
               <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
             </Pressable>

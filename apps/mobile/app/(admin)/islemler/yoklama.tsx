@@ -1,20 +1,8 @@
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
 import { isPast } from "../../../src/lib/date";
-import {
-  AppHeader,
-  Button,
-  Card,
-  ConfirmDialog,
-  EmptyState,
-  ErrorState,
-  LessonCard,
-  LoadingSkeleton,
-  Screen,
-  SearchInput,
-  SectionHeader,
-} from "../../../src/components/ui";
+import { AppHeader, Button, Card, ConfirmDialog, EmptyState, ErrorState, LessonCard, LoadingSkeleton, Screen, SearchInput, SectionHeader, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useDebouncedSearchQuery } from "../../../src/hooks/use-debounced-value";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -96,8 +84,8 @@ export default function AdminYoklama() {
           ) : (
             filteredStudents.map((s) => (
               <Card key={s.id} onPress={() => setSelectedId(s.id)}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{s.name}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{s.teacherName ?? "—"}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{s.name}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{s.teacherName ?? "—"}</AppText>
               </Card>
             ))
           )}
@@ -115,16 +103,16 @@ export default function AdminYoklama() {
           ) : (
             <View style={{ flexDirection: "row", gap: 10, marginBottom: 16 }}>
               <Card style={{ flex: 1 }}>
-                <Text style={[t.typography.screenTitle, { color: t.colors.success }]}>{attendance.data.attended}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAttended")}</Text>
+                <AppText style={[t.typography.screenTitle, { color: t.colors.success }]}>{attendance.data.attended}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAttended")}</AppText>
               </Card>
               <Card style={{ flex: 1 }}>
-                <Text style={[t.typography.screenTitle, { color: t.colors.danger }]}>{attendance.data.absent}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAbsent")}</Text>
+                <AppText style={[t.typography.screenTitle, { color: t.colors.danger }]}>{attendance.data.absent}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("attFlag.flagAbsent")}</AppText>
               </Card>
               <Card style={{ flex: 1 }}>
-                <Text style={[t.typography.screenTitle, { color: t.colors.warning }]}>{attendance.data.pending}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.yokWaiting")}</Text>
+                <AppText style={[t.typography.screenTitle, { color: t.colors.warning }]}>{attendance.data.pending}</AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("adm.yokWaiting")}</AppText>
               </Card>
             </View>
           )}
@@ -132,7 +120,7 @@ export default function AdminYoklama() {
           <SectionHeader title={tr("adm.yokPendingTitle")} />
           {opsError ? (
             <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-              <Text style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.danger }]}>{opsError}</AppText>
             </Card>
           ) : null}
           {schedule.status === "loading" ? (

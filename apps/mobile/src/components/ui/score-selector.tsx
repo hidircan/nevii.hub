@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 
 type Props = {
@@ -13,7 +14,7 @@ export function ScoreSelector({ label, value, onChange, max = 5 }: Props) {
   const t = useTheme();
   return (
     <View style={styles.container}>
-      <Text style={[t.typography.body, { color: t.colors.text }]}>{label}</Text>
+      <AppText style={[t.typography.body, { color: t.colors.text }]}>{label}</AppText>
       <View style={styles.row}>
         {Array.from({ length: max }, (_, i) => i + 1).map((n) => {
           const selected = value === n;
@@ -28,7 +29,7 @@ export function ScoreSelector({ label, value, onChange, max = 5 }: Props) {
                 { backgroundColor: selected ? t.colors.primary : t.colors.bgMuted, borderColor: selected ? t.colors.primary : t.colors.border },
               ]}
             >
-              <Text style={[t.typography.bodyStrong, { color: selected ? t.colors.primaryOn : t.colors.textMuted }]}>{n}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: selected ? t.colors.primaryOn : t.colors.textMuted }]}>{n}</AppText>
             </Pressable>
           );
         })}

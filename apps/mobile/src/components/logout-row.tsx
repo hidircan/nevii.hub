@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text } from "react-native";
+import { AppText } from "./ui/app-text";
+import { Pressable, StyleSheet } from "react-native";
 import { useAuth } from "../auth/auth-context";
 import { useLocale } from "../i18n/locale-context";
 import { useTheme } from "../theme/theme-context";
@@ -13,8 +14,8 @@ export function LogoutRow() {
       onPress={() => void logout()}
       style={[styles.row, { borderColor: t.colors.border, backgroundColor: t.colors.bgMuted }]}
     >
-      <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{user?.email ?? tr("account.accountSection")}</Text>
-      <Text style={{ color: t.colors.danger, fontFamily: fonts.serif, fontSize: 15, marginTop: 2 }}>{tr("ui.logout")}</Text>
+      <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{user?.email ?? tr("account.accountSection")}</AppText>
+      <AppText style={{ color: t.colors.danger, fontFamily: fonts.regular, fontSize: 15, marginTop: 2 }}>{tr("ui.logout")}</AppText>
     </Pressable>
   );
 }

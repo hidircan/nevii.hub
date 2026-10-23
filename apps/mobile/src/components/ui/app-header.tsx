@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { goBack } from "../../lib/navigation";
@@ -45,7 +46,7 @@ export function AppHeader({ title, subtitle, showBack, backFallback, showNotific
       <Icon name="notifications-outline" size={22} />
       {unread > 0 ? (
         <View style={[styles.badge, { backgroundColor: t.colors.danger, borderColor: t.colors.bg }]}>
-          <Text style={styles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+          <AppText style={styles.badgeText}>{unread > 9 ? "9+" : unread}</AppText>
         </View>
       ) : null}
     </Pressable>
@@ -66,16 +67,16 @@ export function AppHeader({ title, subtitle, showBack, backFallback, showNotific
           </Pressable>
         ) : null}
         <View style={{ flexShrink: 1 }}>
-          <Text
+          <AppText
             numberOfLines={1}
-            style={[t.typography.display, { color: t.colors.text, fontSize: 24, lineHeight: 30 }]}
+            style={[t.typography.title, { color: t.colors.text }]}
           >
             {title}
-          </Text>
+          </AppText>
           {subtitle ? (
-            <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+            <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
               {subtitle}
-            </Text>
+            </AppText>
           ) : null}
         </View>
       </View>
@@ -131,5 +132,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
   },
-  badgeText: { color: "#fff", fontFamily: fonts.serifBold, fontSize: 12, fontWeight: "700" },
+  badgeText: { color: "#fff", fontFamily: fonts.bold, fontSize: 12, fontWeight: "700" },
 });

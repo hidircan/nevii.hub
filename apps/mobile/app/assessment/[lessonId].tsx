@@ -1,9 +1,9 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { apiPost } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
-import { AppHeader, Button, Screen, ScoreSelector, TextField } from "../../src/components/ui";
+import { AppHeader, Button, Screen, ScoreSelector, TextField, AppText } from "../../src/components/ui";
 import { useApiGet } from "../../src/hooks/use-api";
 import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
@@ -72,10 +72,10 @@ export default function AssessmentScreen() {
       <Screen>
         <AppHeader title={tr("assess.title")} showBack showNotifications={false} />
         <View style={styles.doneBox}>
-          <Text style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("assess.saved")}</Text>
-          <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+          <AppText style={[t.typography.sectionTitle, { color: t.colors.success }]}>{tr("assess.saved")}</AppText>
+          <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
             {tr("assess.savedBody")}
-          </Text>
+          </AppText>
           <Button label={tr("eval.close")} onPress={() => router.back()} variant="secondary" style={{ marginTop: 16 }} fullWidth={false} />
         </View>
       </Screen>
@@ -95,7 +95,7 @@ export default function AssessmentScreen() {
         <TextField label={tr("assess.improvements")} value={improvementNote} onChangeText={setImprovementNote} multiline numberOfLines={3} />
         <TextField label={tr("assess.nextSteps")} value={nextStepsNote} onChangeText={setNextStepsNote} multiline numberOfLines={3} />
 
-        {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
 
         <Button label={tr("assess.save")} onPress={onSubmit} disabled={!canSubmit} loading={busy} />
       </View>

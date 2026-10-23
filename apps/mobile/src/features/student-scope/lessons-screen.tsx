@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
+import { Pressable, StyleSheet, View } from "react-native";
+import { AppHeader, Avatar, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../components/ui";
 import { CacheStatus } from "../../cache/cache-status";
 import { useCachedApiGet } from "../../cache/use-cached-api";
 import { useSelectedStudentId } from "../../student/student-context";
@@ -93,13 +93,13 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
           <Icon name="chevron-back" size={20} color={t.colors.text} />
         </Pressable>
         <View style={{ flex: 1, alignItems: "center" }}>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</Text>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{weekLabel}</AppText>
           {!isCurrentWeek ? (
             <Pressable accessibilityRole="button" onPress={() => setWeekStart(startOfWeek(now))} hitSlop={6} style={{ marginTop: 4 }}>
-              <Text style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.serifBold, fontWeight: "700" }]}>{tr("lessons.backToWeek")}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.bold, fontWeight: "700" }]}>{tr("lessons.backToWeek")}</AppText>
             </Pressable>
           ) : (
-            <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{tr("lessons.thisWeek")}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{tr("lessons.thisWeek")}</AppText>
           )}
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel={tr("lessons.nextWeek")} hitSlop={8} onPress={() => setWeekStart((d) => addDays(d, 7))} style={{ padding: 6 }}>
@@ -112,25 +112,25 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
           {currentOrNextTodayLesson ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <View style={[styles.timeBlock, { backgroundColor: t.colors.primarySoft }]}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.primaryStrong }]}>{format(new Date(currentOrNextTodayLesson.startAt), "HH:mm")}</Text>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.primaryStrong }]}>{format(new Date(currentOrNextTodayLesson.startAt), "HH:mm")}</AppText>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>
                   {new Date(currentOrNextTodayLesson.startAt).getTime() <= nowTs ? tr("lessons.nowLesson") : tr("lessons.nextToday")}
-                </Text>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 2 }]}>
+                </AppText>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 2 }]}>
                   {currentOrNextTodayLesson.teacherName ?? tr("home.teacherFallback")}
-                </Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+                </AppText>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
                   {[currentOrNextTodayLesson.instrument, currentOrNextTodayLesson.roomName].filter(Boolean).join(" · ")}
-                </Text>
+                </AppText>
               </View>
               <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
             </View>
           ) : (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
               <Icon name="checkmark-circle-outline" size={20} color={t.colors.textMuted} />
-              <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("lessons.noLessonToday")}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("lessons.noLessonToday")}</AppText>
             </View>
           )}
         </Card>
@@ -153,13 +153,13 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
             return (
               <View key={day.toISOString()}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <Text style={[t.typography.bodyStrong, { color: isToday ? t.colors.primary : t.colors.text }]}>
+                  <AppText style={[t.typography.bodyStrong, { color: isToday ? t.colors.primary : t.colors.text }]}>
                     {weekdayName(day)}
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{shortDayMonth(day)}</Text>
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{shortDayMonth(day)}</AppText>
                   {isToday ? (
                     <View style={[styles.todayPill, { backgroundColor: t.colors.primary }]}>
-                      <Text style={[t.typography.label, { color: t.colors.primaryOn }]}>{tr("lessons.todayPill")}</Text>
+                      <AppText style={[t.typography.label, { color: t.colors.primaryOn }]}>{tr("lessons.todayPill")}</AppText>
                     </View>
                   ) : null}
                 </View>
@@ -171,9 +171,9 @@ export function StudentScopeLessonsScreen({ basePath }: { basePath: "/(parent)" 
                   </View>
                 ) : (
                   <View style={[styles.emptyDayRow, { borderColor: t.colors.border }]}>
-                    <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>
+                    <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>
                       {dayStatus?.status === "closed" ? dayStatus.label : tr("lessons.noLessonDay")}
-                    </Text>
+                    </AppText>
                   </View>
                 )}
               </View>
@@ -240,10 +240,10 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Avatar name={lesson.teacherName ?? "?"} size={48} />
           <View style={{ flex: 1 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? tr("home.teacherFallback")}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{lesson.teacherName ?? tr("home.teacherFallback")}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>
               {format(new Date(lesson.startAt), "yyyy-MM-dd")} · {format(new Date(lesson.startAt), "HH:mm")}–{format(new Date(lesson.endAt), "HH:mm")}
-            </Text>
+            </AppText>
           </View>
           <StatusBadge label={badge.label} tone={badge.tone} />
         </View>
@@ -252,9 +252,9 @@ export function StudentScopeLessonDetailScreen({ lessonId }: { lessonId: string 
       <Card style={{ marginTop: 12 }}>
         <View style={{ gap: 8 }}>
           {lesson.instrument ? (
-            <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.instrument", { v: lesson.instrument })}</Text>
+            <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.instrument", { v: lesson.instrument })}</AppText>
           ) : null}
-          {lesson.roomName ? <Text style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.room", { v: lesson.roomName })}</Text> : null}
+          {lesson.roomName ? <AppText style={[t.typography.body, { color: t.colors.text }]}>{tr("lessons.room", { v: lesson.roomName })}</AppText> : null}
         </View>
       </Card>
     </Screen>

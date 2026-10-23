@@ -1,7 +1,7 @@
-import { FlatList, RefreshControl, Text, View } from "react-native";
+import { FlatList, RefreshControl, View } from "react-native";
 import { useMakeupRequests } from "../../src/api/hooks";
 import { useAuth } from "../../src/auth/auth-context";
-import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../src/components/ui";
 import { useFocusRefetch } from "../../src/hooks/use-focus-refetch";
 import { format, shortDayMonth } from "../../src/lib/date";
 import { makeupStatusBadge, teacherMakeupItems } from "../../src/lib/makeup-view";
@@ -67,29 +67,29 @@ function MakeupRow({ item }: { item: MakeupRequest }) {
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
           <View style={{ flex: 1 }}>
             {item.studentName ? (
-              <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{item.studentName}</Text>
+              <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{item.studentName}</AppText>
             ) : null}
             {item.instrument ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.instrument}</Text>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.instrument}</AppText>
             ) : null}
           </View>
           <StatusBadge label={badge.label} tone={badge.tone} />
         </View>
         {item.sourceLessonStartAt ? (
-          <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 8 }]}>
             {tr("makeup.missedLesson", { v: when(item.sourceLessonStartAt) })}
-          </Text>
+          </AppText>
         ) : null}
         {item.confirmedLessonStartAt ? (
-          <Text style={[t.typography.caption, { color: t.colors.text, marginTop: 4 }]}>
+          <AppText style={[t.typography.caption, { color: t.colors.text, marginTop: 4 }]}>
             {tr("makeup.confirmedLesson", { v: when(item.confirmedLessonStartAt) })}
-          </Text>
+          </AppText>
         ) : null}
-        <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
+        <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
           {tr("makeup.validUntil", { v: shortDayMonth(new Date(item.expiresAt)) })}
-        </Text>
+        </AppText>
         {item.reason ? (
-          <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{item.reason}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>{item.reason}</AppText>
         ) : null}
       </Card>
     </View>

@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField } from "../../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField, AppText } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
 import { useLocale } from "../../../../src/i18n/locale-context";
 import { relativeDayLabel } from "../../../../src/lib/date";
@@ -86,11 +86,11 @@ export default function AdminTaskDetailScreen() {
           {task.priority ? <StatusBadge label={task.priority} tone="warning" /> : null}
           {task.category ? <StatusBadge label={task.category} tone="info" /> : null}
         </View>
-        {task.description ? <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{task.description}</Text> : null}
+        {task.description ? <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{task.description}</AppText> : null}
         {task.dueDate ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
             <Icon name="calendar-outline" size={14} color={t.colors.textMuted} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{relativeDayLabel(new Date(task.dueDate))}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{relativeDayLabel(new Date(task.dueDate))}</AppText>
           </View>
         ) : null}
       </Card>
@@ -116,9 +116,9 @@ export default function AdminTaskDetailScreen() {
             {checklist.map((item, i) => (
               <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
                 <Icon name={item.isCompleted ? "checkbox" : "square-outline"} size={18} color={item.isCompleted ? t.colors.success : t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text, textDecorationLine: item.isCompleted ? "line-through" : "none" }]}>
+                <AppText style={[t.typography.body, { color: t.colors.text, textDecorationLine: item.isCompleted ? "line-through" : "none" }]}>
                   {item.title}
-                </Text>
+                </AppText>
               </View>
             ))}
           </Card>
@@ -132,9 +132,9 @@ export default function AdminTaskDetailScreen() {
             {attachments.map((a, i) => (
               <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
                 <Icon name={a.type === "LINK" ? "link-outline" : "document-attach-outline"} size={16} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
+                <AppText style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
                   {a.title || a.fileName || tr("tasks.attachment")}
-                </Text>
+                </AppText>
               </View>
             ))}
           </Card>
@@ -144,18 +144,18 @@ export default function AdminTaskDetailScreen() {
       <SectionHeader title={tr("tasks.comments")} />
       <Card>
         {comments.length === 0 ? (
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("tasks.noComments")}</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("tasks.noComments")}</AppText>
         ) : (
           comments.map((c, i) => (
             <View key={c.id} style={{ paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{c.body}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(c.createdAt))}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{c.body}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(c.createdAt))}</AppText>
             </View>
           ))
         )}
         <View style={{ marginTop: 12, gap: 8 }}>
           <TextField label={tr("tasks.addComment")} value={commentBody} onChangeText={setCommentBody} placeholder={tr("tasks.commentPlaceholder")} multiline numberOfLines={2} />
-          {commentError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{commentError}</Text> : null}
+          {commentError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{commentError}</AppText> : null}
           <Button label={tr("tasks.send")} size="sm" onPress={onAddComment} disabled={!commentBody.trim()} loading={commentBusy} />
         </View>
       </Card>
@@ -167,8 +167,8 @@ export default function AdminTaskDetailScreen() {
         <Card>
           {activity.slice(0, 10).map((a, i) => (
             <View key={a.id} style={{ paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{a.summary}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(a.createdAt))}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{a.summary}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(a.createdAt))}</AppText>
             </View>
           ))}
         </Card>

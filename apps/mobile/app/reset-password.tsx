@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiPost } from "../src/api/client";
-import { Button, Icon, TextField } from "../src/components/ui";
+import { Button, Icon, TextField, AppText } from "../src/components/ui";
 import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
@@ -57,18 +57,18 @@ export default function ResetPasswordScreen() {
 
           {done ? (
             <>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.updatedTitle")}</Text>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.updatedTitle")}</AppText>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
                 {tr("reset.done")}
-              </Text>
+              </AppText>
               <Button label={tr("forgot.backToLogin")} onPress={() => router.replace("/login")} />
             </>
           ) : (
             <>
-              <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.title")}</Text>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 24 }]}>
+              <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("reset.title")}</AppText>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 24 }]}>
                 {tr("forgot.hint")}
-              </Text>
+              </AppText>
 
               <View style={styles.form}>
                 <TextField
@@ -99,7 +99,7 @@ export default function ResetPasswordScreen() {
                 {error ? (
                   <View style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}>
                     <Icon name="alert-circle" size={16} color={t.colors.danger} />
-                    <Text style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</Text>
+                    <AppText style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</AppText>
                   </View>
                 ) : null}
 

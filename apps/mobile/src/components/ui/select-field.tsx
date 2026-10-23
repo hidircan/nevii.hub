@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { BottomSheet } from "./bottom-sheet";
@@ -53,17 +54,17 @@ export function SelectField({
 
   return (
     <View style={styles.container}>
-      <Text style={[t.typography.label, { color: t.colors.textMuted }]}>{label}</Text>
+      <AppText style={[t.typography.label, { color: t.colors.textMuted }]}>{label}</AppText>
       <Pressable
         onPress={() => setOpen(true)}
         style={[styles.trigger, { borderColor: error ? t.colors.danger : t.colors.border, backgroundColor: t.colors.bgMuted }]}
       >
-        <Text style={[t.typography.body, { color: selected ? t.colors.text : t.colors.textMuted, flex: 1 }]} numberOfLines={1}>
+        <AppText style={[t.typography.body, { color: selected ? t.colors.text : t.colors.textMuted, flex: 1 }]} numberOfLines={1}>
           {selected?.label ?? effectivePlaceholder}
-        </Text>
+        </AppText>
         <Icon name="chevron-down" size={18} color={t.colors.textMuted} />
       </Pressable>
-      {error ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{error}</Text> : null}
+      {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
 
       <BottomSheet visible={open} title={label} onClose={close} fullHeight={searchable}>
         {searchable ? (
@@ -79,9 +80,9 @@ export function SelectField({
           ItemSeparatorComponent={() => <View style={[styles.divider, { backgroundColor: t.colors.divider }]} />}
           ListEmptyComponent={
             searchable ? (
-              <Text style={[t.typography.body, { color: t.colors.textMuted, paddingVertical: 16, textAlign: "center" }]}>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, paddingVertical: 16, textAlign: "center" }]}>
                 {tr("ui.noResults")}
-              </Text>
+              </AppText>
             ) : null
           }
           renderItem={({ item }) => (
@@ -93,9 +94,9 @@ export function SelectField({
               }}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[t.typography.body, { color: t.colors.text }]}>{item.label}</Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]}>{item.label}</AppText>
                 {item.description ? (
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.description}</Text>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{item.description}</AppText>
                 ) : null}
               </View>
               {item.value === value ? <Icon name="checkmark" size={18} color={t.colors.primary} /> : null}

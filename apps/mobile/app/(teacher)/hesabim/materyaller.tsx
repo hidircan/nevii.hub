@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
-import { AppHeader, Button, Card, EmptyState, ErrorState, FloatingActionButton, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
+import { View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, FloatingActionButton, Icon, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
 import { shortDayMonth } from "../../../src/lib/date";
@@ -41,20 +41,20 @@ export default function TeacherMateryaller() {
         <EmptyState icon="folder-open-outline" title={tr("teachMat.noneShared")} actionLabel={tr("teachMat.new")} onAction={() => router.push("/(teacher)/hesabim/materyaller-yeni")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</Text> : null}
+          {downloadError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</AppText> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
                 <Icon name={m.fileName ? "document-attach-outline" : "book-outline"} size={18} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={2}>
                     {m.description}
-                  </Text>
+                  </AppText>
                   <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                     {m.targetInstrument ? <StatusBadge label={m.targetInstrument} tone="info" /> : <StatusBadge label={tr("teachMat.allStudents")} tone="neutral" />}
                   </View>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</Text>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</AppText>
                   {m.fileName ? (
                     <View style={{ marginTop: 10 }}>
                       <Button

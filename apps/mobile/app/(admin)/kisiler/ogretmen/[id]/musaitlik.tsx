@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPatch } from "../../../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { relativeDayLabel, weekdayNameByIndex } from "../../../../../src/lib/date";
 import { useLocale } from "../../../../../src/i18n/locale-context";
@@ -40,12 +40,12 @@ export default function TeacherAvailabilityReview() {
           {[...res.data.requests].reverse().map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</AppText>
                 <StatusBadge label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status} tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"} />
               </View>
-              <Text style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>
+              <AppText style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>
                 {r.proposedAvailability.map((w) => `${weekdayNameByIndex(w.dayOfWeek)} ${w.start}-${w.end}`).join(", ")}
-              </Text>
+              </AppText>
               {r.status === "pending" ? (
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                   <Button label={tr("adm.leaveApprove")} size="sm" loading={busyId === r.id} onPress={() => decide(r.id, "approved")} style={{ flex: 1 }} />

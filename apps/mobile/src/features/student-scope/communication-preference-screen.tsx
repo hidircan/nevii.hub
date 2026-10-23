@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Pressable, Text } from "react-native";
+import { Pressable } from "react-native";
 import { apiPatch } from "../../api/client";
-import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen } from "../../components/ui";
+import { AppHeader, Card, ErrorState, Icon, LoadingSkeleton, Screen, AppText } from "../../components/ui";
 import { useApiGet } from "../../hooks/use-api";
 import { useSelectedStudentId } from "../../student/student-context";
 import { useLocale } from "../../i18n/locale-context";
@@ -52,9 +52,9 @@ export function CommunicationPreferenceScreen() {
       <AppHeader title={tr("comms.title")} showBack backFallback={listFallback(base, "hesabim")} showNotifications={false} />
 
       <Card>
-        <Text style={[t.typography.body, { color: t.colors.textMuted, marginBottom: 16 }]}>
+        <AppText style={[t.typography.body, { color: t.colors.textMuted, marginBottom: 16 }]}>
           {tr("comms.body")}
-        </Text>
+        </AppText>
         <Pressable
           accessibilityRole="switch"
           accessibilityState={{ checked: current }}
@@ -63,7 +63,7 @@ export function CommunicationPreferenceScreen() {
           disabled={busy}
           style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 48, opacity: busy ? 0.6 : 1 }}
         >
-          <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("comms.optOut")}</Text>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("comms.optOut")}</AppText>
           <Icon name={current ? "toggle" : "toggle-outline"} size={32} color={current ? t.colors.primary : t.colors.textFaint} />
         </Pressable>
       </Card>

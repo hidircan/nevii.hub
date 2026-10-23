@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge } from "../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, FilterChip, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { formatCurrency } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -71,7 +71,7 @@ export default function Tahsilat() {
 
       {actionError ? (
         <Card style={{ marginBottom: 10, borderColor: t.colors.danger }}>
-          <Text style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</Text>
+          <AppText style={[t.typography.body, { color: t.colors.danger }]}>{actionError}</AppText>
         </Card>
       ) : null}
 
@@ -86,14 +86,14 @@ export default function Tahsilat() {
           {cases.map((c) => (
             <Card key={c.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <Text style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>{studentName(c.studentId)}</Text>
+                <AppText style={[t.typography.cardTitle, { color: t.colors.text, flex: 1 }]}>{studentName(c.studentId)}</AppText>
                 <StatusBadge label={STATUS_KEY[c.status] ? tr(STATUS_KEY[c.status]) : c.status} tone={c.status === "paid" ? "success" : c.status === "lost" ? "danger" : "warning"} />
               </View>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.primary, marginTop: 6 }]}>{formatCurrency(c.attributedAmount)}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.primary, marginTop: 6 }]}>{formatCurrency(c.attributedAmount)}</AppText>
               {c.messageDraft ? (
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]} numberOfLines={3}>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]} numberOfLines={3}>
                   {tr("adm.collDraftPrefix", { v: c.messageDraft })}
-                </Text>
+                </AppText>
               ) : null}
               {NEXT_STATUS[c.status] ? (
                 <Button
@@ -111,9 +111,9 @@ export default function Tahsilat() {
         </View>
       )}
 
-      <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 16, textAlign: "center" }]}>
+      <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 16, textAlign: "center" }]}>
         {tr("adm.collFootnote")}
-      </Text>
+      </AppText>
     </Screen>
   );
 }
