@@ -26,7 +26,7 @@ import {
   type EnrollmentFieldErrors,
   type EnrollmentFormMode,
 } from "@/lib/enrollment-form";
-import { computeEnrollmentDerived, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { computeEnrollmentDerived, groupDraftDefaults, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
 
 const money = (n: number) => `${n.toLocaleString("tr-TR")} ₺`;
 const digits = (v: string) => v.replace(/[^\d]/g, "");
@@ -120,6 +120,19 @@ export function EnrollmentFormFields({
     onChange({ instrument, teacherId: keep });
   }
 
+  const group = draft.groupLessonId ? ctx.groupLessons?.find((g) => g.id === draft.groupLessonId) : undefined;
+  const groupLocked = !!draft.groupLessonId;
+
+  function selectGroup(groupLessonId: string) {
+    const g = ctx.groupLessons?.find((x) => x.id === groupLessonId);
+    if (!g) {
+      onChange({ groupLessonId: "" });
+      return;
+    }
+    // Koşullar gruptan gelir (sunucu yine zorlar); ücret önerilir, paket/indirimle değiştirilebilir.
+    onChange(groupDraftDefaults(g, ctx.personBranchId));
+  }
+
   function selectPackage(packageId: string) {
     const p = ctx.packages.find((x) => x.id === packageId);
     const patch: Partial<EnrollmentDraft> = { packageId };
@@ -151,6 +164,39 @@ export function EnrollmentFormFields({
 
   return (
     <div ref={root} className="space-y-4">
+      {/* 0. Ders türü — bireysel / grup dersi (2026-10-23) */}
+      {(creating && (ctx.groupLessons?.length ?? 0) > 0) || groupLocked ? (
+        <div className="space-y-2">
+          <SectionTitle>Ders türü</SectionTitle>
+          {creating ? (
+            <Select
+              id={id("group")}
+              value={draft.groupLessonId}
+              data-v={draft.groupLessonId}
+              onChange={(e) => selectGroup(e.target.value)}
+              aria-invalid={!!errors.groupLessonId}
+            >
+              <option value="">Bireysel ders</option>
+              {(ctx.groupLessons ?? []).map((g) => (
+                <option key={g.id} value={g.id} disabled={g.seats >= g.capacity}>
+                  Grup: {g.name} · {g.scheduleLabel} · {g.seats}/{g.capacity}
+                  {g.seats >= g.capacity ? " (dolu)" : ""}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <p className="text-sm font-medium text-[var(--color-text)]">Grup dersi: {group?.name ?? "bağlı grup"}</p>
+          )}
+          <FieldError message={errors.groupLessonId} />
+          {groupLocked ? (
+            <p className="text-[11px] text-[var(--color-text-muted)]">
+              Grup dersinde enstrüman, öğretmen, şube, süre ve gün/saat gruptan gelir; ücret grup fiyatıyla önerilir. Sözleşme, ödeme ve ilk tahsilat
+              bireysel kayıtla aynı işler. Öğretmen/saat değişikliği Grup Dersleri ekranından tüm grup için yapılır.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* 1. Branş ve öğretmen */}
       <div className="space-y-3">
         <SectionTitle>Branş ve öğretmen</SectionTitle>
@@ -164,7 +210,7 @@ export function EnrollmentFormFields({
               id={id("instrument")}
               value={draft.instrument}
               data-v={draft.instrument}
-              disabled={mode === "edit"}
+              disabled={mode === "edit" || groupLocked}
               onChange={(e) => setInstrument(e.target.value)}
               aria-invalid={!!errors.instrument}
             >
@@ -196,6 +242,7 @@ export function EnrollmentFormFields({
                 id={id("teacher")}
                 value={draft.teacherId}
                 data-v={draft.teacherId}
+                disabled={groupLocked}
                 onChange={(e) => onChange({ teacherId: e.target.value })}
                 aria-invalid={!!errors.teacherId}
               >
@@ -217,6 +264,7 @@ export function EnrollmentFormFields({
               id={id("branch")}
               value={draft.branchId}
               data-v={draft.branchId}
+              disabled={groupLocked}
               onChange={(e) => onChange({ branchId: e.target.value })}
               aria-invalid={!!errors.branchId}
             >
@@ -343,6 +391,7 @@ export function EnrollmentFormFields({
               id={id("duration")}
               value={draft.lessonDurationMinutes}
               data-v={draft.lessonDurationMinutes}
+              disabled={groupLocked}
               onChange={(e) => onChange({ lessonDurationMinutes: e.target.value })}
               aria-invalid={!!errors.lessonDurationMinutes}
             >
@@ -363,6 +412,7 @@ export function EnrollmentFormFields({
               id={id("weekly")}
               value={draft.weeklyLessonCount}
               data-v={draft.weeklyLessonCount}
+              disabled={groupLocked}
               onChange={(e) => onChange({ weeklyLessonCount: e.target.value })}
               aria-invalid={!!errors.weeklyLessonCount}
             >
@@ -396,7 +446,11 @@ export function EnrollmentFormFields({
             Ders günü ve saati{creating ? " (haftalık ders sayısı kadar farklı gün seçin)" : ""}
             {creating ? <Req /> : null}
           </Label>
-          <LessonScheduleSlotsPicker value={draft.lessonScheduleText} onChange={(text) => onChange({ lessonScheduleText: text })} />
+          {groupLocked ? (
+            <p className="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text)]">{group?.scheduleLabel ?? draft.lessonScheduleText}</p>
+          ) : (
+            <LessonScheduleSlotsPicker value={draft.lessonScheduleText} onChange={(text) => onChange({ lessonScheduleText: text })} />
+          )}
           <FieldError message={errors.lessonScheduleText} />
         </div>
         <div>

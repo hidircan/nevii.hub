@@ -368,6 +368,7 @@ export default async function OgrenciPortalPage({
                   <p className="mt-2 text-base font-semibold text-[var(--color-text)]">{formatDateTime(lesson.startAt)}</p>
                   <p className="text-sm text-[var(--color-text-muted)]">
                     {formatTime(lesson.startAt)}–{formatTime(lesson.endAt)} · {lesson.instrument}
+                    {lesson.groupLessonId ? " · Grup dersi" : ""}
                   </p>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">
                     {makeupTeacher?.name} · {makeupBranch?.shortName}
@@ -487,6 +488,7 @@ export default async function OgrenciPortalPage({
                             >
                               <p className="font-semibold text-[var(--color-text)]">
                                 {formatTime(l.startAt)}–{formatTime(l.endAt)} · {l.instrument}
+                                {l.groupLessonId ? " · Grup dersi" : ""}
                               </p>
                               <p className="text-[var(--color-text-muted)]">{lessonTeacher?.name ?? "—"}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1">

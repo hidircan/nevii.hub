@@ -45,7 +45,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
   if (!student) return null;
   const [lessons, attendances, series, makeups, payments, contracts, checkouts, followUps, documents, clubMemberships, portal] =
     await Promise.all([
-      db.lesson.findMany({ where, select: { id: true, studentId: true, teacherId: true, startAt: true, status: true, seriesId: true, clubSessionId: true } }),
+      db.lesson.findMany({ where, select: { id: true, studentId: true, teacherId: true, startAt: true, status: true, seriesId: true, clubSessionId: true, groupSessionId: true } }),
       db.attendance.findMany({ where, select: { id: true, lessonId: true } }),
       db.lessonSeries.findMany({ where, select: { id: true } }),
       db.makeupRequest.findMany({ where, select: { id: true, attendanceId: true, sourceLessonId: true, confirmedLessonId: true } }),
@@ -107,7 +107,7 @@ async function loadStudentSnapshot(db: Db, tenantId: string, studentId: string, 
   return {
     kind: "student",
     person: { id: student.id, name: student.name, displayId: student.displayId ?? undefined, active: student.active, deletedAt: iso(student.deletedAt), purgedAt: iso(student.purgedAt) },
-    lessons: lessons.map((l) => ({ ...l, startAt: l.startAt.toISOString(), seriesId: l.seriesId ?? undefined, clubSessionId: l.clubSessionId ?? undefined })),
+    lessons: lessons.map((l) => ({ ...l, startAt: l.startAt.toISOString(), seriesId: l.seriesId ?? undefined, clubSessionId: l.clubSessionId ?? undefined, groupSessionId: l.groupSessionId ?? undefined })),
     attendances,
     series,
     makeups: makeups.map((m) => ({ ...m, confirmedLessonId: m.confirmedLessonId ?? undefined })),
@@ -171,7 +171,7 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
   });
   if (!teacher) return null;
   const [lessons, series, makeups, payouts, feeRules, exclusions, students] = await Promise.all([
-    db.lesson.findMany({ where, select: { id: true, studentId: true, teacherId: true, startAt: true, status: true, seriesId: true, clubSessionId: true } }),
+    db.lesson.findMany({ where, select: { id: true, studentId: true, teacherId: true, startAt: true, status: true, seriesId: true, clubSessionId: true, groupSessionId: true } }),
     db.lessonSeries.findMany({ where, select: { id: true, status: true } }),
     db.makeupRequest.findMany({ where, select: { id: true } }),
     db.teacherPayout.findMany({ where, select: { id: true, teacherId: true, periodStart: true, periodEnd: true, status: true, totalAmount: true } }),
@@ -225,7 +225,8 @@ async function loadTeacherSnapshot(db: Db, tenantId: string, teacherId: string, 
   return {
     kind: "teacher",
     person: { id: teacher.id, name: teacher.name, displayId: teacher.displayId ?? undefined, active: teacher.active, deletedAt: iso(teacher.deletedAt), purgedAt: iso(teacher.purgedAt) },
-    lessons: lessons.map((l) => ({ ...l, startAt: l.startAt.toISOString(), seriesId: l.seriesId ?? undefined, clubSessionId: l.clubSessionId ?? undefined })),
+    lessons: lessons.map((l) => ({ ...l, startAt: l.startAt.toISOString(), seriesId: l.seriesId ?? undefined, clubSessionId: l.clubSessionId ?? undefined, groupSessionId: l.groupSessionId ?? undefined })),
+    groupLessons: await db.groupLesson.findMany({ where: { tenantId, teacherId }, select: { id: true, name: true, status: true } }),
     series,
     makeups,
     payouts: payouts.map((p) => ({ ...p, periodStart: p.periodStart.toISOString(), periodEnd: p.periodEnd.toISOString() })),

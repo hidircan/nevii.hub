@@ -91,6 +91,8 @@ export const PANEL_OPS_NAV: PanelNavItem[] = [
   { href: "/panel/deneme", label: "Deneme Dersleri", icon: FlaskConical },
   /** 2026-10-05 — Kulüpler (grup dersi, aylık sabit ücret). */
   { href: "/panel/kulupler", label: "Kulüpler", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /** 2026-10-23 — Grup dersleri (kontenjanlı, normal ders planlamanın grup varyantı; kulüpten ayrı). */
+  { href: "/panel/grup-dersleri", label: "Grup Dersleri", icon: Users, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ders-duzeltme", label: "Ders düzeltme", icon: Wrench },
   { href: "/panel/duyurular", label: "Duyurular", icon: MessageCircle },
   { href: "/panel/bildirimler", label: "Bildirimler", icon: MessageCircle },

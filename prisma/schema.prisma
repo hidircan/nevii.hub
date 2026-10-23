@@ -60,6 +60,7 @@ model Tenant {
   feedbackInvites             FeedbackInvite[]
   trialApplications           TrialApplication[]
   clubs                       Club[]
+  groupLessons                GroupLesson[]
   clubMemberships             ClubMembership[]
   clubApplications            ClubApplication[]
   lessonAssessments           LessonAssessment[]
@@ -897,6 +898,10 @@ model Lesson {
   /// `clubSessionId` ile bağlı (birbirleriyle çakışma saymaz; başka derslerle sayar). Hakediş oturum başına bir kez.
   clubId                  String?
   clubSessionId           String?
+  /// 2026-10-23 — GRUP DERSİ katılımcı satırı (`type` normal ders tipidir, ör. "regular"): öğrenci başına bir satır;
+  /// aynı oturumun satırları `groupSessionId` ile bağlı (birbirleriyle çakışma saymaz). Hakediş oturum başına bir kez.
+  groupLessonId           String?
+  groupSessionId          String?
   notes                   String?
   /// Geldi yoklamasının isteğe bağlı notu. Boş/null serbest; statü değişimi silmez.
   /// Hakediş ve ücret hesabı bu alanı okumaz.
@@ -968,6 +973,8 @@ model Lesson {
   @@index([tenantId, term, academicYearStart])
 
   @@index([tenantId, clubSessionId])
+  @@index([tenantId, groupSessionId])
+  @@index([tenantId, groupLessonId])
 }
 
 /// Haftalık tekrarlayan ders serisi — dönem boyunca üretilen Lesson
@@ -3254,4 +3261,41 @@ model PlatformDeployment {
   createdAt   DateTime @default(now())
 
   @@index([product, environment, createdAt])
+}
+
+/// 2026-10-23 — GRUP DERSİ tanımı (kulüpten AYRI domain). Katılım = öğrencinin branş kaydı
+/// (`Student.enrollments[].groupLessonId`); ücret/sözleşme/tahakkuk o kaydın normal koşullarından yürür.
+/// Oturumlar ayrı tablo değildir: plan (tekrar düzeni + ek/iptal oturumlar) burada, gerçekleşen ders satırları
+/// `Lesson.groupLessonId` + `groupSessionId` ile kanonik ders tablosundadır. Silinmez; `status` ile biter.
+model GroupLesson {
+  id               String   @id
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  teacherId        String
+  instrument       String
+  branchId         String
+  roomId           String
+  capacity         Int
+  durationMinutes  Int
+  /// Grup öğrencisi başına aylık ücret (TL) — yeni katılan öğrencinin branş kaydına önerilir; mevcut kayıtları değiştirmez.
+  monthlyFee       Int
+  /// "weekly" | "once"
+  recurrence       String
+  /// 0=Pazar … 6=Cumartesi (LessonSeries ile aynı kural); "once" için startsOn'un günü.
+  weekday          Int
+  /// "HH:mm" kurum saati.
+  startTime        String
+  /// YYYY-MM-DD
+  startsOn         String
+  endsOn           String
+  /// { extra: ISO[], cancelled: oturumAnahtarı[] }
+  sessionOverrides Json?
+  /// "active" | "ended"
+  status           String   @default("active")
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, status])
 }

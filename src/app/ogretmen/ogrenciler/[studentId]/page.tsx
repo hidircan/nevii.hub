@@ -291,7 +291,7 @@ export default async function TeacherStudentWorkspacePage({
                           {formatDateTime(lesson.startAt)}
                         </p>
                         <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                          {lesson.instrument} · {room?.name ?? "—"}
+                          {lesson.instrument}{lesson.groupLessonId ? " · Grup dersi" : ""} · {room?.name ?? "—"}
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>

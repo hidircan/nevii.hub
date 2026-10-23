@@ -264,6 +264,8 @@ export async function listLessonsTool(
       opsMakeupFlag: l.opsMakeupFlag ?? null,
       studentAttendanceNote: l.studentAttendanceNote ?? null,
       homeworkAssigned: homeworkByLesson.has(l.id),
+      // 2026-10-23 — grup dersi katılımcı satırı (mobil "Grup dersi" rozeti).
+      groupLessonId: l.groupLessonId ?? null,
     }));
   return ok({ lessons });
 }

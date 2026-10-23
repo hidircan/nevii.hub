@@ -43,6 +43,21 @@ export type EnrollmentFormCampaign = {
 
 export type EnrollmentFormTeacher = { id: string; name: string; active: boolean; instruments: string[] };
 
+/** 2026-10-23 — seçilebilir grup dersi (branş kaydı bu gruba katılım olur; koşullar gruptan gelir). */
+export type EnrollmentFormGroupLesson = {
+  id: string;
+  name: string;
+  instrument: string;
+  teacherId: string;
+  branchId: string;
+  durationMinutes: number;
+  monthlyFee: number;
+  lessonScheduleText: string;
+  scheduleLabel: string;
+  capacity: number;
+  seats: number;
+};
+
 export type EnrollmentFormContext = {
   instrumentOptions: string[];
   teachers: EnrollmentFormTeacher[];
@@ -57,7 +72,25 @@ export type EnrollmentFormContext = {
   mergeThresholdLessons: number;
   /** Kurum saatiyle bugün (YYYY-AA-GG). */
   todayYmd: string;
+  /** Aktif grup dersleri (boş/yok = grup seçimi gösterilmez). */
+  groupLessons?: EnrollmentFormGroupLesson[];
 };
+
+/** Grup seçilince taslağa yazılan koşullar (form ve ön doldurma AYNI kaynaktan; sunucu yine gruptan zorlar). */
+export function groupDraftDefaults(g: EnrollmentFormGroupLesson, personBranchId: string): Partial<EnrollmentDraft> {
+  return {
+    groupLessonId: g.id,
+    instrument: g.instrument,
+    teacherId: g.teacherId,
+    branchId: g.branchId === personBranchId ? "" : g.branchId,
+    lessonDurationMinutes: String(g.durationMinutes),
+    weeklyLessonCount: "1",
+    lessonScheduleText: g.lessonScheduleText,
+    packageId: "",
+    campaignIds: [],
+    monthlyFee: String(g.monthlyFee),
+  };
+}
 
 type ReferenceLike = {
   teachers: { id: string; name: string; active: boolean; instruments: readonly string[] }[];
@@ -78,9 +111,10 @@ type ReferenceLike = {
 /** Sunucu sayfası: referans veriden serileştirilebilir form bağlamı. */
 export function buildEnrollmentFormContext(
   data: ReferenceLike,
-  opts: { instrumentOptions: string[]; personBranchId: string; todayYmd: string }
+  opts: { instrumentOptions: string[]; personBranchId: string; todayYmd: string; groupLessons?: EnrollmentFormGroupLesson[] }
 ): EnrollmentFormContext {
   return {
+    groupLessons: opts.groupLessons,
     instrumentOptions: opts.instrumentOptions,
     teachers: data.teachers.map((t) => ({ id: t.id, name: t.name, active: t.active, instruments: [...t.instruments] })),
     branches: data.settings.branches.map((b) => ({ id: b.id, name: b.shortName || b.name })),

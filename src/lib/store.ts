@@ -161,6 +161,7 @@ type StoreApi = {
     enrollmentId?: string;
   }) => Promise<string>;
   addClubSessionLessons: (rows: import("./types").Lesson[]) => Promise<void>;
+  addGroupLessonRows: (rows: import("./types").Lesson[]) => Promise<void>;
   patchClubLessons: (ids: string[], patch: import("./clubs").ClubLessonPatch) => Promise<number>;
   addPayment: (input: {
     studentId: string;
@@ -915,6 +916,11 @@ async function inferLessonEnrollmentId(studentId: string, instrument: string, te
 /** 2026-10-06 — kulüp oturumu satırları (bkz. clubs.ts). */
 export async function addClubSessionLessons(rows: import("./types").Lesson[]): Promise<void> {
   return withTenantScope(() => store.addClubSessionLessons(rows));
+}
+
+/** 2026-10-23 — grup dersi katılımcı satırları (bkz. group-lessons.ts); kilit altında yeniden çakışma denetimi. */
+export async function addGroupLessonRows(rows: import("./types").Lesson[]): Promise<void> {
+  return withTenantScope(() => store.addGroupLessonRows(rows));
 }
 
 export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {

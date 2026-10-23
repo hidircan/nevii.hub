@@ -53,6 +53,8 @@ export type Lesson = {
   opsMakeupFlag?: boolean | null;
   studentAttendanceNote?: string | null;
   homeworkAssigned?: boolean;
+  /** 2026-10-23 — grup dersi katılımcı satırı (aynı oturumun her öğrencisi ayrı satır, yoklama öğrenci bazında). */
+  groupLessonId?: string | null;
 };
 export type ScheduleResponse = {
   lessons: Lesson[];
@@ -63,6 +65,22 @@ export type ScheduleResponse = {
   truncated?: boolean;
 };
 export type LessonsResponse = { lessons: Lesson[] };
+
+/** 2026-10-23 — GET /api/v1/group-lessons */
+export type GroupLessonListItem = {
+  id: string;
+  name: string;
+  instrument: string;
+  teacherName: string;
+  roomName: string;
+  scheduleLabel: string;
+  capacity: number;
+  seats: number;
+  monthlyFee: number;
+  status: "active" | "ended";
+  nextSessionAt: string | null;
+};
+export type GroupLessonsResponse = { groups: GroupLessonListItem[] };
 
 export type AttendanceDayStatus = {
   date: string;

@@ -33,7 +33,7 @@ import {
   type EnrollmentDraft,
   type EnrollmentFieldErrors,
 } from "@/lib/enrollment-form";
-import { computeEnrollmentDerived, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { computeEnrollmentDerived, groupDraftDefaults, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
 
 type KvkkTextOption = { version: number; bodyText: string };
 
@@ -113,11 +113,17 @@ export function NewStudentForm({
   const [drafts, setDrafts] = useState<EnrollmentDraft[]>(() => {
     const restored = values.enrollments ? parseEnrollmentDraftsJson(values.enrollments) : null;
     if (restored?.ok) return restored.drafts;
+    // 2026-10-23 — Grup Dersleri → "Yeni öğrenciyle ekle": ilk branş o gruba katılım olarak başlar.
+    const group = prefill?.groupLessonId ? enrollmentContext.groupLessons?.find((g) => g.id === prefill.groupLessonId) : undefined;
     return [
-      emptyEnrollmentDraft({
-        instrument: prefill?.instrument ?? "",
-        teacherId: prefill?.teacherId ?? "",
-      }),
+      emptyEnrollmentDraft(
+        group
+          ? groupDraftDefaults(group, prefill?.branchId ?? branches[0]?.id ?? "")
+          : {
+              instrument: prefill?.instrument ?? "",
+              teacherId: prefill?.teacherId ?? "",
+            }
+      ),
     ];
   });
   // Yeniden gönderim kimliği: aynı form oturumunda sabit; sunucu çift tık/yeniden denemeyi tek kayda indirger.

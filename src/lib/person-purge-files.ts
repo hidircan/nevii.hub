@@ -236,7 +236,8 @@ export async function loadPurgeSnapshotFiles(io: StoreIo, kind: PurgeKind, id: s
     person: { id: t.id, name: t.name, displayId: t.displayId, active: t.active !== false, deletedAt: t.deletedAt, purgedAt: t.purgedAt },
     lessons: data.lessons
       .filter((l) => l.teacherId === id)
-      .map((l) => ({ id: l.id, studentId: l.studentId, teacherId: l.teacherId, startAt: l.startAt, status: l.status, seriesId: l.seriesId, clubSessionId: l.clubSessionId })),
+      .map((l) => ({ id: l.id, studentId: l.studentId, teacherId: l.teacherId, startAt: l.startAt, status: l.status, seriesId: l.seriesId, clubSessionId: l.clubSessionId, groupSessionId: l.groupSessionId })),
+    groupLessons: (await (await import("./group-lessons")).listGroupLessons(tid)).filter((g) => g.teacherId === id).map((g) => ({ id: g.id, name: g.name, status: g.status })),
     series: data.lessonSeries.filter((x) => x.teacherId === id).map((x) => ({ id: x.id, status: x.status })),
     makeups: data.makeupRequests.filter((m) => m.teacherId === id).map((m) => ({ id: m.id })),
     payouts: data.teacherPayouts

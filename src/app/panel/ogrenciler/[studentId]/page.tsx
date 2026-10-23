@@ -15,6 +15,7 @@ import { loadStudentPageContext } from "./_context";
 import { StudentEnrollmentsCard } from "@/components/student-enrollments-card";
 import { draftFromTerms } from "@/lib/enrollment-form";
 import { buildEnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { groupLessonFormOptions } from "@/lib/group-lessons";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
 import {
   contractEnrollmentId,
@@ -42,10 +43,10 @@ export default async function StudentOverviewTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string; sozlesmeDon?: string; sozlesmeSure?: string; duzenleBrans?: string }>;
+  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string; sozlesmeDon?: string; sozlesmeSure?: string; duzenleBrans?: string; grupDersi?: string }>;
 }) {
   const { studentId } = await params;
-  const { yeniKayit, sure, davetUyari, sozlesmeDon, sozlesmeSure, duzenleBrans } = await searchParams;
+  const { yeniKayit, sure, davetUyari, sozlesmeDon, sozlesmeSure, duzenleBrans, grupDersi } = await searchParams;
   const { session, data, student, kurum, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
@@ -287,10 +288,16 @@ export default async function StudentOverviewTab({
           instrumentOptions: kurum.scope.mode === "single" ? await resolveActiveInstrumentNames(kurum.scope.tenantId) : [],
           personBranchId: student.branchId,
           todayYmd: toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE),
+          // 2026-10-23 — "Branş kaydı ekle" ile mevcut öğrenciyi grup dersine katma (yalnız kendi kurumunda).
+          groupLessons:
+            kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+              ? await groupLessonFormOptions(session.tenantId, async () => (await import("@/lib/store").then((m) => m.readReferenceData())).students)
+              : undefined,
         })}
         termType={student.termType ?? "guz"}
         canManage={canManage && kurum.scope.mode === "single"}
         initialEditId={duzenleBrans}
+        initialAddGroupLessonId={grupDersi}
       />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

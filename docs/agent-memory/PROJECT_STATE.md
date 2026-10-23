@@ -186,6 +186,17 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - AÇIK (owner): Play Console doğru Google hesabıyla giriş; canlıda sentetik inceleme test hesabı; hedef kitle/IARC kararları.
 - Bilinen: `/panel` telefon genişliğinde kenar menü daralmıyor (içerik ~57px) — ayrı iş.
 
+## Güncel snapshot — 2026-10-23 (grup dersi mimarisi; PR açık, MERGE/CANLI YOK)
+- Dal `feat/group-lessons` (taban `origin/main` 5cac975) → PR. Kulüpten AYRI domain: `GroupLesson` tanımı + katılım = öğrencinin
+  branş kaydı (`StudentEnrollment.groupLessonId`); ücret/sözleşme/ilk tahsilat/aylık tahakkuk o kaydın normal koşullarıyla.
+- Ders satırı kanonik `Lesson` (`type:"regular"`, `groupLessonId`, `groupSessionId`): öğrenci başına satır, aynı oturum
+  öğretmen/odayı paylaşır (`findSlotConflict`), hakediş oturum başına bir kez ve normal kural (en az biri Geldi/İşlendi;
+  temsilci = en küçük satır id). Tek yazıcı `syncGroupLessonRowsLocked` (grup kilidi + `addGroupLessonRows` ders-yuvası kilidi).
+- Migration `20261023120000_group_lessons` (eklemeli: tablo + 2 nullable kolon + indeks) KODDAN ÖNCE uygulanmalı.
+- Ekranlar: `/panel/grup-dersleri` (+detay, oturum yoklaması), kayıt/branş formunda "Ders türü", program kartı "Grup",
+  mobil yönetici liste + ders kartı rozeti. Test: `group-lessons.test.ts`.
+- Bilinen: mobilde `main`'den gelen 2 dosyada çakışma işareti (yoklama.tsx, assessment/[lessonId].tsx) — ayrı iş.
+
 ## Güncel snapshot — 2026-10-10 (P0 Supabase egress + UserSession kilidi; PR #21 MERGE + CANLIDA `cf12bc0`, ~10:42Z)
 - Yöntem/kurallar: skill `performance-db-egress`; kalan tam okumalar `docs/performance/DB_EGRESS_2026_10_10.md` §5.
 - Dal `fix/supabase-egress-p0` (taban `origin/main` a18c887) → PR. Migration/şema/env değişikliği YOK.

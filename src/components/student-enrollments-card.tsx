@@ -20,7 +20,7 @@ import {
   type EnrollmentDraft,
   type EnrollmentFieldErrors,
 } from "@/lib/enrollment-form";
-import { computeEnrollmentDerived, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { computeEnrollmentDerived, groupDraftDefaults, type EnrollmentFormContext } from "@/lib/enrollment-form-context";
 import type { StudentTermType } from "@/lib/types";
 
 export type EnrollmentCardRow = {
@@ -61,7 +61,10 @@ export function StudentEnrollmentsCard({
   termType,
   canManage,
   initialEditId,
+  initialAddGroupLessonId,
 }: {
+  /** 2026-10-23 — Grup Dersleri → "Mevcut öğrenciyi ekle": branş ekleme formu bu grupla açık başlar. */
+  initialAddGroupLessonId?: string;
   /** Bilgiler sekmesindeki "Bu branşı düzenle" bağlantısından gelen branş: düzenleme formu açık başlar. */
   initialEditId?: string;
   studentId: string;
@@ -73,7 +76,9 @@ export function StudentEnrollmentsCard({
   const router = useRouter();
   const [editing, setEditing] = useState<{ mode: "add" | "edit"; draft: EnrollmentDraft; updatedAt?: string } | null>(() => {
     const row = initialEditId ? enrollments.find((e) => e.id === initialEditId) : undefined;
-    return row && canManage ? { mode: "edit", draft: row.draft, updatedAt: row.updatedAt } : null;
+    if (row && canManage) return { mode: "edit", draft: row.draft, updatedAt: row.updatedAt };
+    const group = initialAddGroupLessonId ? formContext.groupLessons?.find((g) => g.id === initialAddGroupLessonId) : undefined;
+    return group && canManage ? { mode: "add", draft: emptyEnrollmentDraft(groupDraftDefaults(group, formContext.personBranchId)) } : null;
   });
   const [fieldErrors, setFieldErrors] = useState<EnrollmentFieldErrors>({});
   const [ending, setEnding] = useState<{ row: EnrollmentCardRow; endDate: string; endReason: string } | null>(null);
