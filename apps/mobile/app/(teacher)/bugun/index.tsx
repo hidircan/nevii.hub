@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
-import { AppHeader, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../../src/components/ui";
+import { AppHeader, AttendanceLegend, Card, EmptyState, ErrorState, Icon, LessonCard, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../../src/components/ui";
 import { useAppForegroundRefetch } from "../../../src/hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { useFocusRefetch } from "../../../src/hooks/use-focus-refetch";
@@ -17,8 +17,10 @@ import type { HomeworkResponse, PayoutsResponse, ScheduleResponse } from "../../
  * Ürün kuralları:
  * - Kapanış-bekleyen alanı YOK (öğretmen yoklama almaz, ders
  *   başlatmaz/bitirmez).
- * - Yoklama durumu ne rozet ne CTA olarak görünmez (`showStatus={false}`);
- *   kartlarda şube adı + oda bilgisi gösterilir.
+ * - Yoklama durumu SALT OKUNUR rozet olarak gösterilir (`showAttendance`) —
+ *   yöneticiyle AYNI renk/eşleme (features/attendance/status-style). Öğretmen
+ *   yoklama ALAMAZ: CTA/mutasyon yoktur (bkz. teacher-no-attendance testi).
+ * - Kartlarda şube adı + oda bilgisi gösterilir.
  * - Ders detayı salt-okunur bilgi + izinli ödev/değerlendirme akışlarına gider.
  */
 export default function TeacherBugun() {
@@ -149,6 +151,8 @@ export default function TeacherBugun() {
         </Pressable>
       </View>
 
+      <AttendanceLegend />
+
       <AppText
         style={[
           t.typography.compactTitle,
@@ -252,6 +256,7 @@ export default function TeacherBugun() {
                       <LessonCard
                         key={lesson.id}
                         lesson={lesson}
+                        showAttendance
                         showStatus={false}
                         personName={lesson.studentName ?? tr("teach.studentFallback")}
                         onPress={() => router.push(`/(teacher)/bugun/${lesson.id}`)}

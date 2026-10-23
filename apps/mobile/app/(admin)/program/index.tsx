@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import { AppHeader, EmptyState, ErrorState, FilterChip, Icon, LessonCard, LoadingSkeleton, Screen } from "../../../src/components/ui";
+import { Pressable, ScrollView, View } from "react-native";
+import { AppHeader, EmptyState, ErrorState, FilterChip, Icon, LessonCard, LoadingSkeleton, Screen, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { format, relativeDayLabel } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
@@ -41,8 +41,8 @@ export default function AdminProgram() {
           <Icon name="chevron-back" size={22} color={t.colors.text} />
         </Pressable>
         <Pressable onPress={() => setDay(new Date())} style={{ alignItems: "center" }}>
-          <Text style={[t.typography.sectionTitle, { color: t.colors.text }]}>{relativeDayLabel(day)}</Text>
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{format(day, "yyyy-MM-dd")}</Text>
+          <AppText style={[t.typography.sectionTitle, { color: t.colors.text }]}>{relativeDayLabel(day)}</AppText>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{format(day, "yyyy-MM-dd")}</AppText>
         </Pressable>
         <Pressable onPress={() => setDay((d) => new Date(d.getTime() + 86400000))} hitSlop={8}>
           <Icon name="chevron-forward" size={22} color={t.colors.text} />
@@ -75,6 +75,7 @@ export default function AdminProgram() {
                 key={l.id}
                 lesson={l}
                 personName={`${l.studentName ?? tr("adm.progStudentFb")} · ${l.teacherName ?? tr("adm.progTeacherFb")}`}
+                showAttendance
                 onPress={() => router.push(`/(admin)/program/${l.id}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)}
               />
             ))}

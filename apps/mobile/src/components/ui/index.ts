@@ -20,6 +20,7 @@ export * from "./states";
 export * from "./search-input";
 export * from "./filter-chip";
 export * from "./status-badge";
+export * from "./attendance-status-badge";
 export * from "./progress-bar";
 export * from "./avatar";
 export * from "./bottom-sheet";

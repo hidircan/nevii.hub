@@ -1357,6 +1357,14 @@ const tr = {
     fallbackName: "Öğrenci",
     selectA11y: "{name} adlı öğrenciyi seç",
   },
+  attStatus: {
+    legend: "Yoklama durumu",
+    present: "Katıldı",
+    absent: "Gelmedi",
+    excused: "İzinli",
+    unmarked: "İşaretlenmedi",
+    cancelled: "İptal edildi",
+  },
 };
 
 export type Strings = typeof tr;
@@ -2699,6 +2707,14 @@ const en: Strings = {
     emptyHint: "No active student access is visible. Contact your institution.",
     fallbackName: "Student",
     selectA11y: "Select student {name}",
+  },
+  attStatus: {
+    legend: "Attendance status",
+    present: "Attended",
+    absent: "Absent",
+    excused: "Excused",
+    unmarked: "Not marked",
+    cancelled: "Cancelled",
   },
 };
 

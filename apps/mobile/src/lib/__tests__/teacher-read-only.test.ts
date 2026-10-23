@@ -96,10 +96,13 @@ describe("öğretmen salt-okunur yüzey sözleşmesi", () => {
     }
   });
 
-  it("öğretmen kartlarında yoklama rozeti YOK, şube adı VAR", async () => {
+  it("öğretmen kartlarında SALT OKUNUR yoklama rozeti VAR; yoklama mutasyonu YOK", async () => {
     const index = await fs.readFile(path.join(APP_DIR, "(teacher)", "bugun", "index.tsx"), "utf-8");
     expect(index).not.toMatch(/Kapanış bekleyen/);
+    // Genel ders durumu rozeti kapalı; yerine paylaşılan yoklama rozeti açık.
     expect(index).toMatch(/showStatus=\{false\}/);
+    expect(index).toMatch(/showAttendance/);
+    expect(index).not.toMatch(/lessons\/.*\/ops/);
     const card = await fs.readFile(
       path.join(__dirname, "..", "..", "components", "ui", "lesson-card.tsx"),
       "utf-8"
