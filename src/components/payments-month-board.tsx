@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "@/components/link";
 import { Receipt, Search, X } from "lucide-react";
-import { cn, formatDate, formatMoney, paymentMethodLabelTr } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatMoney, paymentMethodLabelTr } from "@/lib/utils";
 import { withReturnTo } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 import { PAYMENT_STATUS_INFO, type PaymentDisplayStatus } from "@/lib/payments/status";
@@ -122,12 +122,14 @@ export function PaymentsMonthBoard({
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="hidden grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] md:grid">
+        <div className="hidden grid-cols-[minmax(0,1.6fr)_5rem_5.5rem_5.5rem_5.5rem_6.75rem_6.25rem_6.5rem_minmax(8rem,auto)] gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)] md:grid">
           <span>Öğrenci · bağlam</span>
           <span>Vade</span>
           <span className="text-right">Beklenen</span>
           <span className="text-right">Alınan</span>
           <span className="text-right">Kalan</span>
+          <span>Ödemenin alındığı tarih</span>
+          <span>Ödeme türü</span>
           <span>Durum</span>
           <span className="text-right">İşlem</span>
         </div>
@@ -299,10 +301,11 @@ function RowActions({ row, canWrite, canDelete, onModal, withDelete }: LineActio
 }
 
 function RowContext({ row, showMonth }: { row: MonthPaymentRow; showMonth?: boolean }) {
+  // Ödemenin alındığı tarih + ödeme türü artık kendi sütunlarında (masaüstü) ve mobil bilgi
+  // satırında gösteriliyor — burada tekrarlanmaz (duplicated rendering temizliği).
   const bits = [
     showMonth ? row.month : null,
     row.description,
-    row.paidAt && row.collected > 0 ? `Tahsilat ${formatDate(row.paidAt)}${row.method ? ` · ${paymentMethodLabelTr(row.method)}` : ""}` : null,
     row.spansMonths ? "çok aylı tahsilatın bu aya düşen payı" : null,
     row.coveredInstallments > 1 ? `${row.coveredInstallments} taksit karşılandı` : null,
   ].filter(Boolean);
@@ -317,8 +320,9 @@ function PaymentLine({
   ...actions
 }: LineActions & { row: MonthPaymentRow; showMonth: boolean; highlighted?: boolean; onOpenStudent: () => void }) {
   const remainingTone = row.status === "overdue" ? "danger" : row.remaining === 0 ? "muted" : undefined;
+  const gridCols = "md:grid-cols-[minmax(0,1.6fr)_5rem_5.5rem_5.5rem_5.5rem_6.75rem_6.25rem_6.5rem_minmax(8rem,auto)]";
   return (
-    <div className={highlighted ? "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 ring-2 ring-inset ring-[var(--color-primary)] md:grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] md:items-center md:gap-3" : "grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 md:grid-cols-[minmax(0,1.8fr)_5.5rem_6.5rem_6.5rem_6.5rem_7rem_minmax(9rem,auto)] md:items-center md:gap-3"}>
+    <div className={highlighted ? `grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 ring-2 ring-inset ring-[var(--color-primary)] ${gridCols} md:items-center md:gap-3` : `grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-4 py-2.5 ${gridCols} md:items-center md:gap-3`}>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-1.5">
           <button
@@ -347,6 +351,22 @@ function PaymentLine({
         <span className="md:text-right"><span className="block text-[10px] text-[var(--color-text-muted)] md:hidden">Alınan</span><Money value={row.collected} tone={row.collected > 0 ? "success" : "muted"} /></span>
         <span className="md:text-right"><span className="block text-[10px] text-[var(--color-text-muted)] md:hidden">Kalan</span><Money value={row.remaining} tone={remainingTone} strong /></span>
       </div>
+      {/* Mobil bilgi satırı: masaüstündeki iki yeni sütunun karşılığı. */}
+      <div className="col-span-2 text-xs text-[var(--color-text-muted)] md:hidden">
+        Ödemenin alındığı tarih:{" "}
+        {row.paidAt ? (
+          <span className="font-medium text-[var(--color-text)]" title={formatDateTime(row.paidAt)}>{formatDate(row.paidAt)}</span>
+        ) : (
+          <span>—</span>
+        )}
+        {" · "}Ödeme türü: <span className="font-medium text-[var(--color-text)]">{paymentMethodLabelTr(row.method)}</span>
+      </div>
+      <span className="hidden text-sm text-[var(--color-text)] md:block" title={row.paidAt ? formatDateTime(row.paidAt) : undefined}>
+        {row.paidAt ? formatDate(row.paidAt) : <span className="text-[var(--color-text-muted)]">—</span>}
+      </span>
+      <span className="hidden text-sm text-[var(--color-text)] md:block">
+        {paymentMethodLabelTr(row.method)}
+      </span>
       <div className="hidden md:block">
         <PaymentStatusBadge status={row.status} />
       </div>
@@ -406,6 +426,15 @@ function StudentDrawer({
                 <PaymentStatusBadge status={r.status} />
               </div>
               <RowContext row={r} />
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Ödemenin alındığı tarih:{" "}
+                {r.paidAt ? (
+                  <span className="font-medium text-[var(--color-text)]" title={formatDateTime(r.paidAt)}>{formatDate(r.paidAt)}</span>
+                ) : (
+                  <span>—</span>
+                )}
+                {" · "}Ödeme türü: <span className="font-medium text-[var(--color-text)]">{paymentMethodLabelTr(r.method)}</span>
+              </p>
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="text-xs text-[var(--color-text-muted)]">
                   <Money value={r.collected} tone="success" /> / <Money value={r.expected} /> · kalan <Money value={r.remaining} strong tone={r.remaining > 0 ? "danger" : "muted"} />
