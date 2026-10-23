@@ -151,6 +151,7 @@ describe("grup dersi — katılım akışı (json store)", () => {
   it("mevcut öğrenci gruba katılır: branş kaydı grup koşullarıyla, ücret grup fiyatı, oturum başına satır; kontenjan doluysa ret, kapasite artınca kabul", async () => {
     const { groupId, teacher, students, startsOn } = await setup(2);
     const [a, b, c] = students;
+    const g0 = (await getGroupLesson(DEFAULT_TENANT_ID, groupId))!;
     const ja = await join(a!.id, groupId, startsOn);
     if (!ja.ok) throw new Error(ja.error.message);
     const enr = ja.data.enrollments.find((e) => e.id === ja.data.enrollmentId)!;
@@ -173,11 +174,22 @@ describe("grup dersi — katılım akışı (json store)", () => {
     rows = (await readGroupLessonData(groupId)).lessons.filter((l) => l.status !== "cancelled");
     expect(rows).toHaveLength(9);
 
-    // Tahakkuk: grup kaydı normal branş kaydı gibi grup fiyatıyla planlanır (sözleşmesiz öğrenci).
+    // Katılım grubun son günüyle biter; grup uzatılınca kayıt da uzar.
+    expect(enr.endDate).toBe(g0.endsOn);
+    const longer = addDaysYmd(startsOn, 42);
+    expect((await updateGroupLessonTool(admin, { groupLessonId: groupId, ...g, capacity: 3, endsOn: longer })).ok).toBe(true);
+    const { readData } = await import("../store");
+    const enrNow = (await readData()).students.find((x) => x.id === a!.id)!.enrollments!.find((e) => e.id === enr.id)!;
+    expect(enrNow.endDate).toBe(longer);
+    // Tahakkuk: grup kaydı normal branş kaydı gibi grup fiyatıyla; başlangıç ayı ilk tahsilattır, sonraki ay borçlanır,
+    // grubun bittiği aydan sonrası borçlanmaz.
     const { syncStandaloneAccruals } = await import("../standalone-monthly-accrual");
-    const plan = await syncStandaloneAccruals(DEFAULT_TENANT_ID, { apply: false, studentId: a!.id });
+    const nextMonth = addDaysYmd(`${startsOn.slice(0, 7)}-01`, 32).slice(0, 7);
+    const plan = await syncStandaloneAccruals(DEFAULT_TENANT_ID, { apply: false, studentId: a!.id, now: new Date(`${nextMonth}-05T09:00:00.000Z`) });
     const mine = plan.planned.filter((p) => p.enrollmentId === enr.id);
+    expect(mine.length).toBeGreaterThan(0);
     expect(mine.every((p) => p.amount === 1200)).toBe(true);
+    expect(mine.every((p) => p.month <= longer.slice(0, 7))).toBe(true);
 
     // Kayıt sonu: koltuk boşalır, bitişten sonraki grup satırları iptal edilir.
     const end = await upsertStudentEnrollmentTool(admin, {
@@ -197,7 +209,8 @@ describe("grup dersi — katılım akışı (json store)", () => {
     const { readData } = await import("../store");
     const { writeData } = await import("../store-json");
     const data = await readData();
-    const otherRoom = data.rooms.find((r) => r.active !== false && !r.deletedAt)!;
+    const groupRoomId = (await getGroupLesson(DEFAULT_TENANT_ID, groupId))!.roomId;
+    const otherRoom = data.rooms.find((r) => r.active !== false && !r.deletedAt && r.id !== groupRoomId)!;
     await writeData({
       ...data,
       lessons: [
@@ -206,9 +219,50 @@ describe("grup dersi — katılım akışı (json store)", () => {
       ],
     });
     const res = await join(d.id, groupId, startsOn);
-    expect(!res.ok && res.error.message).toContain("başka bir dersi var");
+    expect(!res.ok && res.error.message).toContain("başka bir derste");
     const after = (await readData()).students.find((s) => s.id === d.id)!;
     expect((after.enrollments ?? []).some((e) => e.groupLessonId === groupId)).toBe(false);
+  });
+
+  it("boş grubun saatini sonradan bireysel ders aldıysa yeni katılım hiçbir şey yazılmadan reddedilir", async () => {
+    const { groupId, students, startsOn, teacher, instrument } = await setup(3);
+    const plan = planGroupSessions((await getGroupLesson(DEFAULT_TENANT_ID, groupId))!);
+    const { readData } = await import("../store");
+    const { writeData } = await import("../store-json");
+    const data = await readData();
+    const other = data.students.find((x) => x.id !== students[0]!.id && x.active)!;
+    const otherRoom = data.rooms.find((r) => r.active !== false && !r.deletedAt)!;
+    await writeData({
+      ...data,
+      lessons: [
+        ...data.lessons,
+        { id: "solo1", studentId: other.id, teacherId: teacher.id, roomId: otherRoom.id, branchId: otherRoom.branchId, instrument: instrument as Lesson["instrument"], startAt: plan[2]!.startAt, endAt: plan[2]!.endAt, type: "regular", status: "scheduled" },
+      ],
+    });
+    const res = await join(students[0]!.id, groupId, startsOn);
+    expect(!res.ok && res.error.message).toContain("Öğretmenin bu saatte başka dersi var");
+    const after = (await readData()).students.find((s) => s.id === students[0]!.id)!;
+    expect((after.enrollments ?? []).some((e) => e.groupLessonId === groupId)).toBe(false);
+    expect((await readGroupLessonData(groupId)).lessons).toHaveLength(0);
+  });
+
+  it("saat değişince yoklamasız gelecek satırlar yeni saatte yeniden kurulur, yoklaması girilmiş satır korunur", async () => {
+    const { groupId, students, startsOn } = await setup(3);
+    expect((await join(students[0]!.id, groupId, startsOn)).ok).toBe(true);
+    expect((await join(students[1]!.id, groupId, startsOn)).ok).toBe(true);
+    const { readData } = await import("../store");
+    const { writeData } = await import("../store-json");
+    const data = await readData();
+    const marked = data.lessons.filter((l) => l.groupLessonId === groupId).sort((x, y) => x.startAt.localeCompare(y.startAt))[0]!;
+    await writeData({ ...data, lessons: data.lessons.map((l) => (l.id === marked.id ? { ...l, opsClosedFlag: true } : l)) });
+    const g = (await getGroupLesson(DEFAULT_TENANT_ID, groupId))!;
+    const res = await updateGroupLessonTool(admin, { groupLessonId: groupId, ...g, startTime: "07:55" });
+    if (!res.ok) throw new Error(res.error.message);
+    expect(res.data).toEqual({ cancelled: 5, created: 6, kept: 1 });
+    const live = (await readGroupLessonData(groupId)).lessons.filter((l) => l.status !== "cancelled");
+    expect(live.find((l) => l.id === marked.id)).toBeTruthy(); // korunan (eski saat) satır
+    const newKeys = new Set(planGroupSessions((await getGroupLesson(DEFAULT_TENANT_ID, groupId))!).map((x) => x.key));
+    expect(live.filter((l) => newKeys.has(l.groupSessionId!))).toHaveLength(6);
   });
 
   it("sözleşmeden ders programı: grup branşında bireysel seri ÜRETİLMEZ", async () => {

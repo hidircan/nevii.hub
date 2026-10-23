@@ -3495,6 +3495,7 @@ async function registerStudentWithEnrollmentsUnlocked(
         firstPaymentAdjustmentReason: d.firstPayment.adjustmentReason.trim() || undefined,
         firstCollectionIncludesNextMonth: d.firstPayment.includeNextMonth ?? undefined,
         groupLessonId: n.groupLessonId && groupJoins.has(n.groupLessonId) ? n.groupLessonId : undefined,
+        enrollmentEndDate: n.groupLessonId ? groupJoins.get(n.groupLessonId)?.endsOn : undefined,
       },
     });
   }
@@ -3761,7 +3762,7 @@ async function upsertStudentEnrollmentUnlocked(
       lessonScheduleText: e.lessonScheduleText || undefined,
       lessonDays: e.lessonScheduleText ? lessonWeekdaysFromText(e.lessonScheduleText) : undefined,
       intendedDurationMonths: e.intendedDurationMonths,
-      enrollmentEndDate: undefined,
+      enrollmentEndDate: groupJoin ? groupJoin.terms.endDate : undefined,
       firstPaymentCollected: e.firstPayment
         ? {
             method: e.firstPayment.method,

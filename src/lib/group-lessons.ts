@@ -337,8 +337,12 @@ type SyncResult = { created: number; skippedClosedDays: number };
 export async function syncGroupLessonRowsLocked(
   ctx: ServiceContext,
   g: GroupLesson,
-  /** `ignoreRowIds`: bu işlemde iptal edilecek satırlar (yok sayılır). `dryRun`: yalnız doğrula, yazma. */
-  opts: { studentIds?: string[]; ignoreRowIds?: Set<string>; dryRun?: boolean } = {}
+  /**
+   * `ignoreRowIds`: bu işlemde iptal edilecek satırlar (yok sayılır). `dryRun`: yalnız doğrula, yazma.
+   * `virtualMember`: henüz kaydı açılmamış katılımcı — katılım ön kontrolü yazıcıyla AYNI kurallardan geçer (kayıt + ilk
+   * tahsilat yazılıp satırlar yazılamadığı yarım durum oluşmasın).
+   */
+  opts: { studentIds?: string[]; ignoreRowIds?: Set<string>; dryRun?: boolean; virtualMember?: GroupMember } = {}
 ): Promise<ServiceResult<SyncResult>> {
   if (g.status !== "active") return ok({ created: 0, skippedClosedDays: 0 });
   const data = await readGroupLessonData(g.id);
@@ -349,6 +353,7 @@ export async function syncGroupLessonRowsLocked(
   const members = groupMembers(data.students, g.id).filter(
     (m) => (!opts.studentIds || opts.studentIds.includes(m.student.id)) && m.student.active && !m.student.deletedAt && !m.student.purgedAt
   );
+  if (opts.virtualMember) members.push(opts.virtualMember);
   const ignored = opts.ignoreRowIds ?? new Set<string>();
   const liveRows = data.lessons.filter((l) => l.groupLessonId === g.id && l.groupSessionId && l.status !== "cancelled" && !ignored.has(l.id));
   const existing = new Set(liveRows.map((l) => `${l.groupSessionId}|${l.studentId}`));
@@ -458,7 +463,7 @@ export async function releaseGroupMemberRowsLocked(g: Pick<GroupLesson, "id">, s
 export async function prepareGroupJoin(
   ctx: ServiceContext,
   input: { groupLessonId: string; studentId?: string; startYmd: string }
-): Promise<ServiceResult<{ group: GroupLesson; terms: { instrument: string; teacherId: string; lessonDurationMinutes: number; weeklyLessonCount: number; lessonScheduleText: string; branchId: string } }>> {
+): Promise<ServiceResult<{ group: GroupLesson; terms: { instrument: string; teacherId: string; lessonDurationMinutes: number; weeklyLessonCount: number; lessonScheduleText: string; branchId: string; endDate: string } }>> {
   const g = await getGroupLesson(ctx.tenantId, input.groupLessonId);
   if (!g) return fail("NOT_FOUND", "Seçilen grup dersi bulunamadı. Sayfayı yenileyip tekrar seçin.");
   if (g.status !== "active") return fail("VALIDATION_ERROR", `"${g.name}" grubu sona erdi; yeni öğrenci eklenemez. Aktif bir grup seçin.`);
@@ -479,23 +484,17 @@ export async function prepareGroupJoin(
   }
   const teacher = ref.teachers.find((t) => t.id === g.teacherId);
   if (!teacher || !teacher.active) return fail("VALIDATION_ERROR", `"${g.name}" grubunun öğretmeni pasif. Grup dersini düzenleyip aktif bir öğretmen seçin.`);
-  if (input.studentId) {
-    // Mevcut öğrenci: katılacağı oturumlarda başka dersi varsa kayıt AÇILMADAN engellenir (yalnız öğrencinin dersleri okunur).
-    const { readStudentScope } = await import("./store");
-    const { findSlotConflict } = await import("./lesson-occupancy");
-    const { formatDateTime } = await import("./utils");
-    const own = (await readStudentScope(input.studentId)).lessons.filter((l) => l.groupLessonId !== g.id);
-    for (const s of planGroupSessions(g)) {
-      if (Date.parse(s.startAt) <= Date.now() || toZonedYmd(new Date(s.startAt), TZ) < input.startYmd) continue;
-      const hit = findSlotConflict(own, { teacherId: "__group_none__", roomId: "__group_none__", studentId: input.studentId, startAt: s.startAt, endAt: s.endAt });
-      if (hit) {
-        return fail(
-          "CONFLICT",
-          `${formatDateTime(s.startAt)}: öğrencinin bu saatte başka bir dersi var (${formatDateTime(hit.lesson.startAt)}). Önce o dersi taşıyın/iptal edin ya da gruba katılım (ders başlangıç) tarihini o dersten sonraya alın.`
-        );
-      }
-    }
-  }
+  // Yazıcının kendi kuralları (oturum başına kontenjan, öğretmen/oda/öğrenci çakışması, deneme dersi), sanal katılımcıyla.
+  const virtualStudent = (input.studentId && ref.students.find((x) => x.id === input.studentId)) || ({ id: "__new_student__", name: "Yeni öğrenci", active: true } as StudentRef);
+  const dry = await syncGroupLessonRowsLocked(ctx, g, {
+    dryRun: true,
+    studentIds: [],
+    virtualMember: {
+      student: { ...virtualStudent, active: true },
+      enrollment: { id: "__group_join__", instrument: g.instrument as StudentEnrollment["instrument"], active: true, startDate: input.startYmd, lessonStartDate: input.startYmd, endDate: g.endsOn, createdAt: "", groupLessonId: g.id },
+    },
+  });
+  if (!dry.ok) return dry;
   const room = ref.rooms.find((r) => r.id === g.roomId);
   return ok({
     group: g,
@@ -506,6 +505,8 @@ export async function prepareGroupJoin(
       weeklyLessonCount: 1,
       lessonScheduleText: groupScheduleText(g),
       branchId: room?.branchId ?? g.branchId,
+      // Katılım grubun son günüyle biter: aylık tahakkuk bitmiş grup için borç yazmaz (tarih uzarsa kayıt da uzar).
+      endDate: g.endsOn,
     },
   });
 }
@@ -663,7 +664,7 @@ export async function updateGroupLessonTool(ctx: ServiceContext, input: unknown)
         cancelled = replace.length;
       }
       await writeGroupLesson(ctx.tenantId, next, false);
-      if (next.teacherId !== current.teacherId) await retagMemberTeacher(data.students, current.id, next.teacherId);
+      await patchMemberTerms(data.students, current, next);
       // ponytail: iptal ile yeniden yazım arasında başka bir işlem saati alırsa yazım reddedilir; "Satırları yenile" onarır.
       const rebuilt = await syncGroupLessonRowsLocked(ctx, next);
       if (!rebuilt.ok) return fail(rebuilt.error.code, `${rebuilt.error.message} Grup düzeni kaydedildi; çakışmayı giderip "Satırları yenile"ye basın.`);
@@ -676,12 +677,20 @@ export async function updateGroupLessonTool(ctx: ServiceContext, input: unknown)
   });
 }
 
-async function retagMemberTeacher(students: readonly StudentRef[], groupId: string, teacherId: string): Promise<void> {
+/**
+ * Grup düzeni değişince aktif katılımcıların grup kaydı izler: öğretmen (görünüm/mükerrer kuralı) ve grubun son gününe
+ * bağlı bitiş tarihi (tahakkuk sınırı). Elle farklı bitiş verilmiş kayıt değişmez.
+ */
+async function patchMemberTerms(students: readonly StudentRef[], current: GroupLesson, next: GroupLesson): Promise<void> {
+  if (next.teacherId === current.teacherId && next.endsOn === current.endsOn) return;
   const { changeStudentEnrollments } = await import("./store");
   const today = toZonedYmd(new Date(), TZ);
-  for (const m of groupMembers(students, groupId)) {
+  for (const m of groupMembers(students, current.id)) {
     if (!isSeatHolder(m, today)) continue;
-    await changeStudentEnrollments({ studentId: m.student.id, change: { kind: "patchTerms", enrollmentId: m.enrollment.id, terms: { teacherId } } });
+    const terms: Partial<StudentEnrollment> = {};
+    if (next.teacherId !== current.teacherId) terms.teacherId = next.teacherId;
+    if (next.endsOn !== current.endsOn && m.enrollment.endDate === current.endsOn) terms.endDate = next.endsOn;
+    if (Object.keys(terms).length) await changeStudentEnrollments({ studentId: m.student.id, change: { kind: "patchTerms", enrollmentId: m.enrollment.id, terms } });
   }
 }
 
