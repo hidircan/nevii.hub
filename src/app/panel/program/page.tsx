@@ -90,7 +90,8 @@ export default async function ProgramPage({
     const d = parseISO(l.startAt);
     // 2026-10-15 (owner) — iptal artık üretilmiyor; eski iptal edilmiş dersler programda gösterilmez (kayıt DB'de kalır,
     // raporlar/telafi/mobil okur). İptal dersin saati zaten dolu sayılmaz.
-    return l.type !== "group" && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
+    // 2026-10-23 — grup dersi katılımcı satırları da oturum başına TEK kart (aşağıda).
+    return l.type !== "group" && !l.groupSessionId && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
   });
 
   // Derin bağlantıdaki ders iptal edilmişse (programda gizli) kullanıcı çıkmazda kalmasın: kayıt nerede görünür.
@@ -117,6 +118,7 @@ export default async function ProgramPage({
             converted: Boolean(t.convertedStudentId),
           }))
           .concat(await weekClubCardsFor(kurum.scope.tenantId, data.lessons, days[0]!, addDays(days[6]!, 1)))
+          .concat(await weekGroupLessonCardsFor(kurum.scope.tenantId, data.lessons, days[0]!, addDays(days[6]!, 1)))
       : [];
 
   /**
@@ -249,6 +251,35 @@ export default async function ProgramPage({
       </Card>
     </div>
   );
+}
+
+/** 2026-10-23 — haftanın grup dersi oturumları: oturum başına tek kart, oturum (yoklama) ekranına gider. */
+async function weekGroupLessonCardsFor(tenantId: string, lessons: import("@/lib/types").Lesson[], from: Date, to: Date): Promise<ProgramTrial[]> {
+  const rows = lessons.filter((l) => l.groupSessionId && l.status !== "cancelled");
+  if (!rows.length) return [];
+  const { listGroupLessons } = await import("@/lib/group-lessons");
+  const groups = await listGroupLessons(tenantId);
+  const by = new Map<string, import("@/lib/types").Lesson[]>();
+  for (const l of rows) by.set(l.groupSessionId!, [...(by.get(l.groupSessionId!) ?? []), l]);
+  return [...by.entries()]
+    .filter(([, r]) => parseISO(r[0]!.startAt) >= from && parseISO(r[0]!.startAt) <= to)
+    .map(([key, r]) => {
+      const first = r[0]!;
+      const g = groups.find((x) => x.id === first.groupLessonId);
+      return {
+        id: key,
+        name: `${g?.name ?? "Grup dersi"} · ${r.length}/${g?.capacity ?? r.length} öğrenci`,
+        instrument: first.instrument,
+        teacherId: first.teacherId,
+        branchId: first.branchId,
+        startAt: first.startAt,
+        endAt: first.endAt,
+        converted: false,
+        kind: "group" as const,
+        href: `/panel/grup-dersleri/${first.groupLessonId}/oturum/${encodeURIComponent(key)}`,
+        studentIds: r.map((x) => x.studentId),
+      };
+    });
 }
 
 /** 2026-10-06 — haftanın kulüp oturumları: oturum başına tek kart (deneme kartı düzeninde), oturum ekranına gider. */

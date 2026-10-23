@@ -101,6 +101,7 @@ import {
   cancelMakeupData,
   validateLessonSlot,
   LessonSlotValidationError,
+  assertGroupRowsFree,
   type MakeupDecision,
 } from "./makeup-engine";
 import {
@@ -819,6 +820,14 @@ export async function addClubSessionLessons(rows: Lesson[]): Promise<void> {
   save({ ...data, lessons: [...data.lessons, ...rows] });
 }
 
+/** 2026-10-23 — bkz. store-db.ts addGroupLessonRows (mode parity). */
+export async function addGroupLessonRows(rows: Lesson[]): Promise<void> {
+  if (rows.length === 0) return;
+  const data = load();
+  assertGroupRowsFree(data.lessons, rows);
+  save({ ...data, lessons: [...data.lessons, ...rows] });
+}
+
 /** 2026-10-06 — bkz. store-db.ts patchClubLessons (yalnız `type: "group"`). */
 export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
   let count = 0;
@@ -827,7 +836,7 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
   save({
     ...data,
     lessons: data.lessons.map((l) => {
-      if (!set.has(l.id) || l.type !== "group") return l;
+      if (!set.has(l.id) || (l.type !== "group" && !l.groupSessionId)) return l;
       count++;
       return { ...l, ...patch };
     }),

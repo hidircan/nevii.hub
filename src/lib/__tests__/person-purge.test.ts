@@ -416,6 +416,8 @@ describe("şema kapsama kilidi", () => {
     "PeriodicAssessment", "TeacherAvailabilityRequest", "Homework", "HomeworkSubmission", "TeachingMaterial", "TeacherFeedback",
     "StudentFeedback", "StudentCurriculumTopic", "SocialMediaConsent", "TrialLesson", "ClubMembership", "ClubApplication",
     "DocumentInstance", "StudentContract", "Task", "StudentAttendanceRiskLog", "Notification",
+    // 2026-10-23 — grup dersi tanımı: aktif grubun öğretmeni silinemez (blocker); bitmiş grup tanımı geçmiş olarak kalır.
+    "GroupLesson",
   ]);
 
   it("studentId/teacherId taşıyan her model sınıflandırılmış", async () => {

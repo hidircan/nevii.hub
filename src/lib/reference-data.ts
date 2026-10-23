@@ -66,7 +66,18 @@ export type LessonWindowData = ReferenceData & Pick<AppData, "lessons">;
  * prod ~%3) / kulüp ücretlerini (`source = "club"`, prod ~%1) okur. db aynı koşulu SQL'de uygular (json/memory parity).
  * Bilerek TÜM kulüpler: dahil solfej üyeliği başka kulübün satırlarına bakar (silme engeli).
  */
-export type ClubOnlyOptions = { clubOnly?: boolean };
+export type ClubOnlyOptions = {
+  clubOnly?: boolean;
+  /** 2026-10-23 — yalnız bu grup dersinin katılımcı satırları ("*" = tüm grup dersi satırları). Ödeme dilimini etkilemez. */
+  groupLessonId?: string;
+};
+
+/** Ders satırı bu dilim seçeneğine uyuyor mu (db sorgusu aynı koşulu SQL'de uygular). */
+export function lessonMatchesWindowOptions(l: Pick<AppData["lessons"][number], "clubId" | "clubSessionId" | "groupLessonId">, opts?: ClubOnlyOptions): boolean {
+  if (opts?.clubOnly && !(l.clubId || l.clubSessionId)) return false;
+  if (opts?.groupLessonId && !(opts.groupLessonId === "*" ? l.groupLessonId : l.groupLessonId === opts.groupLessonId)) return false;
+  return true;
+}
 
 export function narrowToLessonWindow(data: AppData, from: Date, to: Date, opts?: ClubOnlyOptions): LessonWindowData {
   const lo = from.getTime();
@@ -75,7 +86,7 @@ export function narrowToLessonWindow(data: AppData, from: Date, to: Date, opts?:
     ...toReferenceData(data),
     lessons: data.lessons.filter((l) => {
       const t = new Date(l.startAt).getTime();
-      return t >= lo && t <= hi && (!opts?.clubOnly || Boolean(l.clubId || l.clubSessionId));
+      return t >= lo && t <= hi && lessonMatchesWindowOptions(l, opts);
     }),
   };
 }

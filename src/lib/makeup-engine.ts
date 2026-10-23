@@ -15,7 +15,7 @@ import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 import { assertWorkDaySchedulable, isSuggestableWorkDay, type DayStatusReason } from "./work-days";
 import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
-import { lessonOccupiesSlot } from "./lesson-occupancy";
+import { findSlotConflict, lessonOccupiesSlot } from "./lesson-occupancy";
 import { activeMakeupLessonForRequest, isPastMakeupPlanningDeadline, makeupPlanningDeadline } from "./makeup-deadline";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -224,6 +224,23 @@ export class LessonSlotValidationError extends Error {
     super(message);
     this.name = "LessonSlotValidationError";
     this.code = code;
+  }
+}
+
+/**
+ * 2026-10-23 — grup dersi satır yazımının kilit altındaki son kontrolü (json/memory; db aynı kuralı SQL dilimiyle uygular):
+ * yazılacak satırlardan biri mevcut bir dersle çakışırsa hiçbiri yazılmaz.
+ */
+export function assertGroupRowsFree(existing: readonly Lesson[], rows: readonly Lesson[]): void {
+  const codes = { teacher: "TEACHER_CONFLICT", room: "ROOM_CONFLICT", student: "STUDENT_CONFLICT" } as const;
+  for (const r of rows) {
+    const conflict = findSlotConflict(existing, r);
+    if (conflict) {
+      throw new LessonSlotValidationError(
+        codes[conflict.resource],
+        "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Grup dersi satırları yazılmadı; sayfayı yenileyip tekrar deneyin."
+      );
+    }
   }
 }
 

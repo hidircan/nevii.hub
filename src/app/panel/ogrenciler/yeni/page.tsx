@@ -6,6 +6,7 @@ import { isMembershipActive, listClubs, listClubMemberships } from "@/lib/clubs"
 import { DEFAULT_APP_TIMEZONE as CLUB_TZ, toZonedYmd as clubYmd } from "@/lib/timezone";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
 import { buildEnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { groupLessonFormOptions } from "@/lib/group-lessons";
 import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
@@ -28,9 +29,9 @@ export const dynamic = "force-dynamic";
 export default async function NewStudentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ deneme?: string; kulupBasvuru?: string }>;
+  searchParams: Promise<{ deneme?: string; kulupBasvuru?: string; grupDersi?: string }>;
 }) {
-  const { deneme, kulupBasvuru } = await searchParams;
+  const { deneme, kulupBasvuru, grupDersi } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -104,6 +105,11 @@ export default async function NewStudentPage({
         })()
       : [];
 
+  // 2026-10-23 — grup dersi seçenekleri (yalnız kendi kurumunda; yazım oturumun kurumuna gider).
+  const ownTenant = kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId;
+  const groupLessons = ownTenant ? await groupLessonFormOptions(session.tenantId, data.students) : [];
+  const groupPrefill = grupDersi && groupLessons.some((g) => g.id === grupDersi) ? { groupLessonId: grupDersi } : undefined;
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
@@ -145,9 +151,10 @@ export default async function NewStudentPage({
             instrumentOptions,
             personBranchId: data.settings.branches[0]?.id ?? "",
             todayYmd: toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE),
+            groupLessons,
           })}
           kvkkText={kvkkText}
-          prefill={clubAppPrefill ?? trialPrefill}
+          prefill={clubAppPrefill ?? trialPrefill ?? groupPrefill}
           trialSummary={
             clubApp
               ? `${clubApp.reference} · ${clubApp.participantName} · ${clubApp.clubSnapshot.name}`

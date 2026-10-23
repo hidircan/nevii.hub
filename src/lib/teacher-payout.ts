@@ -435,6 +435,29 @@ function payableMinutesFor(data: Pick<AppData, "settings">, actualMinutes: numbe
  *   `Attendance` satırı "absent" olup ders "Dersi bitir" ile tamamlandıysa
  *   ve bu bayraklar yoksa ders sayılır.
  */
+/**
+ * 2026-10-23 — grup dersi oturumları (öğretmen bazında): temsilci satır = oturumun EN KÜÇÜK kimlikli satırı (iptal dahil;
+ * yeni katılımcı yalnız gelecek oturumlara eklendiği için kayıtlı dönemlerde değişmez), `payable` = iptal edilmemiş
+ * satırlardan en az biri `isLessonProcessedForPayout`. Bireysel ders kuralıyla aynı: kimse gelmediyse/işlenmediyse sayılmaz.
+ */
+export function groupSessionPayoutIndex(
+  lessons: readonly Lesson[],
+  teacherId: string
+): Map<string, { representativeId: string; payable: boolean; participants: number }> {
+  const out = new Map<string, { representativeId: string; payable: boolean; participants: number }>();
+  for (const l of lessons) {
+    if (l.teacherId !== teacherId || !l.groupSessionId || l.type === "group") continue;
+    const cur = out.get(l.groupSessionId) ?? { representativeId: l.id, payable: false, participants: 0 };
+    if (l.id < cur.representativeId) cur.representativeId = l.id;
+    if (l.status !== "cancelled") {
+      cur.participants += 1;
+      if (isLessonProcessedForPayout(l)) cur.payable = true;
+    }
+    out.set(l.groupSessionId, cur);
+  }
+  return out;
+}
+
 export function computeTeacherEarningsForPeriod(
   data: PayoutComputationData,
   teacherId: string,
@@ -470,6 +493,7 @@ export function computeTeacherEarningsForPeriod(
     }
     for (const [id, postponed] of live) if (postponed) heldClubSessions.delete(id);
   }
+  const groupPayout = groupSessionPayoutIndex(data.lessons, teacherId);
   for (const lesson of data.lessons) {
     if (lesson.teacherId !== teacherId) continue;
     if (lesson.type === "group") {
@@ -478,6 +502,11 @@ export function computeTeacherEarningsForPeriod(
       if (!lesson.clubSessionId || lesson.status === "cancelled" || !heldClubSessions.has(lesson.clubSessionId)) continue;
       if (seenClubSessions.has(lesson.clubSessionId)) continue;
       seenClubSessions.add(lesson.clubSessionId);
+    } else if (lesson.groupSessionId) {
+      // 2026-10-23 — grup dersi: NORMAL ders kuralı (yalnız fiilen verilmiş ders) oturum düzeyinde — satırlardan en az
+      // biri hakedişe uygunsa oturum TEK ders sayılır; temsilci satır sabittir (hariç tutma/revizyon anahtarı kaymasın).
+      if (groupPayout.get(lesson.groupSessionId)?.representativeId !== lesson.id) continue;
+      if (!groupPayout.get(lesson.groupSessionId)?.payable) continue;
     } else if (!isLessonProcessedForPayout(lesson)) continue;
     const dayKey = toDayKey(lesson.startAt);
     if (dayKey < startKey || dayKey > endKey) continue;
@@ -530,14 +559,19 @@ export function computeTeacherEarningsForPeriod(
         feeRuleId = rule.id;
       }
     }
-    if (!issue && !student) issue = "missing-student";
+    if (!issue && !student && !lesson.groupSessionId) issue = "missing-student";
     else if (!issue && !branch) issue = "missing-branch";
 
     lines.push({
       lessonId: lesson.id,
       lessonDate: lesson.startAt,
       studentId: lesson.studentId,
-      studentName: lesson.type === "group" ? "Kulüp oturumu" : student?.name,
+      studentName:
+        lesson.type === "group"
+          ? "Kulüp oturumu"
+          : lesson.groupSessionId
+            ? `Grup dersi · ${groupPayout.get(lesson.groupSessionId)?.participants ?? 1} öğrenci`
+            : student?.name,
       branchName: branch?.name,
       instrument: lesson.instrument,
       durationMinutes,

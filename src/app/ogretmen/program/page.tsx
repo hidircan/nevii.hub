@@ -154,7 +154,7 @@ export default async function TeacherOwnProgramPage({
                           {formatTime(lesson.startAt)} · {student?.name ?? "—"}
                         </p>
                         <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                          {lesson.instrument} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
+                          {lesson.instrument}{lesson.groupLessonId ? " · Grup dersi" : ""} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
                           <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />

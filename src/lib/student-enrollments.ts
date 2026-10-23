@@ -189,6 +189,8 @@ export type EnrollmentTerms = {
   mebExamDate?: string;
   mebExamAttended?: boolean;
   appliedCampaignIds?: string[];
+  /** 2026-10-23 — grup dersi katılımı (koşul değil, kimlik bağı; düzenlemede değişmez). */
+  groupLessonId?: string;
 };
 
 /** v2: koşullar kayıtta tam ve bağımsızdır. */
@@ -239,6 +241,7 @@ function termsFromRecord(student: Pick<Student, "branchId">, enrollment: Enrollm
     mebExamDate: enrollment.mebExamDate,
     mebExamAttended: enrollment.mebExamAttended,
     appliedCampaignIds: enrollment.appliedCampaignIds,
+    groupLessonId: enrollment.groupLessonId,
   };
 }
 
@@ -291,6 +294,7 @@ export function enrollmentTerms(student: TermsStudent, enrollment: EnrollmentVie
     mebExamDate: student.mebExamDate,
     mebExamAttended: student.mebExamAttended,
     appliedCampaignIds: student.appliedCampaignIds,
+    groupLessonId: enrollment.groupLessonId,
   };
 }
 
@@ -810,7 +814,14 @@ export function applyEnrollmentChange(
     // Aynı enstrüman + aynı öğretmenle ikinci AKTİF kayıt açılamaz. Kontrol KİLİT ALTINDA da yapılır: eşzamanlı iki
     // "ekle" isteği (çift tık) ön kontrolü birlikte geçse bile ikincisi burada reddedilir — ikinci branş/tahsilat oluşmaz.
     if (change.record.active) {
-      const dup = base.find((e) => e.active && e.instrument === change.record.instrument && e.teacherId === change.record.teacherId);
+      // 2026-10-23 — aynı öğretmenle bireysel + grup dersi (veya iki farklı grup) ayrı kayıtlardır; engellenmez.
+      const dup = base.find(
+        (e) =>
+          e.active &&
+          e.instrument === change.record.instrument &&
+          e.teacherId === change.record.teacherId &&
+          (e.groupLessonId ?? "") === (change.record.groupLessonId ?? "")
+      );
       if (dup) {
         return {
           ok: false,

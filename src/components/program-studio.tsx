@@ -122,7 +122,7 @@ export type ProgramTrial = {
   endAt: string;
   converted: boolean;
   /** 2026-10-06 — "club": kulüp oturumu kartı (aynı yerleşim, farklı renk/etiket; oturum ekranına gider). */
-  kind?: "trial" | "club";
+  kind?: "trial" | "club" | "group";
   href?: string;
   /** Kulüp oturumunun üyeleri — öğrenci filtresi açıkken yalnız o öğrencinin oturumları görünür. */
   studentIds?: string[];
@@ -890,7 +890,7 @@ export function ProgramStudio({
       .filter(
         (t) =>
           isSameDay(parseISO(t.startAt), day) &&
-          (!filterStudentId || (t.kind === "club" && (t.studentIds ?? []).includes(filterStudentId))) &&
+          (!filterStudentId || ((t.kind === "club" || t.kind === "group") && (t.studentIds ?? []).includes(filterStudentId))) &&
           (!filterBranchId || t.branchId === filterBranchId) &&
           (!filterTeacherId || t.teacherId === filterTeacherId)
       )
@@ -2858,24 +2858,28 @@ function TrialCard({
   inline?: boolean;
 }) {
   const time = `${format(parseISO(trial.startAt), "HH:mm")}–${format(parseISO(trial.endAt), "HH:mm")}`;
-  if (trial.kind === "club") {
+  if (trial.kind === "club" || trial.kind === "group") {
+    // 2026-10-23 — grup dersi oturumu kulüp kartının yerleşimini kullanır; etiket ve renk ayrı.
+    const isGroup = trial.kind === "group";
+    const kindLabel = isGroup ? "Grup dersi" : "Kulüp oturumu";
+    const tone = isGroup ? "var(--color-primary)" : "var(--color-info)";
     return (
       <Link
-        href={trial.href ?? "/panel/kulupler"}
-        aria-label={`Kulüp oturumu: ${trial.name}, ${time}${teacherName ? `, ${teacherName}` : ""}${trial.note ? `, ${trial.note}` : ""}`}
-        title={`Kulüp — ${trial.name} · ${time}${teacherName ? ` · ${teacherName}` : ""}`}
+        href={trial.href ?? (isGroup ? "/panel/grup-dersleri" : "/panel/kulupler")}
+        aria-label={`${kindLabel}: ${trial.name}, ${time}${teacherName ? `, ${teacherName}` : ""}${trial.note ? `, ${trial.note}` : ""}`}
+        title={`${isGroup ? "Grup dersi" : "Kulüp"} — ${trial.name} · ${time}${teacherName ? ` · ${teacherName}` : ""}`}
         className={`${inline ? "relative block w-full p-2 text-xs" : "absolute z-[2] flex flex-col overflow-hidden p-1 text-[10px]"} rounded-md border hover:z-[20] hover:brightness-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)]`}
         style={{
           ...style,
-          borderColor: "var(--color-info)",
-          borderLeft: "3px solid var(--color-info)",
-          background: "var(--color-info-soft)",
+          borderColor: tone,
+          borderLeft: `3px solid ${tone}`,
+          background: isGroup ? "var(--color-surface-muted)" : "var(--color-info-soft)",
           color: "var(--color-text)",
         }}
       >
         <span className="flex items-center gap-1">
-          <span className="shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white" style={{ background: "var(--color-info)" }}>
-            Kulüp
+          <span className="shrink-0 rounded px-1 text-[9px] font-bold uppercase tracking-wide text-white" style={{ background: tone }}>
+            {isGroup ? "Grup" : "Kulüp"}
           </span>
           <span className="truncate font-semibold">{trial.name}</span>
         </span>

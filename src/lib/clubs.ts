@@ -2044,15 +2044,20 @@ export async function deleteClubTool(ctx: ServiceContext, input: unknown): Promi
  * satırları birlikte yönetilir. db'de tek alanlık dar sorgu (tam veri okunmaz).
  */
 export async function clubRowGuard(tenantId: string, lessonId: string): Promise<ServiceResult<never> | null> {
-  let type: string | undefined;
+  let row: { type?: string; groupLessonId?: string | null } | undefined;
   if (isDbMode) {
     const { prisma } = await import("./db");
-    type = (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId }, select: { type: true } }))?.type;
+    row = (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId }, select: { type: true, groupLessonId: true } })) ?? undefined;
   } else {
     const { readData } = await import("./store");
-    type = (await readData()).lessons.find((l) => l.id === lessonId)?.type;
+    row = (await readData()).lessons.find((l) => l.id === lessonId);
   }
-  return type === "group"
-    ? fail("VALIDATION_ERROR", "Bu bir kulüp oturumu satırı. Saat, oda, öğretmen, iptal ve erteleme işlemlerini Kulüpler → ilgili kulüp → oturum ekranından yapın.")
-    : null;
+  if (row?.type === "group") {
+    return fail("VALIDATION_ERROR", "Bu bir kulüp oturumu satırı. Saat, oda, öğretmen, iptal ve erteleme işlemlerini Kulüpler → ilgili kulüp → oturum ekranından yapın.");
+  }
+  // 2026-10-23 — grup dersi katılımcı satırı tek başına taşınmaz/silinmez (oturumdan kopar); yoklama serbesttir.
+  if (row?.groupLessonId) {
+    return fail("VALIDATION_ERROR", "Bu ders bir grup dersi oturumunun parçası. Saat, oda, öğretmen ve iptal işlemlerini Grup Dersleri → ilgili grup ekranından yapın; öğrenciyi gruptan çıkarmak için branş kaydını sonlandırın.");
+  }
+  return null;
 }

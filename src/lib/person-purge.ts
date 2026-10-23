@@ -139,6 +139,8 @@ export type PurgeLessonRow = {
   status: string;
   seriesId?: string;
   clubSessionId?: string;
+  /** 2026-10-23 — grup dersi oturumu (diğer katılımcılarla ortak). */
+  groupSessionId?: string;
 };
 export type PurgePaymentRow = {
   id: string;
@@ -251,6 +253,8 @@ export type TeacherPurgeSnapshot = {
   lessonLinks?: { attendances: string[]; makeups: string[]; payments: string[]; seriesLessons: string[]; makeupPlans?: string[] };
   /** Devir hedefi adayları (kurumdaki diğer öğretmenler). */
   teachers?: { id: string; name: string; active: boolean; deletedAt?: string }[];
+  /** 2026-10-23 — öğretmeni bu kişi olan grup dersi tanımları (aktif olan varken silme açılmaz). */
+  groupLessons?: { id: string; name: string; status: string }[];
   /** Öğretmene ait, kimseyle paylaşılmayan kayıtlar — her zaman silinir. */
   owned: Partial<Record<PurgeTableKey, string[]>>;
   /** Öğrencilerin geçmişinde kalan kayıtlar — varsa öğretmen satırı korunur (anonimleştirilir). */
@@ -762,7 +766,8 @@ function planTeacherWipe(s: TeacherPurgeSnapshot, opts: WipeOptions = {}): Purge
   const links = s.lessonLinks ?? { attendances: [], makeups: [], payments: [], seriesLessons: [] };
   const historyIds = Object.values(s.history).reduce((n, ids) => n + (ids?.length ?? 0), 0);
   const teaching = s.lessons.length + s.series.length + s.makeups.length + historyIds;
-  const groupLessons = s.lessons.filter((l) => l.clubSessionId);
+  const groupLessons = s.lessons.filter((l) => l.clubSessionId || l.groupSessionId);
+  pushActiveGroupLessonBlocker(blockers, s);
   if (teaching && action === "reassign" && !target) {
     blockers.push({ reason: `${s.lessons.length} ders, ${s.series.length} seri, ${s.makeups.length} telafi ve ${historyIds} öğrenci kaydı devredilecek.`, fix: "Aşağıdan devredilecek öğretmeni seçin." });
   }
@@ -873,10 +878,21 @@ function planTeacherWipe(s: TeacherPurgeSnapshot, opts: WipeOptions = {}): Purge
   });
 }
 
+/** Aktif grup dersinin öğretmeni silinemez: tanım öğretmensiz kalır, sistem öğretmeni kendiliğinden değiştirmez. */
+function pushActiveGroupLessonBlocker(blockers: { reason: string; fix: string }[], s: TeacherPurgeSnapshot) {
+  const active = (s.groupLessons ?? []).filter((g) => g.status === "active");
+  if (!active.length) return;
+  blockers.push({
+    reason: `${active.length} aktif grup dersinin öğretmeni (${active.slice(0, 3).map((g) => g.name).join(", ")}${active.length > 3 ? "…" : ""}).`,
+    fix: "Grup Dersleri ekranında bu grupların öğretmenini değiştirin veya grubu sonlandırın.",
+  });
+}
+
 export function planTeacherPurge(s: TeacherPurgeSnapshot, mode: PurgeMode = "standard", opts: WipeOptions = {}): PurgePlan {
   if (mode === "wipe") return planTeacherWipe(s, opts);
   const blockers = precondition("teacher", s.person);
   // Listeden kaldırmadaki kapılar kalıcı silmede de geçerli (kaldırıldıktan sonra veri değişmiş olabilir).
+  pushActiveGroupLessonBlocker(blockers, s);
   const upcoming = s.lessons.filter((l) => ACTIVE_LESSON.has(l.status) && l.startAt > s.nowIso).length;
   if (upcoming) blockers.push({ reason: `İleri tarihli ${upcoming} planlı dersi var.`, fix: "Ders Programı'nda bu dersleri başka öğretmene taşıyın veya iptal edin; sistem öğretmeni kendiliğinden değiştirmez." });
   const activeSeries = s.series.filter((x) => x.status === "active").length;

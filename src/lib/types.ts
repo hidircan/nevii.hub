@@ -254,6 +254,11 @@ export interface StudentEnrollment {
   mebLevelEndDate?: string;
   mebExamDate?: string;
   mebExamAttended?: boolean;
+  /**
+   * 2026-10-23 — bu branş kaydı bir GRUP DERSİNE katılımdır (GroupLesson.id). Enstrüman/öğretmen/süre/gün-saat gruptan
+   * gelir; ücret, ödeme, sözleşme ve tahakkuk bu kaydın normal koşullarıdır. Kayıt aktifken öğrenci grubun üyesidir.
+   */
+  groupLessonId?: string;
   /** Yeni öğrenci kaydını oluşturan gönderimin kimliği — çift tık/yeniden deneme koruması (bkz. store.registerStudent). */
   registrationId?: string;
 }
@@ -931,6 +936,9 @@ export interface Lesson {
   /** 2026-10-06 — kulüp oturumu satırı (`type: "group"`); aynı oturumun satırları `clubSessionId` ile bağlı. */
   clubId?: string;
   clubSessionId?: string;
+  /** 2026-10-23 — grup dersi katılımcı satırı (normal ders tipi); aynı oturumun satırları `groupSessionId` ile bağlı. */
+  groupLessonId?: string;
+  groupSessionId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;

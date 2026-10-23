@@ -2634,6 +2634,8 @@ type BranchRegistrationInput = Pick<StudentInput, "instrument" | "teacherId" | "
   > & {
     /** Branşın ayrı şubesi (kişinin şubesinden farklıysa); yoksa kişinin şubesi geçerlidir. */
     branchId?: string;
+    /** 2026-10-23 — grup dersi katılımı (koşullar `prepareGroupJoin` ile gruptan zorlanmış olmalı). */
+    groupLessonId?: string;
   };
 
 /** Kayıt gönderiminde BRANŞA özgü olan `studentSchema` anahtarları (geri kalanı kişi düzeyidir). */
@@ -2949,6 +2951,7 @@ async function prepareBranchRegistration(
     lessonScheduleText: b.lessonScheduleText,
     intendedDurationMonths: b.intendedDurationMonths,
     appliedCampaignIds,
+    groupLessonId: b.groupLessonId,
   });
 
   return ok({
@@ -3359,7 +3362,18 @@ export type RegisterWithEnrollmentsFailureDetails = {
  * fonksiyondan (enrollment-form.ts) geçer; sunucu yine de asıl kapıdır. Yarım kayıt oluşmaz: ya öğrenci + tüm branşlar +
  * her branşın ilk tahsilatı birlikte yazılır, ya hiçbiri.
  */
-export async function registerStudentWithEnrollmentsTool(
+/** 2026-10-23 — grup dersi seçilen branşlarda kontenjan kontrolü + kayıt + satır yazımı aynı grup kilidi altında. */
+export async function registerStudentWithEnrollmentsTool(ctx: ServiceContext, input: unknown): ReturnType<typeof registerStudentWithEnrollmentsUnlocked> {
+  const drafts = (input as { enrollmentDrafts?: unknown } | null)?.enrollmentDrafts;
+  const groupIds = Array.isArray(drafts)
+    ? drafts.map((d) => (d as { groupLessonId?: unknown } | null)?.groupLessonId).filter((x): x is string => typeof x === "string" && x.length > 0)
+    : [];
+  if (groupIds.length === 0) return registerStudentWithEnrollmentsUnlocked(ctx, input);
+  const { withGroupLessonLock } = await import("../group-lessons");
+  return withGroupLessonLock(ctx.tenantId, groupIds, () => registerStudentWithEnrollmentsUnlocked(ctx, input));
+}
+
+async function registerStudentWithEnrollmentsUnlocked(
   ctx: ServiceContext,
   input: unknown
 ): Promise<ServiceResult<{ studentId: string; tempLoginPassword?: string; warnings?: string[]; duplicate?: boolean; enrollmentIds: string[] }>> {
@@ -3383,6 +3397,30 @@ export async function registerStudentWithEnrollmentsTool(
   for (const d of drafts) {
     if (keys.has(d.key)) d.key = newEnrollmentKey();
     keys.add(d.key);
+  }
+  // 2026-10-23 — grup dersi branşı: koşullar gruptan ZORLANIR (istemci değeri değil); kontenjan kayıt açılmadan denetlenir.
+  const groupJoins = new Map<string, import("../group-lessons").GroupLesson>();
+  for (const d of drafts) {
+    if (!d.groupLessonId) continue;
+    if (groupJoins.has(d.groupLessonId)) {
+      return fail("VALIDATION_ERROR", "Aynı grup dersi iki branşta seçilmiş. Tekrarlanan branşı kaldırın.", { enrollmentErrors: { [d.key]: { groupLessonId: "Bu grup başka bir branşta zaten seçili." } } } satisfies RegisterWithEnrollmentsFailureDetails);
+    }
+    const { prepareGroupJoin } = await import("../group-lessons");
+    const joined = await prepareGroupJoin(ctx, { groupLessonId: d.groupLessonId, startYmd: d.lessonStartDate || d.startDate || toZonedYmd(new Date(), resolveAppTimezone()) });
+    if (!joined.ok) {
+      return fail(joined.error.code, joined.error.message, { enrollmentErrors: { [d.key]: { groupLessonId: joined.error.message } } } satisfies RegisterWithEnrollmentsFailureDetails);
+    }
+    groupJoins.set(d.groupLessonId, joined.data.group);
+    const t = joined.data.terms;
+    Object.assign(d, {
+      instrument: t.instrument,
+      teacherId: t.teacherId,
+      lessonDurationMinutes: String(t.lessonDurationMinutes),
+      weeklyLessonCount: "1",
+      lessonScheduleText: t.lessonScheduleText,
+      branchId: t.branchId === v.data.branchId ? "" : t.branchId,
+      monthlyFee: d.monthlyFee || d.packageId ? d.monthlyFee : String(joined.data.group.monthlyFee),
+    });
   }
   const enrollCfg = { ...formConfig, fields: formConfig.fields.filter((f) => ENROLLMENT_LEVEL_FORM_CONFIG_KEYS.has(f.key)) };
   for (const [i, d] of drafts.entries()) {
@@ -3456,6 +3494,7 @@ export async function registerStudentWithEnrollmentsTool(
         },
         firstPaymentAdjustmentReason: d.firstPayment.adjustmentReason.trim() || undefined,
         firstCollectionIncludesNextMonth: d.firstPayment.includeNextMonth ?? undefined,
+        groupLessonId: n.groupLessonId && groupJoins.has(n.groupLessonId) ? n.groupLessonId : undefined,
       },
     });
   }
@@ -3483,6 +3522,15 @@ export async function registerStudentWithEnrollmentsTool(
         } satisfies RegisterWithEnrollmentsFailureDetails);
       }
       return res;
+    }
+    if (groupJoins.size > 0) {
+      const { syncGroupLessonRowsLocked } = await import("../group-lessons");
+      const warnings = [...(res.data.warnings ?? [])];
+      for (const g of groupJoins.values()) {
+        const rows = await syncGroupLessonRowsLocked(ctx, g, { studentIds: [res.data.studentId] });
+        if (!rows.ok) warnings.push(`${g.name} grubunun ders satırları yazılamadı: ${rows.error.message} Grup Dersleri ekranında "Satırları yenile" ile tekrar deneyin.`);
+      }
+      return ok({ ...res.data, ...(warnings.length ? { warnings } : {}) });
     }
     return ok(res.data);
   } catch (e) {
@@ -3566,11 +3614,21 @@ const enrollmentInputSchema = z.object({
     .optional(),
   /** İyimser eşzamanlılık: kayıt bu zamandan sonra değiştiyse yazım reddedilir. */
   expectedUpdatedAt: z.string().max(40).optional(),
+  /** 2026-10-23 — yalnız YENİ branşta: grup dersine katılım (enstrüman/öğretmen/süre/gün-saat gruptan zorlanır). */
+  groupLessonId: z.string().min(1).max(100).optional(),
 });
 
 export type UpsertEnrollmentFailureDetails = { field?: string; fieldErrors?: Record<string, string[]> };
 
-export async function upsertStudentEnrollmentTool(
+/** 2026-10-23 — grup dersine katılımda kontenjan/çakışma kontrolü ile yazım aynı grup kilidi altında (yarış yok). */
+export async function upsertStudentEnrollmentTool(ctx: ServiceContext, input: unknown): ReturnType<typeof upsertStudentEnrollmentUnlocked> {
+  const groupId = (input as { enrollment?: { groupLessonId?: unknown } } | null)?.enrollment?.groupLessonId;
+  if (typeof groupId !== "string" || !groupId) return upsertStudentEnrollmentUnlocked(ctx, input);
+  const { withGroupLessonLock } = await import("../group-lessons");
+  return withGroupLessonLock(ctx.tenantId, [groupId], () => upsertStudentEnrollmentUnlocked(ctx, input));
+}
+
+async function upsertStudentEnrollmentUnlocked(
   ctx: ServiceContext,
   input: unknown
 ): Promise<
@@ -3591,6 +3649,34 @@ export async function upsertStudentEnrollmentTool(
   const student = data.students.find((st) => st.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin.");
   const e = v.data.enrollment;
+  const todayForGroup = toZonedYmd(new Date(), resolveAppTimezone());
+  const knownEnrollment = e.id ? student.enrollments?.find((x) => x.id === e.id) : undefined;
+  if (knownEnrollment?.groupLessonId) {
+    // Grup kaydının öğretmen/süre/gün-saati grubundan gelir; tek öğrencide değiştirilirse grup oturumlarından kopar.
+    if (
+      e.teacherId !== knownEnrollment.teacherId ||
+      e.lessonDurationMinutes !== knownEnrollment.lessonDurationMinutes ||
+      (e.lessonScheduleText !== undefined && e.lessonScheduleText !== (knownEnrollment.lessonScheduleText ?? ""))
+    ) {
+      return fail("VALIDATION_ERROR", "Bu branş kaydı bir grup dersine bağlı; öğretmen, ders süresi ve gün/saat Grup Dersleri ekranından grubun kendisinde değiştirilir.", { field: "teacherId" });
+    }
+  }
+  let groupJoin: Extract<Awaited<ReturnType<typeof import("../group-lessons").prepareGroupJoin>>, { ok: true }>["data"] | undefined;
+  if (!e.id && e.groupLessonId) {
+    const { prepareGroupJoin } = await import("../group-lessons");
+    const joined = await prepareGroupJoin(ctx, { groupLessonId: e.groupLessonId, studentId: student.id, startYmd: e.lessonStartDate || e.startDate || todayForGroup });
+    if (!joined.ok) return fail(joined.error.code, joined.error.message, { field: "groupLessonId" });
+    groupJoin = joined.data;
+    e.instrument = joined.data.terms.instrument;
+    e.teacherId = joined.data.terms.teacherId;
+    e.lessonDurationMinutes = joined.data.terms.lessonDurationMinutes;
+    e.weeklyLessonCount = 1;
+    e.lessonScheduleText = joined.data.terms.lessonScheduleText;
+    e.branchId = joined.data.terms.branchId === student.branchId ? undefined : joined.data.terms.branchId;
+    if (e.monthlyFee === undefined && !e.packageId) e.monthlyFee = joined.data.group.monthlyFee;
+  } else if (!e.id) {
+    e.groupLessonId = undefined;
+  }
   const instruments = await resolveActiveInstrumentNames(ctx.tenantId);
   if (!instruments.includes(e.instrument)) {
     return fail("VALIDATION_ERROR", `"${e.instrument}" kurumun aktif enstrüman kataloğunda yok. Ayarlar → Enstrümanlar ekranından ekleyin veya listeden seçin.`, { field: "instrument" });
@@ -3621,7 +3707,13 @@ export async function upsertStudentEnrollmentTool(
   const nextActive = e.active ?? existing?.active ?? true;
   // Çift gönderim (aynı satır 60 sn içinde ikinci kez) ≠ meşru ek branş: ilki sessizce döner, ikinci kayıt/tahsilat açılmaz.
   const duplicate = beforeList.find(
-    (x) => x.id !== existing?.id && x.active && nextActive && x.instrument === e.instrument && x.teacherId === e.teacherId
+    (x) =>
+      x.id !== existing?.id &&
+      x.active &&
+      nextActive &&
+      x.instrument === e.instrument &&
+      x.teacherId === e.teacherId &&
+      (x.groupLessonId ?? "") === (existing ? (existing.groupLessonId ?? "") : (e.groupLessonId ?? ""))
   );
   if (duplicate) {
     if (!existing && Date.now() - new Date(duplicate.createdAt).getTime() <= 60_000 && duplicate.lessonDurationMinutes === e.lessonDurationMinutes) {
@@ -3681,6 +3773,7 @@ export async function upsertStudentEnrollmentTool(
         : undefined,
       firstPaymentAdjustmentReason: e.firstPayment?.adjustmentReason || undefined,
       firstCollectionIncludesNextMonth: e.firstPayment?.includeNextMonth,
+      groupLessonId: groupJoin ? e.groupLessonId : undefined,
     };
     if (e.firstPayment && e.firstPayment.amount > 0 && (!e.firstPayment.method || !e.firstPayment.collectedAt)) {
       return fail("VALIDATION_ERROR", "İlk tahsilat için ödeme yöntemi ve tahsilat tarihi zorunludur (tutar 0'dan büyük).", {
@@ -3787,7 +3880,15 @@ export async function upsertStudentEnrollmentTool(
         // sayaç artışı kaydı engellemez
       }
     }
+    if (groupJoin) {
+      const { syncGroupLessonRowsLocked } = await import("../group-lessons");
+      const rows = await syncGroupLessonRowsLocked(ctx, groupJoin.group, { studentIds: [student.id] });
+      if (!rows.ok) {
+        warnings.push(`${groupJoin.group.name} grubunun ders satırları yazılamadı: ${rows.error.message} Grup Dersleri ekranında "Satırları yenile" ile tekrar deneyin.`);
+      }
+    }
     audit(ctx, "student.enrollment_add", "Student", student.id, {
+      groupLessonId: groupJoin?.group.id,
       enrollmentId: p.record.id,
       instrument: p.record.instrument,
       teacherId: p.record.teacherId,
@@ -3959,6 +4060,7 @@ export async function upsertStudentEnrollmentTool(
         l.studentId === student.id &&
         l.status === "scheduled" &&
         l.type !== "group" &&
+        !l.groupLessonId &&
         l.startAt.slice(0, 10) > (record.endDate ?? todayYmd) &&
         lessonEnrollmentId(refreshed, l, data.teachers) === record.id
     ).length;
@@ -3967,6 +4069,16 @@ export async function upsertStudentEnrollmentTool(
     );
     if (futureLessons > 0) {
       warnings.push(`${record.instrument} branşının bitiş tarihinden sonra ${futureLessons} planlı dersi var; dersler otomatik iptal edilmedi. Ders Programı'ndan iptal edin.`);
+    }
+    if (record.groupLessonId) {
+      // 2026-10-23 — grup katılımı biter: koltuk boşalır, bitişten sonraki yoklamasız grup satırları iptal edilir.
+      const { releaseGroupMemberRowsLocked, withGroupLessonLock } = await import("../group-lessons");
+      const released = await withGroupLessonLock(ctx.tenantId, [record.groupLessonId], () =>
+        releaseGroupMemberRowsLocked({ id: record.groupLessonId! }, student.id, record.endDate ?? todayYmd)
+      );
+      if (released.kept > 0) {
+        warnings.push(`Bitişten sonraki ${released.kept} grup dersi satırında yoklama girilmiş; geçmiş korunduğu için iptal edilmedi.`);
+      }
     }
     if (liveContracts.length > 0) {
       warnings.push(`${record.instrument} branşının aktif sözleşmesi var (${liveContracts.map((c) => c.contractNumber).join(", ")}); sözleşme ve taksitleri değişmedi. Gerekiyorsa Sözleşme Merkezi'nden iptal edin veya revize edin.`);
@@ -8844,6 +8956,34 @@ export async function planContractLessonScheduleTool(
     );
   }
   const branchTerms = branchView ? se.enrollmentTerms(student, branchView, data.teachers) : undefined;
+  if (branchView?.groupLessonId) {
+    // 2026-10-23 — grup dersi branşı: bireysel seri ÜRETİLMEZ (grup saatinde mükerrer/çakışan ders olurdu). Dersler grup
+    // takviminden gelir; "oluştur" yalnız bu öğrencinin eksik grup satırlarını tamamlar (idempotent).
+    const gl = await import("../group-lessons");
+    const group = await gl.getGroupLesson(ctx.tenantId, branchView.groupLessonId);
+    if (!group) return fail("NOT_FOUND", "Bu branşın bağlı olduğu grup dersi bulunamadı. Grup Dersleri ekranını kontrol edin.");
+    const empty = { contractId: contract.id, slots: [], checks: [], seriesIds: [] as string[] };
+    if (v.data.dryRun) {
+      return ok({
+        ...empty,
+        dryRun: true,
+        createdLessonIds: [],
+        message: `Bu branş "${group.name}" grup dersine bağlı (${gl.groupScheduleLabel(group)}); dersler grup takviminden gelir, bireysel seri oluşturulmaz. Onaylarsanız öğrencinin eksik grup ders satırları tamamlanır.`,
+      });
+    }
+    const synced = await gl.withGroupLessonLock(ctx.tenantId, [group.id], () => gl.syncGroupLessonRowsLocked(ctx, group, { studentIds: [student.id] }));
+    if (!synced.ok) return synced;
+    audit(ctx, "contract.lesson_schedule.group_sync", "StudentContract", contract.id, { groupLessonId: group.id, created: synced.data.created });
+    return ok({
+      ...empty,
+      dryRun: false,
+      createdLessonIds: [],
+      message:
+        synced.data.created > 0
+          ? `${synced.data.created} grup dersi satırı eklendi ("${group.name}").`
+          : `"${group.name}" grubundaki dersleri zaten planlı; yeni satır gerekmedi.`,
+    });
+  }
   const { parseLessonScheduleText } = await import("../lesson-schedule-text");
   const scheduleText =
     contract.contractDataSnapshot?.lessonScheduleText || (branchTerms ? branchTerms.lessonScheduleText : student.lessonScheduleText) || "";
@@ -8962,7 +9102,7 @@ export async function countContractLessonsTool(
   const { getContract } = await import("../contracts");
   const contract = await getContract(ctx.tenantId, v.data.contractId);
   const data = contract ? await readStudentScope(contract.studentId) : { lessonSeries: [], lessons: [] };
-  const future = collectContractFutureLessons(data, v.data.contractId);
+  const future = collectContractFutureLessons(data, v.data.contractId, undefined, contract?.enrollmentId);
   const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
   const lockedReasons = Array.from(
     new Set(
@@ -8988,16 +9128,20 @@ export async function countContractLessonsTool(
 function collectContractFutureLessons(
   data: Pick<AppData, "lessonSeries" | "lessons">,
   contractId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** 2026-10-23 — sözleşmenin branşı bir grup dersine bağlıysa o branşın gelecek grup satırları da dahil (serisi yoktur). */
+  contractEnrollmentId?: string
 ): { seriesIds: string[]; lessons: Lesson[] } {
   const seriesIds = data.lessonSeries.filter((s) => s.contractId === contractId).map((s) => s.id);
-  if (seriesIds.length === 0) return { seriesIds, lessons: [] };
   const nowIso = now.toISOString();
   const seriesSet = new Set(seriesIds);
   return {
     seriesIds,
     lessons: data.lessons.filter(
-      (l) => l.seriesId && seriesSet.has(l.seriesId) && l.startAt > nowIso && l.status !== "cancelled"
+      (l) =>
+        ((l.seriesId && seriesSet.has(l.seriesId)) || (contractEnrollmentId && l.groupLessonId && l.enrollmentId === contractEnrollmentId)) &&
+        l.startAt > nowIso &&
+        l.status !== "cancelled"
     ),
   };
 }
@@ -17522,7 +17666,7 @@ export async function getContractCancellationImpactTool(
     getCriticalActionPasswordStatus(ctx.tenantId),
     computeOutstandingContractBalance(ctx.tenantId, contract.id),
   ]);
-  const future = collectContractFutureLessons(data, contract.id);
+  const future = collectContractFutureLessons(data, contract.id, undefined, contract.enrollmentId);
   const lockedReasons = Array.from(
     new Set(future.lessons.map((l) => lessonCancelBlockReason(l)).filter((r): r is string => r !== null))
   );
@@ -17633,7 +17777,7 @@ export async function cancelStudentContractTool(
     if (v.data.cancelFutureLessons) {
       // DB egress (2026-10-18): öğrenci dilimi.
       const before = await readStudentScope(contract.studentId);
-      const future = collectContractFutureLessons(before, v.data.contractId);
+      const future = collectContractFutureLessons(before, v.data.contractId, undefined, contract.enrollmentId);
       const { lessonCancelBlockReason } = await import("../lesson-cancel-rules");
       for (const lesson of future.lessons) {
         const blocked = lessonCancelBlockReason(lesson);

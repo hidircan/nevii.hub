@@ -79,6 +79,8 @@ export type EnrollmentDraft = {
   paymentMethod: "" | "cash" | "transfer" | "credit_card";
   paymentDueDay: string;
   firstPayment: EnrollmentFirstPaymentDraft;
+  /** 2026-10-23 — "" = bireysel ders; doluysa bu branş kaydı bir grup dersine katılımdır (koşullar gruptan gelir). */
+  groupLessonId: string;
 };
 
 /** Alan hataları: anahtar = taslak alan adı; ilk tahsilat alanları `firstPayment.<alan>`. */
@@ -108,6 +110,7 @@ export const ENROLLMENT_FIELD_LABELS: Record<string, string> = {
   campaignIds: "Kampanya",
   overrideAmount: "Elle aylık ücret",
   overrideReason: "Elle ücret gerekçesi",
+  groupLessonId: "Grup dersi",
   paymentMethod: "Ödeme türü",
   paymentDueDay: "Ödeme günü",
   "firstPayment.method": "Ödeme yöntemi",
@@ -160,6 +163,7 @@ export function emptyEnrollmentDraft(defaults: Partial<EnrollmentDraft> = {}): E
     paymentMethod: "",
     paymentDueDay: "",
     firstPayment: emptyFirstPaymentDraft(),
+    groupLessonId: "",
     ...defaults,
   };
 }
@@ -219,6 +223,7 @@ export function coerceEnrollmentDraft(raw: unknown): EnrollmentDraft {
     overrideReason: str(o.overrideReason, 300),
     paymentMethod: oneOf(o.paymentMethod, ["", ...PAYMENT_METHODS] as const, ""),
     paymentDueDay: str(o.paymentDueDay, 2),
+    groupLessonId: str(o.groupLessonId, 100),
     firstPayment: {
       method: oneOf(fp.method, ["", ...PAYMENT_METHODS] as const, ""),
       amount: str(fp.amount, 14),
@@ -289,6 +294,7 @@ export type NormalizedEnrollment = {
   paymentMethod?: StudentPaymentMethod;
   paymentDueDay?: number;
   lessonDays: number[];
+  groupLessonId?: string;
 };
 
 const trimOrUndef = (s: string): string | undefined => (s.trim() ? s.trim() : undefined);
@@ -332,6 +338,7 @@ export function normalizeEnrollmentDraft(d: EnrollmentDraft): NormalizedEnrollme
     paymentMethod: d.paymentMethod || undefined,
     paymentDueDay: intOrUndef(d.paymentDueDay),
     lessonDays: lessonWeekdaysFromText(d.lessonScheduleText),
+    groupLessonId: trimOrUndef(d.groupLessonId),
   };
 }
 
@@ -662,6 +669,7 @@ export function draftFromTerms(t: EnrollmentTerms, opts: { personBranchId: strin
     overrideReason: t.monthlyFeeManualOverride ? (t.monthlyFeeOverrideReason ?? "") : "",
     paymentMethod: t.paymentMethod ?? "",
     paymentDueDay: t.paymentDueDay ? String(t.paymentDueDay) : "",
+    groupLessonId: t.groupLessonId ?? "",
   });
 }
 
@@ -696,6 +704,7 @@ export function enrollmentUpsertPayload(d: EnrollmentDraft, mode: "add" | "edit"
     ...(n.paymentMethod ? { paymentMethod: n.paymentMethod } : {}),
     ...(n.paymentDueDay ? { paymentDueDay: n.paymentDueDay } : {}),
     ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+    ...(mode === "add" && n.groupLessonId ? { groupLessonId: n.groupLessonId } : {}),
   };
   if (isMeb) {
     base.mebLevelStartDate = n.mebLevelStartDate ?? "";

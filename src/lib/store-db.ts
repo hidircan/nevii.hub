@@ -517,6 +517,8 @@ function mapDbLesson(lesson: HotRow<Prisma.LessonGetPayload<object>>): import(".
     enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
     clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
     clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
+    groupLessonId: (lesson as { groupLessonId?: string | null }).groupLessonId ?? undefined,
+    groupSessionId: (lesson as { groupSessionId?: string | null }).groupSessionId ?? undefined,
     notes: lesson.notes ?? undefined,
     studentAttendanceNote: lesson.studentAttendanceNote ?? null,
     createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
@@ -1608,7 +1610,12 @@ export async function readLessonWindow(fromIso: string, toIso: string, opts?: Cl
       include: {
         ...referenceSchoolInclude,
         lessons: {
-          where: { tenantId: tid, startAt: { gte: from, lte: to }, ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}) },
+          where: {
+            tenantId: tid,
+            startAt: { gte: from, lte: to },
+            ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}),
+            ...(opts?.groupLessonId ? { groupLessonId: opts.groupLessonId === "*" ? { not: null } : opts.groupLessonId } : {}),
+          },
           omit: HOT_ROW_OMIT,
         },
       },
@@ -3336,11 +3343,73 @@ export async function addClubSessionLessons(rows: import("./types").Lesson[]): P
   if (rows.length === 0) return;
   const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
   if (!school) throw new Error("Okul kaydı bulunamadı");
-  await prisma.lesson.createMany({
-    data: rows.map((l) => ({
+  await prisma.lesson.createMany({ data: batchLessonCreateData(tid, school.id, rows) });
+}
+
+/**
+ * 2026-10-23 — grup dersi katılımcı satırlarını TOPLU yazar. Çağıran (group-lessons.ts) çakışmayı önceden doğrular;
+ * burada ders yuvası kilidi (`assertSlotFreeLockedTx` ile aynı advisory lock) altında aynı kural TEK sorguyla yeniden
+ * denetlenir — eşzamanlı bireysel ders planlaması aynı saati alamaz. Çakışma varsa hiçbir satır yazılmaz.
+ */
+export async function addGroupLessonRows(rows: import("./types").Lesson[]): Promise<void> {
+  const tid = requireTenantId();
+  if (rows.length === 0) return;
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
+  if (!school) throw new Error("Okul kaydı bulunamadı");
+  const uniq = (xs: string[]) => Array.from(new Set(xs));
+  const lo = new Date(Math.min(...rows.map((r) => Date.parse(r.startAt))));
+  const hi = new Date(Math.max(...rows.map((r) => Date.parse(r.endAt))));
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext('lesson-slot'))`;
+      const existing = await tx.lesson.findMany({
+        where: {
+          tenantId: tid,
+          status: { not: "cancelled" },
+          startAt: { lt: hi },
+          endAt: { gt: lo },
+          OR: [
+            { teacherId: { in: uniq(rows.map((r) => r.teacherId)) } },
+            { roomId: { in: uniq(rows.map((r) => r.roomId)) } },
+            { studentId: { in: uniq(rows.map((r) => r.studentId)) } },
+          ],
+        },
+        select: {
+          id: true, teacherId: true, roomId: true, studentId: true, startAt: true, endAt: true, status: true,
+          opsMakeupFlag: true, lessonProcessed: true, lessonProcessedReason: true, studentAttended: true, actualStartAt: true,
+          clubSessionId: true, groupSessionId: true,
+        },
+      });
+      const mapped = existing.map((r) => ({
+        ...r,
+        startAt: r.startAt.toISOString(),
+        endAt: r.endAt.toISOString(),
+        status: r.status as Lesson["status"],
+        lessonProcessedReason: r.lessonProcessedReason ?? undefined,
+        actualStartAt: r.actualStartAt?.toISOString(),
+        clubSessionId: r.clubSessionId ?? undefined,
+        groupSessionId: r.groupSessionId ?? undefined,
+      }));
+      for (const r of rows) {
+        const conflict = findSlotConflict(mapped, r);
+        if (conflict) {
+          throw new LessonSlotValidationError(
+            SLOT_CONFLICT_CODE[conflict.resource],
+            "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Grup dersi satırları yazılmadı; sayfayı yenileyip tekrar deneyin."
+          );
+        }
+      }
+      await tx.lesson.createMany({ data: batchLessonCreateData(tid, school.id, rows) });
+    },
+    { maxWait: 10_000, timeout: 20_000 }
+  );
+}
+
+function batchLessonCreateData(tid: string, schoolId: string, rows: import("./types").Lesson[]) {
+  return rows.map((l) => ({
       id: l.id,
       tenantId: tid,
-      schoolId: school.id,
+      schoolId,
       studentId: l.studentId,
       teacherId: l.teacherId,
       roomId: l.roomId,
@@ -3352,12 +3421,14 @@ export async function addClubSessionLessons(rows: import("./types").Lesson[]): P
       status: l.status,
       clubId: l.clubId ?? null,
       clubSessionId: l.clubSessionId ?? null,
+      groupLessonId: l.groupLessonId ?? null,
+      groupSessionId: l.groupSessionId ?? null,
+      enrollmentId: l.enrollmentId ?? null,
       notes: l.notes ?? null,
       createdByUserId: l.createdByUserId ?? null,
       term: l.term ?? null,
       academicYearStart: l.academicYearStart ?? null,
-    })),
-  });
+  }));
 }
 
 /** 2026-10-06 — kulüp satırlarına (yalnız `type: "group"`) sınırlı yama: durum, telafi bayrağı, not. */
@@ -3366,7 +3437,8 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
   if (ids.length === 0) return 0;
   const toDate = (v: string | undefined) => (v ? new Date(v) : undefined);
   const res = await prisma.lesson.updateMany({
-    where: { tenantId: tid, id: { in: ids }, type: "group" },
+    // Kulüp satırları (`type: "group"`) veya grup dersi katılımcı satırları — başka ders bu yoldan değişmez.
+    where: { tenantId: tid, id: { in: ids }, OR: [{ type: "group" }, { groupSessionId: { not: null } }] },
     data: {
       ...(patch.status ? { status: patch.status } : {}),
       ...(patch.opsMakeupFlag !== undefined
