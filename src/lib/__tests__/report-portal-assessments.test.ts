@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs, readFileSync } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
-import { createAssessmentTool, createPeriodicAssessmentTool } from "../services/tools";
+import { createAssessmentTool, createPeriodicAssessmentTool, listPendingPeriodicAssessmentsTool } from "../services/tools";
 import { LESSON_ASSESSMENTS_FILE, listAssessmentsForStudent } from "../assessment";
-import { PERIODIC_ASSESSMENTS_FILE, computePendingPeriodicAssessmentPeriods } from "../periodic-assessment";
+import { PERIODIC_ASSESSMENTS_FILE } from "../periodic-assessment";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { NOTIFICATIONS_FILE, listNotificationsForUser } from "../notifications";
@@ -93,19 +93,73 @@ describe("createAssessmentTool", () => {
 });
 
 describe("createPeriodicAssessmentTool", () => {
-  it("ikinci branş öğretmeni bekleyen dönemi gönderir; kayıt O öğretmene, yöneticiye bildirim", async () => {
-    const { readData } = await import("../store");
-    const s1 = (await readData()).students.find((s) => s.id === "s1")!;
-    const [period] = computePendingPeriodicAssessmentPeriods(s1, []);
-    expect(period).toBeDefined();
+  it("ikinci branş öğretmeni kendi dersini kapsayan dönemi gönderir; kayıt O öğretmene, yöneticiye bildirim", async () => {
+    const at = Date.now() - 3 * DAY;
     const r = await createPeriodicAssessmentTool(teacher("t2"), {
       studentId: "s1",
-      ...period,
+      periodStart: new Date(at - DAY).toISOString(),
+      periodEnd: new Date(at).toISOString(),
       overallProgressNote: "Düzenli ilerliyor",
     });
     expect(r.ok).toBe(true);
     const notes = await listNotificationsForUser({ tenantId: DEFAULT_TENANT_ID, userId: ADMIN_USER });
     expect(notes.some((n) => n.kind === "periodic_assessment_submitted")).toBe(true);
+  });
+
+  it("öğretmenin dersi olmayan aralık reddedilir (anlaşılır mesaj)", async () => {
+    const r = await createPeriodicAssessmentTool(teacher("t2"), {
+      studentId: "s1",
+      periodStart: new Date(Date.now() - 60 * DAY).toISOString(),
+      periodEnd: new Date(Date.now() - 50 * DAY).toISOString(),
+      overallProgressNote: "x",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain("dersiniz görünmüyor");
+  });
+});
+
+describe("4 haftalık rapor — liste ile gönderim aynı dönemi kabul eder (veri kaybı regresyonu)", () => {
+  /** Eski hata: liste 120 günlük pencereden, gönderim tüm geçmişten 4'lü grup kurduğu için sınırlar kayıyor ve
+   *  uzun geçmişi olan öğrencide öğretmenin yazdığı rapor "bekleyen dönem değil" diye reddediliyordu. */
+  beforeEach(async () => {
+    const { readData } = await import("../store");
+    const { writeData } = await import("../store-json");
+    const data = await readData();
+    const base = data.lessons.find((l) => l.id === "l_t2")!;
+    // 200 günden bugüne haftalık 29 ders (+ beforeEach'teki l_t2): 4'e bölünmeyen uzun geçmiş.
+    const extra = Array.from({ length: 29 }, (_, k) => {
+      const start = Date.now() - (200 - k * 7) * DAY;
+      return { ...base, id: `l_t2_${k}`, startAt: new Date(start).toISOString(), endAt: new Date(start + 40 * 60_000).toISOString() };
+    });
+    await writeData({ ...data, lessons: [...data.lessons, ...extra] });
+  });
+
+  it("listedeki dönem gönderilir, sonra listeden düşer; aynı metinle tekrar gönderim aynı kaydı döner", async () => {
+    const list = await listPendingPeriodicAssessmentsTool(teacher("t2"), {});
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    const item = list.data.items.find((i) => i.studentId === "s1");
+    expect(item).toBeDefined();
+    expect(item!.lessonCount).toBe(4);
+    expect(list.data.items.filter((i) => i.studentId === "s1")).toHaveLength(1);
+
+    const body = { studentId: "s1", periodStart: item!.periodStart, periodEnd: item!.periodEnd, overallProgressNote: "İyi gidiyor" };
+    const first = await createPeriodicAssessmentTool(teacher("t2"), body);
+    expect(first.ok).toBe(true);
+    const retry = await createPeriodicAssessmentTool(teacher("t2"), body);
+    expect(retry.ok && first.ok && retry.data.id === first.data.id).toBe(true);
+    const changed = await createPeriodicAssessmentTool(teacher("t2"), { ...body, overallProgressNote: "Başka metin" });
+    expect(changed.ok).toBe(false);
+    if (!changed.ok) expect(changed.error.code).toBe("CONFLICT");
+
+    const after = await listPendingPeriodicAssessmentsTool(teacher("t2"), { studentId: "s1" });
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    // Sonraki dönem varsa yalnız gönderilenin BİTİŞİNDEN sonra başlar ve taslağı tek öğrenci isteğinde gelir.
+    for (const next of after.data.items) {
+      expect(next.periodStart > item!.periodEnd).toBe(true);
+      expect(next.draft).toBeDefined();
+    }
   });
 });
 

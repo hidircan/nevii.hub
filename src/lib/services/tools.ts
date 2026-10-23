@@ -162,9 +162,10 @@ import { notifyLessonReassigned } from "../lesson-notifications";
 import {
   createPeriodicAssessment,
   listPeriodicAssessmentsForStudent,
-  listPeriodicAssessmentsForTeacher,
-  computePendingPeriodicAssessmentPeriods,
-  type PendingPeriod,
+  listLatestPeriodicEnds,
+  computePendingPeriod,
+  isReportableLesson,
+  PERIODIC_LOOKBACK_DAYS,
 } from "../periodic-assessment";
 import { createPeriodicAssessmentSchema } from "../validation";
 import type { PeriodicAssessment } from "../types";
@@ -11592,26 +11593,72 @@ export async function getAssessmentReportTool(
   }
 }
 
+export type PendingPeriodicItem = {
+  studentId: string;
+  studentName: string;
+  teacherId: string;
+  periodStart: string;
+  periodEnd: string;
+  /** Dönemdeki ders sayısı (taslak olmadan da listede gösterilir). */
+  lessonCount: number;
+  /** Yalnız tek öğrenci istendiğinde (form ekranı) üretilir — listelerde ders raporu okunmaz. */
+  draft?: import("../reports/guidance").PeriodicAssessmentDraft;
+};
+
+/** Öğrencinin portal öğretmenleri (`isOwnStudent` ile aynı: birincil + aktif branş). */
+function portalTeacherIdsOf(student: Pick<AppData["students"][number], "teacherId" | "enrollments">): string[] {
+  return [...new Set([student.teacherId, ...(student.enrollments ?? []).filter((e) => e.active).map((e) => e.teacherId)].filter((id): id is string => Boolean(id)))];
+}
+
 /**
- * Faz 3B — bir öğretmenin (veya adminin, tüm öğretmenler için) BEKLEYEN
- * dört haftalık / 4 derslik değerlendirmelerini ve her dönem için önceki
- * 4 dersten otomatik derlenen özet/puan taslağını (`draft`) listeler.
+ * 4 haftalık rapor — bekleyenler (öğrenci×öğretmen başına en çok bir dönem, `computePendingPeriod`).
+ * Verilen ders dilimi üzerinde çalışır; çağıran dilimi seçer (liste: 60 günlük pencere, form: tek öğrenci).
+ */
+async function collectPendingPeriodicItems(
+  tenantId: string,
+  data: {
+    students: Pick<AppData["students"][number], "id" | "name" | "active" | "deletedAt" | "teacherId" | "enrollments">[];
+    lessons: Lesson[];
+  },
+  f: { teacherId?: string; studentId?: string },
+  now: Date
+): Promise<PendingPeriodicItem[]> {
+  const lastEnds = await listLatestPeriodicEnds(tenantId, f);
+  const lessonsByPair = new Map<string, Lesson[]>();
+  for (const l of data.lessons) {
+    if (!l.studentId) continue;
+    const key = `${l.studentId}:${l.teacherId}`;
+    const list = lessonsByPair.get(key) ?? [];
+    list.push(l);
+    lessonsByPair.set(key, list);
+  }
+  const items: PendingPeriodicItem[] = [];
+  for (const student of data.students) {
+    if (!student.active || student.deletedAt || (f.studentId && student.id !== f.studentId)) continue;
+    for (const teacherId of portalTeacherIdsOf(student)) {
+      if (f.teacherId && teacherId !== f.teacherId) continue;
+      const key = `${student.id}:${teacherId}`;
+      const lessons = lessonsByPair.get(key) ?? [];
+      const period = computePendingPeriod(lessons, lastEnds.get(key), now);
+      if (!period) continue;
+      const lessonCount = lessons.filter(
+        (l) => isReportableLesson(l, now.getTime()) && l.startAt >= period.periodStart && l.startAt <= period.periodEnd
+      ).length;
+      items.push({ studentId: student.id, studentName: student.name, teacherId, ...period, lessonCount });
+    }
+  }
+  return items.sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+}
+
+/**
+ * 4 haftalık rapor — bekleyenler. `studentId` verilirse (form ekranı) tek öğrenci dilimi okunur ve dönem taslağı
+ * (önceki 4 dersin puan/özeti) eklenir; verilmezse 60 günlük ders penceresi + yalnız son rapor tarihleri okunur,
+ * taslak üretilmez (liste ekranı ders raporlarını okumaz). Yanıt şekli eski mobil sürümlerle uyumludur.
  */
 export async function listPendingPeriodicAssessmentsTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<
-  ServiceResult<{
-    items: {
-      studentId: string;
-      studentName: string;
-      teacherId: string;
-      periodStart: string;
-      periodEnd: string;
-      draft?: import("../reports/guidance").PeriodicAssessmentDraft;
-    }[];
-  }>
-> {
+): Promise<ServiceResult<{ items: PendingPeriodicItem[] }>> {
   const auth = requireRole(ctx, ["TEACHER", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -11627,90 +11674,28 @@ export async function listPendingPeriodicAssessmentsTool(
   if (ctx.role === "TEACHER" && v.data.teacherId && v.data.teacherId !== ctx.teacherId) {
     return fail("FORBIDDEN", "Yalnızca kendi bekleyen değerlendirmelerinizi görebilirsiniz.");
   }
+  const teacherId = ctx.role === "TEACHER" ? ctx.teacherId! : v.data.teacherId;
+  const studentId = v.data.studentId;
 
   try {
-    const { buildPeriodicAssessmentDraft } = await import("../reports/guidance");
     const now = new Date();
-    const win = await readLessonWindow(
-      new Date(now.getTime() - 120 * 86_400_000).toISOString(),
-      now.toISOString()
-    );
-    const targetTeacherIds =
-      ctx.role === "TEACHER"
-        ? [ctx.teacherId!]
-        : v.data.teacherId
-          ? [v.data.teacherId]
-          : [...new Set(win.teachers.map((t) => t.id))];
+    const data = studentId
+      ? await readStudentScope(studentId)
+      : await readLessonWindow(new Date(now.getTime() - (PERIODIC_LOOKBACK_DAYS + 1) * 86_400_000).toISOString(), now.toISOString());
+    const items = await collectPendingPeriodicItems(ctx.tenantId, data, { teacherId, studentId }, now);
 
-    const lessonsByStudentTeacher = new Map<string, Lesson[]>();
-    for (const l of win.lessons) {
-      const key = `${l.studentId}:${l.teacherId}`;
-      const list = lessonsByStudentTeacher.get(key) ?? [];
-      list.push(l);
-      lessonsByStudentTeacher.set(key, list);
-    }
-
-    const items: {
-      studentId: string;
-      studentName: string;
-      teacherId: string;
-      periodStart: string;
-      periodEnd: string;
-      draft?: import("../reports/guidance").PeriodicAssessmentDraft;
-    }[] = [];
-
-    const studentAssessmentsCache = new Map<string, LessonAssessment[]>();
-
-    for (const teacherId of targetTeacherIds) {
-      const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, teacherId);
-      const submittedByStudent = new Map<string, PendingPeriod[]>();
-      for (const s of submitted) {
-        const arr = submittedByStudent.get(s.studentId) ?? [];
-        arr.push({ periodStart: s.periodStart, periodEnd: s.periodEnd });
-        submittedByStudent.set(s.studentId, arr);
-      }
-      const students = win.students.filter(
-        (s) =>
-          isOwnStudent(s, teacherId) &&
-          s.active &&
-          !s.deletedAt &&
-          (!v.data.studentId || s.id === v.data.studentId)
-      );
-      for (const student of students) {
-        const studentLessons = lessonsByStudentTeacher.get(`${student.id}:${teacherId}`) ?? [];
-        const pending = computePendingPeriodicAssessmentPeriods(
-          student,
-          submittedByStudent.get(student.id) ?? [],
-          now,
-          studentLessons
-        );
-        if (pending.length === 0) continue;
-
-        let studentAssessments = studentAssessmentsCache.get(student.id);
-        if (!studentAssessments) {
-          const allForStudent = await listAssessmentsForStudent(ctx.tenantId, student.id);
-          studentAssessments = allForStudent.filter((a) => a.teacherId === teacherId);
-          studentAssessmentsCache.set(student.id, studentAssessments);
-        }
-
-        for (const period of pending) {
-          const draft = buildPeriodicAssessmentDraft({
-            lessons: studentLessons,
-            assessments: studentAssessments,
-            periodStart: period.periodStart,
-            periodEnd: period.periodEnd,
-          });
-          items.push({
-            studentId: student.id,
-            studentName: student.name,
-            teacherId,
-            ...period,
-            draft,
-          });
-        }
+    if (studentId && items.length > 0) {
+      const { buildPeriodicAssessmentDraft } = await import("../reports/guidance");
+      const assessments = await listAssessmentsForStudent(ctx.tenantId, studentId);
+      for (const item of items) {
+        item.draft = buildPeriodicAssessmentDraft({
+          lessons: data.lessons.filter((l) => l.studentId === studentId && l.teacherId === item.teacherId),
+          assessments: assessments.filter((a) => a.teacherId === item.teacherId),
+          periodStart: item.periodStart,
+          periodEnd: item.periodEnd,
+        });
       }
     }
-
     return ok({ items });
   } catch (e) {
     return fail("INTERNAL_ERROR", e instanceof Error ? e.message : "listPendingPeriodicAssessments failed");
@@ -11718,11 +11703,11 @@ export async function listPendingPeriodicAssessmentsTool(
 }
 
 /**
- * Faz 3B — bir dönem için genel gelişim değerlendirmesi gönderir. Talep
- * edilen dönem `computePendingPeriodicAssessmentPeriods`'un ÜRETTİĞİ
- * dönemlerden biriyle EŞLEŞMEK zorundadır (rastgele bir tarih aralığı kabul
- * edilmez) — bu, hem tutarlılığı hem idempotency'yi (aynı dönem ikinci kez
- * gönderilemez) garanti eder.
+ * 4 haftalık rapor gönderimi. Dönem, listede üretilenle BİREBİR eşleşmek zorunda DEĞİL (2026-10-23): eskiden liste
+ * 120 günlük pencereden, gönderim tüm geçmişten dönem türettiği için sınırlar kayıyor ve öğretmenin yazdığı rapor
+ * "bekleyen dönem değil" hatasıyla kayboluyordu. Artık kurallar doğrulanır: kendi öğrencisi, dönem geçmişte, aralıkta
+ * öğretmenin en az bir dersi var ve aynı öğretmenin gönderilmiş bir raporuyla çakışmıyor. Aynı dönem + aynı metinle
+ * tekrar gönderim (mobil yeniden deneme) mevcut kaydı döner; @@unique yine ikinci kaydı engeller.
  */
 export async function createPeriodicAssessmentTool(
   ctx: ServiceContext,
@@ -11745,85 +11730,92 @@ export async function createPeriodicAssessmentTool(
   const reportTeacherId = ctx.role === "TEACHER" && ctx.teacherId ? ctx.teacherId : student.teacherId;
   const teacher = data.teachers.find((t) => t.id === reportTeacherId);
 
-  const studentLessons = data.lessons.filter(
-    (l) => l.studentId === student.id && l.teacherId === reportTeacherId
-  );
-
-  const submitted = await listPeriodicAssessmentsForTeacher(ctx.tenantId, reportTeacherId);
-  const submittedForStudent = submitted
-    .filter((s) => s.studentId === student.id)
-    .map((s) => ({ periodStart: s.periodStart, periodEnd: s.periodEnd }));
-  const pending = computePendingPeriodicAssessmentPeriods(
-    student,
-    submittedForStudent,
-    new Date(),
-    studentLessons
-  );
-  const matches = pending.some((p) => p.periodStart === v.data.periodStart && p.periodEnd === v.data.periodEnd);
-  if (!matches) {
+  const startMs = Date.parse(v.data.periodStart);
+  const endMs = Date.parse(v.data.periodEnd);
+  const now = new Date();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs > endMs || endMs > now.getTime() + 60_000) {
     return fail(
       "VALIDATION_ERROR",
-      "Belirtilen dönem şu anda bekleyen bir değerlendirme değil (zaten gönderilmiş veya henüz tamamlanmamış olabilir)."
+      "Rapor dönemi geçersiz: başlangıç bitişten sonra ya da dönem henüz tamamlanmamış. Bekleyen raporlar listesini yenileyip dönemi oradan seçin."
+    );
+  }
+  const periodStart = new Date(startMs).toISOString();
+  const periodEnd = new Date(endMs).toISOString();
+
+  const studentLessons = data.lessons.filter((l) => l.studentId === student.id && l.teacherId === reportTeacherId);
+  const relatedLessonIds = studentLessons
+    .filter((l) => isReportableLesson(l, now.getTime()) && Date.parse(l.startAt) >= startMs && Date.parse(l.startAt) <= endMs)
+    .map((l) => l.id);
+  if (relatedLessonIds.length === 0) {
+    return fail(
+      "VALIDATION_ERROR",
+      `${formatDate(periodStart)} – ${formatDate(periodEnd)} arasında ${student.name} ile yapılmış dersiniz görünmüyor. Bekleyen raporlar listesini yenileyip güncel dönemi seçin.`
+    );
+  }
+
+  const existing = (await listPeriodicAssessmentsForStudent(ctx.tenantId, student.id)).filter(
+    (a) => a.teacherId === reportTeacherId
+  );
+  const same = existing.find((a) => Date.parse(a.periodStart) === startMs && Date.parse(a.periodEnd) === endMs);
+  if (same && same.overallProgressNote === v.data.overallProgressNote.trim()) return ok({ id: same.id });
+  const overlap = existing.find((a) => Date.parse(a.periodStart) <= endMs && startMs <= Date.parse(a.periodEnd));
+  if (overlap) {
+    return fail(
+      "CONFLICT",
+      `Bu tarihleri kapsayan 4 haftalık rapor (${formatDate(overlap.periodStart)} – ${formatDate(overlap.periodEnd)}) zaten gönderilmiş. Gönderilen rapor öğrencinin Gelişim sayfasında; yeni dönem 4 ders daha yapılınca açılır.`
     );
   }
 
   const { buildPeriodicAssessmentDraft } = await import("../reports/guidance");
   const allAssessments = await listAssessmentsForStudent(ctx.tenantId, student.id);
-  const teacherAssessments = allAssessments.filter((a) => a.teacherId === reportTeacherId);
   const draft = buildPeriodicAssessmentDraft({
     lessons: studentLessons,
-    assessments: teacherAssessments,
-    periodStart: v.data.periodStart,
-    periodEnd: v.data.periodEnd,
+    assessments: allAssessments.filter((a) => a.teacherId === reportTeacherId),
+    periodStart,
+    periodEnd,
   });
-
-  const relatedLessonIds =
-    draft.relatedLessonIds.length > 0
-      ? draft.relatedLessonIds
-      : data.lessons
-          .filter(
-            (l) =>
-              l.studentId === student.id &&
-              new Date(l.startAt) >= new Date(v.data.periodStart) &&
-              new Date(l.startAt) <= new Date(v.data.periodEnd)
-          )
-          .map((l) => l.id);
 
   const finalScores = v.data.scores ?? draft.suggestedScores;
   const finalOverallScore = Number(computeOverallScore(finalScores).toFixed(1));
-  const nowIso = new Date().toISOString();
+  const optionalNote = (s?: string) => s?.trim() || undefined;
 
   try {
     const result = await createPeriodicAssessment({
       tenantId: ctx.tenantId,
       studentId: student.id,
       teacherId: reportTeacherId,
-      periodStart: v.data.periodStart,
-      periodEnd: v.data.periodEnd,
+      periodStart,
+      periodEnd,
       relatedLessonIds,
-      overallProgressNote: v.data.overallProgressNote,
-      strengthsNote: v.data.strengthsNote ?? (draft.synthesizedNotes.strengthsNote || undefined),
-      areasForImprovementNote:
-        v.data.areasForImprovementNote ?? (draft.synthesizedNotes.areasForImprovementNote || undefined),
-      recommendationNote:
-        v.data.recommendationNote ?? (draft.synthesizedNotes.recommendationNote || undefined),
+      overallProgressNote: v.data.overallProgressNote.trim(),
+      // Boş bırakılan alan boş kalır: öğretmenin görmediği metin rapora yazılmaz (web/mobil aynı).
+      strengthsNote: optionalNote(v.data.strengthsNote),
+      areasForImprovementNote: optionalNote(v.data.areasForImprovementNote),
+      recommendationNote: optionalNote(v.data.recommendationNote),
       scores: finalScores,
       overallScore: finalOverallScore,
       lessonSummaries: draft.lessonSummaries,
-      teacherSignedName: v.data.teacherSignedName?.trim() || teacher?.name || "Öğretmen",
-      approvedAt: nowIso,
+      // Raporu düzenleyen = öğretmen kaydındaki ad (serbest metin/e-posta değil); PDF ve listeler bunu gösterir.
+      teacherSignedName: teacher?.name || v.data.teacherSignedName?.trim() || "Öğretmen",
+      approvedAt: now.toISOString(),
       submittedBy: ctx.userId,
     });
-    if (!result.ok) return fail("CONFLICT", result.message);
+    if (!result.ok) {
+      const again = (await listPeriodicAssessmentsForStudent(ctx.tenantId, student.id)).find(
+        (a) => a.teacherId === reportTeacherId && a.periodStart === periodStart && a.periodEnd === periodEnd
+      );
+      if (again && again.overallProgressNote === v.data.overallProgressNote.trim()) return ok({ id: again.id });
+      return fail("CONFLICT", "Bu dönem için 4 haftalık rapor zaten gönderilmiş. Listeyi yenileyin; gönderilen rapor öğrencinin Gelişim sayfasında.");
+    }
     audit(ctx, "periodic_assessment.create", "PeriodicAssessment", result.assessment.id, {
       studentId: student.id,
-      periodStart: v.data.periodStart,
-      periodEnd: v.data.periodEnd,
+      periodStart,
+      periodEnd,
       overallScore: finalOverallScore,
     });
     await notifyReportSubmitted(ctx.tenantId, "periodic_assessment_submitted", result.assessment.id, {
       title: "Yeni 4 haftalık gelişim raporu",
-      body: `${student.name} için 4 haftalık genel değerlendirme onaylandı (${finalOverallScore.toFixed(1)}/5). Detay: /panel/raporlar?sekme=donemsel (ref:${result.assessment.id})`,
+      body: `${student.name} için 4 haftalık gelişim raporu gönderildi (${finalOverallScore.toFixed(1)}/5). Detay: /panel/raporlar?sekme=donemsel (ref:${result.assessment.id})`,
     });
     return ok({ id: result.assessment.id });
   } catch (e) {
@@ -12641,41 +12633,59 @@ export async function listPeriodicAssessmentsForAdminTool(
   return ok(await listPeriodicAssessmentsPage(ctx.tenantId, { ...v.data, fromIso: v.data.from, toIso: v.data.to }));
 }
 
-/** Üst kartlar: raporu bekleyen dersler (öğretmen bazında, son 14 gün) + etkin değerlendirme bağlantısı sayısı. */
+/**
+ * Raporlar ekranının varsayılan "Bekleyenler" görünümü — TEK ders penceresi okuması (60 gün): raporu bekleyen dersler
+ * (son 14 gün) + bekleyen 4 haftalık raporlar (taslaksız) + etkin değerlendirme bağlantısı sayısı. Listeler `limit` ile
+ * kesilir, toplamlar ayrıca döner (ekran "ilk N" gösterir).
+ */
 export async function getReportsOverviewTool(
-  ctx: ServiceContext
+  ctx: ServiceContext,
+  input: unknown = {}
 ): Promise<
   ServiceResult<{
     pendingByTeacher: { teacherId: string; count: number }[];
     pendingTotal: number;
     pendingLessons: { id: string; studentId: string; teacherId: string; startAt: string; instrument?: string }[];
+    pendingPeriodic: PendingPeriodicItem[];
+    pendingPeriodicTotal: number;
     activeInvites: number;
   }>
 > {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const { pendingLessonAssessments, PENDING_LESSON_WINDOW_DAYS } = await import("../reports/pending");
+  const v = parseOrFail(
+    z.object({ teacherId: z.string().min(1).optional(), limit: z.number().int().min(1).max(200).default(30) }),
+    input
+  );
+  if (!v.ok) return v;
+  const { teacherId, limit } = v.data;
+  const { pendingLessonAssessments } = await import("../reports/pending");
   const { listAssessedLessonIds } = await import("../assessment");
   const { countActiveInvites } = await import("../feedback-invites");
   const now = new Date();
   const win = await readLessonWindow(
-    new Date(now.getTime() - (PENDING_LESSON_WINDOW_DAYS + 1) * 86_400_000).toISOString(),
+    new Date(now.getTime() - (PERIODIC_LOOKBACK_DAYS + 1) * 86_400_000).toISOString(),
     now.toISOString()
   );
-  const assessed = await listAssessedLessonIds(ctx.tenantId, win.lessons.map((l) => l.id));
-  const pending = pendingLessonAssessments(win.lessons, assessed, null, now.getTime());
+  const recentFrom = now.getTime() - 15 * 86_400_000;
+  const recent = win.lessons.filter((l) => Date.parse(l.startAt) >= recentFrom);
+  const assessed = await listAssessedLessonIds(ctx.tenantId, recent.map((l) => l.id));
+  const pending = pendingLessonAssessments(recent, assessed, teacherId ?? null, now.getTime());
   const byTeacher = new Map<string, number>();
   for (const l of pending) byTeacher.set(l.teacherId, (byTeacher.get(l.teacherId) ?? 0) + 1);
+  const periodic = await collectPendingPeriodicItems(ctx.tenantId, win, { teacherId }, now);
   return ok({
-    pendingByTeacher: [...byTeacher].map(([teacherId, count]) => ({ teacherId, count })).sort((a, b) => b.count - a.count),
+    pendingByTeacher: [...byTeacher].map(([id, count]) => ({ teacherId: id, count })).sort((a, b) => b.count - a.count),
     pendingTotal: pending.length,
-    pendingLessons: pending.slice(0, 50).map((l) => ({
+    pendingLessons: pending.slice(0, limit).map((l) => ({
       id: l.id,
       studentId: l.studentId,
       teacherId: l.teacherId,
       startAt: l.startAt,
       instrument: l.instrument,
     })),
+    pendingPeriodic: periodic.slice(0, limit),
+    pendingPeriodicTotal: periodic.length,
     activeInvites: await countActiveInvites(ctx.tenantId),
   });
 }
@@ -12914,6 +12924,9 @@ const feedbackReviewFiltersSchema = z.object({
   sourceType: z.enum(["STUDENT", "PARENT", "STUDENT_LINK"]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  /** Verilirse DB'de sayfalanır (Raporlar ekranı); yoksa eski davranış (tümü). */
+  page: z.number().int().min(1).max(10_000).optional(),
+  pageSize: z.number().int().min(5).max(100).default(25),
 });
 
 /**
@@ -12925,7 +12938,7 @@ const feedbackReviewFiltersSchema = z.object({
 export async function listTeacherFeedbackForReviewTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ feedback: MaskedTeacherFeedback[] }>> {
+): Promise<ServiceResult<{ feedback: MaskedTeacherFeedback[]; total?: number }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
@@ -12933,6 +12946,17 @@ export async function listTeacherFeedbackForReviewTool(
   if (!v.ok) return v;
 
   try {
+    if (v.data.page && v.data.from && v.data.to && !v.data.status && !v.data.sourceType) {
+      const { listTeacherFeedbackPage } = await import("../teacher-feedback");
+      const { rows, total } = await listTeacherFeedbackPage(ctx.tenantId, {
+        teacherId: v.data.teacherId,
+        fromIso: v.data.from,
+        toIso: v.data.to,
+        page: v.data.page,
+        pageSize: v.data.pageSize,
+      });
+      return ok({ feedback: rows.map(({ studentId: _s, submittedBy: _b, ...rest }) => (void _s, void _b, rest)), total });
+    }
     const all = await listTeacherFeedback(ctx.tenantId, v.data.teacherId);
     const filtered = all.filter((f) => {
       if (v.data.status && f.status !== v.data.status) return false;

@@ -4,7 +4,13 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-23 (sözleşmeli öğrencide ikinci borç; MERGE/PUSH/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-23 (Raporlar sadeleştirme + 4 haftalık rapor tek kural; MERGE/PUSH/CANLI YOK, migration YOK)
+- Worktree `../nevii-hub-reports-pagination-and-4week-flow`, dal `redesign/reports-pagination-and-4week-flow` (taban origin/main 0ae95871).
+- 4 haftalık: öğrenci×öğretmen başına en çok 1 bekleyen = son rapordan sonraki ilk 4 ders (`computePendingPeriod`, rapor yoksa 60 gün taban); 28 günlük takvim dönemi kalktı. Gönderim eşleşme değil kural doğrular (kendi dersi var, çakışma yok); aynı metinle tekrar = aynı kayıt. "Hazırlayan" = öğretmen kaydı adı.
+- /panel/raporlar: varsayılan "Bekleyenler" (tek 60 gün pencere), arşiv sekmeleri sayfalı, yalnız açık sekme okunur; öğrenci değerlendirmeleri DB'de sayfalı. Başlık `reportInstitutionName` (tam ad; `shortName` "Nilüfer Acar" kişi adı gibi görünüyordu).
+- Mobil form değişikliği yeni EAS sürümüyle gelir; sunucu eski sürümle uyumlu. Açık: owner canlı kabul.
+
+## Snapshot — 2026-10-23 (sözleşmeli öğrencide ikinci borç; MERGE/PUSH/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-orphan-contractless-payment-link`, dal `fix/orphan-contractless-payment-link` (taban origin/main 3c519b58, #82 dahil).
 - Kök: `monthly_plan` satırı `contractId` almadan kalır; etiket "Sözleşmesiz aylık plan" öğrencinin güncel sözleşmesinden değil kaynaktan gelir. Sözleşme açılışı çakışan tahsilatsız satırı iptal eder. Tahakkuk, özet kaydı eksik olsa bile yaşayan taksit ayını kapsıyorsa yazmaz. Okuma yolları eski satırı açık/gecikmiş borçtan düşer; satır silinmez.
 - İki branşta branşı boş satır otomatik kapanmaz. Tahsilat görmüş, elle, kulüp ve başka ay durur. Veri düzeltmesi: `scripts/detect-superseded-monthly-plans.ts` yalnız rapor, `--apply` yok, çalıştırılmadı. Pırıl satırı bu oturumda okunmadı.

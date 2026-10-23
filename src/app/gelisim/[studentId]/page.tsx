@@ -6,6 +6,7 @@ import { readStudentScope } from "@/lib/store";
 import { isOwnStudent, ownStudentLessons } from "@/lib/teacher-portal-scope";
 import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
 import { cn } from "@/lib/utils";
+import { reportInstitutionName } from "@/lib/reports/identity";
 import { ReportShell } from "@/components/reports/report-shell";
 import { LessonAssessmentMobileForm } from "@/components/reports/lesson-assessment-mobile-form";
 import { PeriodicAssessmentMobileForm } from "@/components/reports/periodic-assessment-mobile-form";
@@ -32,7 +33,7 @@ export default async function ReportStudentPage({ params, searchParams }: Props)
   const teacherId = session.teacherId;
 
   const data = await readStudentScope(studentId);
-  const institution = data.settings.shortName || data.settings.name;
+  const institution = reportInstitutionName(data.settings);
   const student = data.students.find((s) => s.id === studentId);
   if (!student || student.deletedAt || !isOwnStudent(student, teacherId)) {
     return (
@@ -57,6 +58,7 @@ export default async function ReportStudentPage({ params, searchParams }: Props)
     { studentId: student.id }
   );
   const periods = (periodic.ok ? periodic.data.items : []).filter((p) => p.studentId === student.id);
+  // Öğrenci×öğretmen başına en çok bir bekleyen dönem; `donem` eski bağlantılar için.
   const period = periods.find((p) => p.periodStart === donem) ?? periods[0];
   const tab = sekme === "donemsel" ? "donemsel" : "ders";
   const done = { href: "/gelisim", label: "Bekleyen raporlara dön" };
@@ -93,17 +95,15 @@ export default async function ReportStudentPage({ params, searchParams }: Props)
         />
       ) : period ? (
         <PeriodicAssessmentMobileForm
-          key={period.periodStart}
           studentId={student.id}
           period={{ periodStart: period.periodStart, periodEnd: period.periodEnd }}
           draftSummary={period.draft}
-          teacherName={teacher?.name ?? ""}
           draftOwner={teacherId}
           doneHref={done}
         />
       ) : (
         <p className="rounded-[var(--radius-lg)] border border-dashed border-[var(--color-border)] p-4 text-sm text-[var(--color-text-muted)]">
-          Bu öğrenci için bekleyen 4 haftalık değerlendirme yok. 4 ders tamamlandığında özet form otomatik olarak burada açılacak.
+          Bu öğrenci için yazılacak 4 haftalık rapor yok. Son rapordan sonra 4 ders tamamlanınca form burada açılır.
         </p>
       )}
     </ReportShell>

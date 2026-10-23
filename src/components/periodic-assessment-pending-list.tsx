@@ -1,61 +1,40 @@
-"use client";
+/**
+ * Öğretmenin bekleyen 4 haftalık raporları. Form TEK yerde açılır (`/gelisim/[öğrenci]?sekme=donemsel`): taslak
+ * (önceki 4 dersin özeti) yalnız orada, tek öğrenci dilimiyle üretilir — listede ders raporları okunmaz.
+ */
 
-/** Faz 3B — öğretmenin bekleyen dört haftalık değerlendirmeleri + gönderim formu. */
-
-import { useState } from "react";
-import { Button, Card, EmptyState } from "@/components/ui";
+import Link from "@/components/link";
+import { Card, EmptyState } from "@/components/ui";
 import { formatDate } from "@/lib/utils";
-import type { PeriodicAssessmentDraft } from "@/lib/reports/guidance";
-import { PeriodicAssessmentMobileForm } from "@/components/reports/periodic-assessment-mobile-form";
 
-export type PendingPeriodicItem = {
+export type PendingPeriodicListItem = {
   studentId: string;
   studentName: string;
-  teacherId: string;
   periodStart: string;
   periodEnd: string;
-  draft?: PeriodicAssessmentDraft;
+  lessonCount: number;
 };
 
-function PendingItemForm({ item }: { item: PendingPeriodicItem }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Card className="!p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-medium text-[var(--color-text)]">{item.studentName}</p>
-          <p className="text-xs text-[var(--color-text-muted)]">
-            {formatDate(item.periodStart)} – {formatDate(item.periodEnd)}
-            {item.draft ? ` · ${item.draft.lessonCount} ders · Ort. ${item.draft.overallScore.toFixed(1)}/5` : ""}
-          </p>
-        </div>
-        <Button variant={open ? "ghost" : "secondary"} onClick={() => setOpen((v) => !v)}>
-          {open ? "Kapat" : "Özeti İncele ve Onayla"}
-        </Button>
-      </div>
-      {open ? (
-        <div className="mt-3">
-          {/* 2026-10-14 — /gelisim ile aynı ortak form (taslak + sade mobil tasarım). */}
-          <PeriodicAssessmentMobileForm
-            studentId={item.studentId}
-            draftOwner={item.teacherId}
-            period={{ periodStart: item.periodStart, periodEnd: item.periodEnd }}
-            draftSummary={item.draft}
-          />
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
-export function PeriodicAssessmentPendingList({ items }: { items: PendingPeriodicItem[] }) {
+export function PeriodicAssessmentPendingList({ items }: { items: PendingPeriodicListItem[] }) {
   if (items.length === 0) {
-    return <EmptyState title="Bekleyen değerlendirme yok" description="Tüm dört haftalık değerlendirmeler güncel." />;
+    return <EmptyState title="Bekleyen 4 haftalık rapor yok" description="4 dersi tamamlanan öğrencinin raporu burada açılır." />;
   }
   return (
     <div className="space-y-2">
       {items.map((item) => (
-        <PendingItemForm key={`${item.studentId}:${item.periodStart}`} item={item} />
+        <Link key={`${item.studentId}:${item.periodStart}`} href={`/gelisim/${item.studentId}?sekme=donemsel`}>
+          <Card className="!p-3 hover:border-[var(--color-border-strong)]">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[var(--color-text)]">{item.studentName}</p>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {formatDate(item.periodStart)} – {formatDate(item.periodEnd)} · {item.lessonCount} ders
+                </p>
+              </div>
+              <span className="shrink-0 text-sm font-medium text-[var(--color-primary)]">Raporu yaz</span>
+            </div>
+          </Card>
+        </Link>
       ))}
     </div>
   );

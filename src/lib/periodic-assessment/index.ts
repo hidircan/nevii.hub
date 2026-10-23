@@ -17,7 +17,6 @@ import type {
   Lesson,
   PeriodicAssessment,
   PeriodicLessonSummaryItem,
-  Student,
 } from "../types";
 
 const FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "periodic-assessments.json");
@@ -193,22 +192,31 @@ async function createDb(input: CreatePeriodicAssessmentInput): Promise<CreatePer
   if (existing) {
     return { ok: false, code: "ALREADY_SUBMITTED", message: "Bu dönem için değerlendirme zaten gönderilmiş." };
   }
-  const row = await prisma.periodicAssessment.create({
-    data: {
-      id: uid("pass"),
-      tenantId: input.tenantId,
-      studentId: input.studentId,
-      teacherId: input.teacherId,
-      periodStart: new Date(input.periodStart),
-      periodEnd: new Date(input.periodEnd),
-      relatedLessonIds: packRelatedPayload(input),
-      overallProgressNote: input.overallProgressNote,
-      strengthsNote: input.strengthsNote ?? null,
-      areasForImprovementNote: input.areasForImprovementNote ?? null,
-      recommendationNote: input.recommendationNote ?? null,
-      submittedBy: input.submittedBy,
-    },
-  });
+  let row: DbPeriodicAssessment;
+  try {
+    row = await prisma.periodicAssessment.create({
+      data: {
+        id: uid("pass"),
+        tenantId: input.tenantId,
+        studentId: input.studentId,
+        teacherId: input.teacherId,
+        periodStart: new Date(input.periodStart),
+        periodEnd: new Date(input.periodEnd),
+        relatedLessonIds: packRelatedPayload(input),
+        overallProgressNote: input.overallProgressNote,
+        strengthsNote: input.strengthsNote ?? null,
+        areasForImprovementNote: input.areasForImprovementNote ?? null,
+        recommendationNote: input.recommendationNote ?? null,
+        submittedBy: input.submittedBy,
+      },
+    });
+  } catch (e) {
+    // Aynı anda iki gönderim (çift dokunma / mobil tekrar) → @@unique yakalar; ham Prisma hatası kullanıcıya gitmez.
+    if ((e as { code?: string }).code === "P2002") {
+      return { ok: false, code: "ALREADY_SUBMITTED", message: "Bu dönem için değerlendirme zaten gönderilmiş." };
+    }
+    throw e;
+  }
   return { ok: true, assessment: toPublic(mapDb(row)) };
 }
 
@@ -345,80 +353,68 @@ export async function clearPeriodicAssessments(tenantId: string): Promise<void> 
   if (remaining.length !== all.length) await saveAll(remaining);
 }
 
-const PERIOD_DAYS = 28;
-const LESSONS_PER_PERIOD = 4;
+/** Rapor hiç yazılmamış öğrencide geriye bakılan en uzak gün (eski birikim geri gelmesin). */
+export const PERIODIC_LOOKBACK_DAYS = 60;
+export const LESSONS_PER_PERIOD = 4;
 
 export type PendingPeriod = { periodStart: string; periodEnd: string };
 
+type PeriodLesson = Pick<Lesson, "startAt" | "status">;
+
+/** Rapora sayılan ders: geçmişte, iptal/gelmedi değil. */
+export function isReportableLesson(l: PeriodLesson, nowMs: number): boolean {
+  return l.status !== "cancelled" && l.status !== "no_show" && Date.parse(l.startAt) <= nowMs;
+}
+
 /**
- * Saf fonksiyon (I/O yok) — bir öğrencinin:
- * 1) İlk ders tarihinden (yoksa kayıt tarihinden) başlayarak TAMAMLANMIŞ
- *    (periodEnd <= now) 4 haftalık (28 günlük) dönemlerini türetir,
- * 2) `lessons` verilmişse öğrencinin tamamlanmış/gerçekleşmiş derslerini
- *    4'erli gruplara (`LESSONS_PER_PERIOD = 4`) ayırarak 28 gün dolmasa bile
- *    4 ders tamamlandığında otomatik "4 derslik rapor" dönemini türetir,
- * `submittedPeriods`'ta OLMAYANLARI "bekliyor" olarak döner.
+ * 4 haftalık rapor — TEK kural (2026-10-23), saf fonksiyon. Öğrenci × öğretmen için EN FAZLA BİR bekleyen dönem:
+ * son gönderilmiş raporun bitişinden SONRA yapılmış ilk 4 ders. Dönem = [1. dersin başlangıcı, 4. dersin başlangıcı].
+ * Rapor hiç yoksa taban `now - PERIODIC_LOOKBACK_DAYS`. Eski 28 günlük takvim dönemi yok: ders yapılmamış hafta
+ * için boş form, aylarca geriye birikim ve liste/gönderim arasında farklı dönem üretimi bu yüzden kalktı.
+ * Eski kayıtlar (takvim ya da 4 ders anahtarlı) yalnız bitiş tarihiyle kapsar → migration/backfill gerekmez.
  */
-export function computePendingPeriodicAssessmentPeriods(
-  student: Pick<Student, "firstLessonAt" | "enrollmentStartDate">,
-  submittedPeriods: PendingPeriod[],
-  now: Date = new Date(),
-  lessons?: Pick<Lesson, "id" | "startAt" | "status" | "studentAttended" | "lessonProcessed">[]
-): PendingPeriod[] {
-  const submittedKeys = new Set(submittedPeriods.map((p) => `${p.periodStart}:${p.periodEnd}`));
-  const pending: PendingPeriod[] = [];
+export function computePendingPeriod(
+  lessons: PeriodLesson[],
+  lastReportEnd: string | undefined,
+  now: Date = new Date()
+): PendingPeriod | null {
+  const nowMs = now.getTime();
+  const floorMs = Math.max(lastReportEnd ? Date.parse(lastReportEnd) : -Infinity, nowMs - PERIODIC_LOOKBACK_DAYS * 86_400_000);
+  const batch = lessons
+    .filter((l) => isReportableLesson(l, nowMs) && Date.parse(l.startAt) > floorMs)
+    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .slice(0, LESSONS_PER_PERIOD);
+  if (batch.length < LESSONS_PER_PERIOD) return null;
+  return {
+    periodStart: new Date(batch[0]!.startAt).toISOString(),
+    periodEnd: new Date(batch[batch.length - 1]!.startAt).toISOString(),
+  };
+}
 
-  const pastLessons = (lessons ?? [])
-    .filter(
-      (l) =>
-        l.status !== "cancelled" &&
-        l.status !== "no_show" &&
-        Date.parse(l.startAt) <= now.getTime()
-    )
-    .sort((a, b) => a.startAt.localeCompare(b.startAt));
-
-  const anchor = student.firstLessonAt ?? student.enrollmentStartDate ?? pastLessons[0]?.startAt;
-  if (!anchor) return [];
-
-  const anchorDate = new Date(anchor);
-  if (Number.isNaN(anchorDate.getTime())) return [];
-
-  let periodStart = new Date(anchorDate);
-  while (true) {
-    const periodEnd = new Date(periodStart.getTime() + (PERIOD_DAYS - 1) * 24 * 60 * 60 * 1000);
-    if (periodEnd > now) break;
-    const key = `${periodStart.toISOString()}:${periodEnd.toISOString()}`;
-    if (!submittedKeys.has(key)) {
-      pending.push({ periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString() });
-    }
-    periodStart = new Date(periodStart.getTime() + PERIOD_DAYS * 24 * 60 * 60 * 1000);
+/** Öğrenci×öğretmen başına en son gönderilmiş raporun bitişi (`studentId:teacherId` → ISO). Yalnız tarih okunur. */
+export async function listLatestPeriodicEnds(
+  tenantId: string,
+  f: { teacherId?: string; studentId?: string }
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const put = (studentId: string, teacherId: string, end: string) => {
+    const key = `${studentId}:${teacherId}`;
+    const prev = out.get(key);
+    if (!prev || prev < end) out.set(key, end);
+  };
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const rows = await prisma.periodicAssessment.groupBy({
+      by: ["studentId", "teacherId"],
+      where: { tenantId, ...(f.teacherId ? { teacherId: f.teacherId } : {}), ...(f.studentId ? { studentId: f.studentId } : {}) },
+      _max: { periodEnd: true },
+    });
+    for (const r of rows) if (r._max.periodEnd) put(r.studentId, r.teacherId, r._max.periodEnd.toISOString());
+    return out;
   }
-
-  // Her 4 tamamlanmış ders için (henüz 28 günlük takvim dönemiyle veya gönderilmiş bir dönemle kapsanmamışsa)
-  // otomatik 4 derslik değerlendirme dönemi oluştur.
-  if (pastLessons.length >= LESSONS_PER_PERIOD) {
-    const allCoveredRanges = [
-      ...submittedPeriods.map((p) => ({ start: Date.parse(p.periodStart), end: Date.parse(p.periodEnd) })),
-      ...pending.map((p) => ({ start: Date.parse(p.periodStart), end: Date.parse(p.periodEnd) })),
-    ];
-
-    for (let i = 0; i + LESSONS_PER_PERIOD <= pastLessons.length; i += LESSONS_PER_PERIOD) {
-      const batch = pastLessons.slice(i, i + LESSONS_PER_PERIOD);
-      const batchStart = batch[0]!.startAt;
-      const batchEnd = batch[batch.length - 1]!.startAt;
-      const key = `${batchStart}:${batchEnd}`;
-      if (submittedKeys.has(key)) continue;
-
-      const batchEndMs = Date.parse(batchEnd);
-      const alreadyCovered = allCoveredRanges.some(
-        (r) => batchEndMs >= r.start && batchEndMs <= r.end + 24 * 60 * 60 * 1000
-      );
-      if (!alreadyCovered) {
-        pending.push({ periodStart: batchStart, periodEnd: batchEnd });
-        allCoveredRanges.push({ start: Date.parse(batchStart), end: batchEndMs });
-      }
-    }
+  for (const a of await loadAll()) {
+    if (a.tenantId !== tenantId || (f.teacherId && a.teacherId !== f.teacherId) || (f.studentId && a.studentId !== f.studentId)) continue;
+    put(a.studentId, a.teacherId, new Date(a.periodEnd).toISOString());
   }
-
-  return pending;
+  return out;
 }

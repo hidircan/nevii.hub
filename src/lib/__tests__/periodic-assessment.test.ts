@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { promises as fs } from "fs";
-import { computePendingPeriodicAssessmentPeriods, PERIODIC_ASSESSMENTS_FILE, clearPeriodicAssessments } from "../periodic-assessment";
+import { computePendingPeriod, PERIODIC_ASSESSMENTS_FILE, clearPeriodicAssessments } from "../periodic-assessment";
+import { readReferenceData } from "../store";
 import { createPeriodicAssessmentTool, listPendingPeriodicAssessmentsTool, listPeriodicAssessmentsForStudentTool } from "../services/tools";
 import { buildPeriodicAssessmentDraft, LESSON_REPORT_PLACEHOLDERS, PERIODIC_REPORT_PLACEHOLDERS } from "../reports/guidance";
 import { DEFAULT_TENANT_ID } from "../auth/config";
@@ -18,61 +19,36 @@ beforeEach(async () => {
   await clearPeriodicAssessments(DEFAULT_TENANT_ID);
 });
 
-describe("computePendingPeriodicAssessmentPeriods (saf fonksiyon)", () => {
+describe("computePendingPeriod (tek kural, saf fonksiyon)", () => {
   const now = new Date("2026-08-25T12:00:00.000Z");
+  const lesson = (day: string, status: "completed" | "cancelled" | "no_show" | "scheduled" = "completed") => ({
+    startAt: `2026-${day}T10:00:00.000Z`,
+    status,
+  });
+  const weekly = [lesson("07-28"), lesson("08-04"), lesson("08-11"), lesson("08-18"), lesson("08-25")];
 
-  it("ilk ders tarihinden itibaren tamamlanmış 4 haftalık dönemleri döner", () => {
-    const pending = computePendingPeriodicAssessmentPeriods({ firstLessonAt: "2026-06-01T00:00:00.000Z" }, [], now);
-    // 1 Haz - 28 Haz, 29 Haz - 26 Tem, 27 Tem - 23 Ağu → 3 tamamlanmış dönem (24 Ağu'dan başlayan 4. dönem henüz bitmedi).
-    expect(pending).toHaveLength(3);
-    expect(pending[0]!.periodStart).toBe("2026-06-01T00:00:00.000Z");
+  it("4 ders tamamlanınca TEK dönem: ilk 4 dersin başı–sonu", () => {
+    expect(computePendingPeriod(weekly.slice(0, 4), undefined, now)).toEqual({
+      periodStart: "2026-07-28T10:00:00.000Z",
+      periodEnd: "2026-08-18T10:00:00.000Z",
+    });
   });
 
-  it("henüz hiçbir dönem tamamlanmamışsa boş dizi döner", () => {
-    const pending = computePendingPeriodicAssessmentPeriods({ firstLessonAt: "2026-08-20T00:00:00.000Z" }, [], now);
-    expect(pending).toHaveLength(0);
+  it("4 dersten azsa (ya da iptal/gelmedi/gelecek ders sayılmazsa) dönem yok", () => {
+    expect(computePendingPeriod(weekly.slice(0, 3), undefined, now)).toBeNull();
+    expect(computePendingPeriod([...weekly.slice(0, 3), lesson("08-20", "cancelled"), lesson("08-21", "no_show")], undefined, now)).toBeNull();
+    expect(computePendingPeriod([...weekly.slice(0, 3), lesson("08-30")], undefined, now)).toBeNull();
   });
 
-  it("gönderilmiş dönemler pending listesinden ÇIKARILIR (tekrar üretilmez)", () => {
-    const all = computePendingPeriodicAssessmentPeriods({ firstLessonAt: "2026-06-01T00:00:00.000Z" }, [], now);
-    expect(all).toHaveLength(3);
-    const afterSubmit = computePendingPeriodicAssessmentPeriods(
-      { firstLessonAt: "2026-06-01T00:00:00.000Z" },
-      [{ periodStart: all[0]!.periodStart, periodEnd: all[0]!.periodEnd }],
-      now
-    );
-    expect(afterSubmit).toHaveLength(2);
-    expect(afterSubmit.some((p) => p.periodStart === all[0]!.periodStart)).toBe(false);
+  it("son raporun bitişinden SONRAKİ dersler sayılır; eski takvim dönemi kaydı da kapsar", () => {
+    expect(computePendingPeriod(weekly, "2026-08-04T10:00:00.000Z", now)).toBeNull(); // sonrasında yalnız 3 ders var
+    // Eski 28 günlük takvim kaydı (bitiş 23 Ağu) → yalnız 25 Ağu sayılır.
+    expect(computePendingPeriod(weekly, "2026-08-23T00:00:00.000Z", now)).toBeNull();
   });
 
-  it("firstLessonAt de enrollmentStartDate de yoksa boş dizi döner", () => {
-    expect(computePendingPeriodicAssessmentPeriods({}, [], now)).toEqual([]);
-  });
-
-  it("firstLessonAt yoksa enrollmentStartDate'e düşer", () => {
-    const pending = computePendingPeriodicAssessmentPeriods(
-      { enrollmentStartDate: "2026-06-01T00:00:00.000Z" },
-      [],
-      now
-    );
-    expect(pending).toHaveLength(3);
-  });
-
-  it("4 tamamlanmış ders olduğunda 28 gün dolmasa bile otomatik 4 derslik dönem üretir", () => {
-    const lessons = [
-      { id: "l1", startAt: "2026-08-10T10:00:00.000Z", status: "completed" as const, studentAttended: true },
-      { id: "l2", startAt: "2026-08-13T10:00:00.000Z", status: "completed" as const, studentAttended: true },
-      { id: "l3", startAt: "2026-08-17T10:00:00.000Z", status: "completed" as const, studentAttended: true },
-      { id: "l4", startAt: "2026-08-20T10:00:00.000Z", status: "completed" as const, studentAttended: true },
-    ];
-    const pending = computePendingPeriodicAssessmentPeriods(
-      { firstLessonAt: "2026-08-10T10:00:00.000Z" },
-      [],
-      now,
-      lessons
-    );
-    expect(pending).toHaveLength(1);
-    expect(pending[0]!.periodStart).toBe("2026-08-10T10:00:00.000Z");
+  it("rapor hiç yoksa 60 günden eski dersler birikmez", () => {
+    const old = ["03-02", "03-09", "03-16", "03-23", "03-30"].map((d) => lesson(d));
+    expect(computePendingPeriod(old, undefined, now)).toBeNull();
   });
 });
 
@@ -193,7 +169,9 @@ describe("createPeriodicAssessmentTool — idempotency + eşleşme kontrolü", (
       expect(saved).toBeDefined();
       expect(saved?.overallScore).toBe(4.3);
       expect(saved?.scores?.muzikalite).toBe(5);
-      expect(saved?.teacherSignedName).toBe("Test Öğretmen");
+      // "Hazırlayan" adı istemcinin yazdığı metin değil, öğretmen kaydındaki ad.
+      const t1 = (await readReferenceData()).teachers.find((t) => t.id === "t1");
+      expect(saved?.teacherSignedName).toBe(t1?.name);
     }
 
     const second = await createPeriodicAssessmentTool(ctx(), {

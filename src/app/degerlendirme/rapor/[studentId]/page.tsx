@@ -10,6 +10,7 @@ import {
   computeSectionScore,
 } from "@/lib/assessment/score";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
+import { reportInstitutionName } from "@/lib/reports/identity";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { AssessmentActions } from "@/components/assessment-actions";
 
@@ -54,7 +55,7 @@ export default async function AssessmentReportPage({
   }
 
   const data = await readReferenceData();
-  const institutionName = data.settings.name || "Nevii Hub";
+  const institutionName = reportInstitutionName(data.settings);
   const student = data.students.find((s) => s.id === studentId);
   const branch = student ? data.settings.branches.find((b) => b.id === student.branchId) : undefined;
   const teacherName = (tid: string) => data.teachers.find((t) => t.id === tid)?.name ?? "—";
@@ -88,12 +89,12 @@ export default async function AssessmentReportPage({
               </p>
               <h1 className="mt-1 text-xl font-bold text-[var(--color-text)]">
                 {focusedPeriodic
-                  ? "4 Haftalık (4 Derslik) Dönemsel Gelişim Raporu"
+                  ? "4 Haftalık Gelişim Raporu"
                   : "Öğrenci Bütüncül Gelişim ve Dönem Raporu"}
               </h1>
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                 {focusedPeriodic
-                  ? `Dönem: ${formatDate(focusedPeriodic.periodStart)} – ${formatDate(focusedPeriodic.periodEnd)} · Onay: ${formatDate(focusedPeriodic.approvedAt ?? focusedPeriodic.submittedAt, "d MMMM yyyy")}`
+                  ? `Dönem: ${formatDate(focusedPeriodic.periodStart)} – ${formatDate(focusedPeriodic.periodEnd)} · Hazırlayan: ${teacherName(focusedPeriodic.teacherId)} · ${formatDate(focusedPeriodic.approvedAt ?? focusedPeriodic.submittedAt, "d MMMM yyyy")}`
                   : `Rapor Tarihi: ${formatDate(new Date().toISOString(), "d MMMM yyyy")}`}
               </p>
             </div>
@@ -117,7 +118,7 @@ export default async function AssessmentReportPage({
               <p className="mt-0.5 font-semibold text-[var(--color-text)]">{student?.name ?? "—"}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Öğretmen</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Hazırlayan öğretmen</p>
               <p className="mt-0.5 font-medium text-[var(--color-text)]">
                 {focusedPeriodic
                   ? teacherName(focusedPeriodic.teacherId)

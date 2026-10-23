@@ -33,8 +33,8 @@ export default async function TeacherPeriodicAssessmentPage() {
 
       <main className="mx-auto max-w-lg space-y-3 px-4 py-6 pb-24">
         <p className="text-xs text-[var(--color-text-muted)]">
-          Her öğrenci için ilk dersinden itibaren 4 haftalık dönemler tamamlandıkça burada listelenir. Bir dönem
-          için değerlendirme gönderildikten sonra o dönem tekrar görünmez.
+          Bir öğrencinin son raporundan sonra 4 dersi tamamlanınca raporu burada açılır. Rapor gönderilince listeden
+          düşer; bir sonraki rapor 4 ders sonra gelir.
         </p>
         <PeriodicAssessmentPendingList items={items} />
       </main>

@@ -15,9 +15,23 @@ describe("ortak gelişim formları", () => {
     }
   );
 
-  it("eski form kaldırıldı, 4 haftalık liste ortak formu kullanır", () => {
+  it("eski form kaldırıldı, 4 haftalık liste tek form sayfasına (/gelisim) yönlendirir", () => {
     expect(existsSync(path.join(process.cwd(), "src/components/lesson-assessment-form.tsx"))).toBe(false);
-    expect(read("src/components/periodic-assessment-pending-list.tsx")).toContain("PeriodicAssessmentMobileForm");
+    expect(read("src/components/periodic-assessment-pending-list.tsx")).toContain("/gelisim/${item.studentId}?sekme=donemsel");
+  });
+
+  it("4 haftalık formda onay kutusu / serbest imza yok; tek zorunlu alan", () => {
+    const src = read("src/components/reports/periodic-assessment-mobile-form.tsx");
+    expect(src).not.toMatch(/approved|teacherSignedName/);
+    expect(src.match(/\brequired\b/g)).toHaveLength(1);
+  });
+
+  it("rapor başlığı kurum TAM adını tek yardımcıdan okur (kısa ad kişi adı gibi görünüyordu)", () => {
+    for (const rel of ["src/app/gelisim/page.tsx", "src/app/gelisim/[studentId]/page.tsx", "src/app/degerlendirme/[assessmentId]/page.tsx", "src/app/degerlendirme/rapor/[studentId]/page.tsx"]) {
+      const src = read(rel);
+      expect(src).toContain("reportInstitutionName(");
+      expect(src).not.toContain("settings.shortName");
+    }
   });
 
   it("mobil dokunma alanı ≥ 44 px ve 16 px yazı (iOS yakınlaştırması yok)", () => {
