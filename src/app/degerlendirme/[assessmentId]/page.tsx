@@ -10,6 +10,7 @@ import {
   computeSectionScore,
 } from "@/lib/assessment/score";
 import { printSurfaceCss } from "@/lib/contract-print-theme";
+import { reportInstitutionName } from "@/lib/reports/identity";
 import { formatDate } from "@/lib/utils";
 import { AssessmentActions } from "@/components/assessment-actions";
 
@@ -61,7 +62,7 @@ export default async function AssessmentPage({
   const assessment = result.data.assessment;
 
   const data = await readReferenceData();
-  const institutionName = data.settings.name || "Nevii Hub";
+  const institutionName = reportInstitutionName(data.settings);
   const student = data.students.find((s) => s.id === assessment.studentId);
   const teacher = data.teachers.find((t) => t.id === assessment.teacherId);
   const branch = student ? data.settings.branches.find((b) => b.id === student.branchId) : undefined;
@@ -85,7 +86,7 @@ export default async function AssessmentPage({
                 Öğrenci Ders Gelişim Değerlendirme Raporu
               </h1>
               <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                Rapor No: {assessment.id} · Düzenlenme: {formatDate(assessment.createdAt, "d MMMM yyyy")}
+                Hazırlayan: {teacher?.name ?? assessment.teacherSignedName ?? "—"} · Düzenlenme: {formatDate(assessment.createdAt, "d MMMM yyyy")} · Rapor No: {assessment.id}
               </p>
             </div>
             <div className="shrink-0 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-2.5 text-right">
@@ -105,7 +106,7 @@ export default async function AssessmentPage({
               <p className="mt-0.5 font-semibold text-[var(--color-text)]">{student?.name ?? "—"}</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Öğretmen</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Hazırlayan öğretmen</p>
               <p className="mt-0.5 font-medium text-[var(--color-text)]">{teacher?.name ?? "—"}</p>
             </div>
             <div>

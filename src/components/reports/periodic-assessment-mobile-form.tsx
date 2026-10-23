@@ -9,7 +9,9 @@
  * 2) Dönem puanlarını önceki 4 ders ortalamasıyla hazır doldurur; öğretmen dilerse tek dokunuşla revize eder.
  * 3) Özet değerlendirme metinlerini 4 ders verisinden sentezler; boş alanlarda bağlama özel silik örnek
  *    cümleler (placeholder) gösterir.
- * 4) "Onaylıyorum ve Raporu Tamamlıyorum" adımıyla yönetici ekranına ve PDF çıktısına hazır kaydeder.
+ * 4) Sade giriş (2026-10-23): zorunlu tek alan "genel değerlendirme" + önerilen "sonraki 4 ders hedefi"; güçlü yön /
+ *    gelişim alanı isteğe bağlı ve kapalı. Ayrı onay kutusu ve imza alanı yok: göndermek onaydır, "Hazırlayan" adı
+ *    sunucuda öğretmen kaydından yazılır. Taslak öğretmen+öğrenci anahtarlı (dönem tarihi kaysa da kaybolmaz).
  */
 
 import { useState } from "react";
@@ -46,15 +48,12 @@ type Draft = {
   strengthsNote: string;
   areasForImprovementNote: string;
   recommendationNote: string;
-  teacherSignedName: string;
-  approved: boolean;
 };
 
 export function PeriodicAssessmentMobileForm({
   studentId,
   period,
   draftSummary,
-  teacherName = "",
   draftOwner,
   doneHref,
   onSubmitted,
@@ -65,7 +64,6 @@ export function PeriodicAssessmentMobileForm({
   period: { periodStart: string; periodEnd: string };
   /** Önceki 4 dersten otomatik derlenen özet ve puan önerisi. */
   draftSummary?: PeriodicAssessmentDraft;
-  teacherName?: string;
   doneHref?: { href: string; label: string };
   onSubmitted?: () => void;
 }) {
@@ -74,15 +72,13 @@ export function PeriodicAssessmentMobileForm({
   const synth = draftSummary?.synthesizedNotes;
 
   const { value: d, update, clear, restored } = useFormDraft<Draft>(
-    `nevii:rapor:donem:${draftOwner}:${studentId}:${period.periodStart}`,
+    `nevii:rapor:donem:${draftOwner}:${studentId}`,
     {
       scores: initialScores,
       overallProgressNote: synth?.overallProgressNote ?? "",
-      strengthsNote: synth?.strengthsNote ?? "",
-      areasForImprovementNote: synth?.areasForImprovementNote ?? "",
+      strengthsNote: "",
+      areasForImprovementNote: "",
       recommendationNote: synth?.recommendationNote ?? "",
-      teacherSignedName: teacherName,
-      approved: true,
     }
   );
   const [busy, setBusy] = useState(false);
@@ -95,8 +91,8 @@ export function PeriodicAssessmentMobileForm({
   if (done) {
     return (
       <SuccessPanel
-        title="4 haftalık rapor onaylandı"
-        description="4 derslik dönem özeti, puanlar ve değerlendirmeniz kaydedilerek yönetici Raporlar ekranına iletildi."
+        title="4 haftalık rapor gönderildi"
+        description="Rapor kaydedildi; yönetici Raporlar ekranında ve öğrencinin Gelişim sayfasında görünür."
         primary={doneHref}
       />
     );
@@ -119,11 +115,7 @@ export function PeriodicAssessmentMobileForm({
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!d.overallProgressNote.trim()) {
-      setError("Genel gelişim değerlendirmesi alanını kontrol edip doldurun.");
-      return;
-    }
-    if (!d.approved) {
-      setError("Kaydetmeden önce 4 derslik rapor özetini onayladığınızı işaretleyin.");
+      setError("Genel değerlendirme boş: öğrencinin bu 4 dersteki gelişimini 1-2 cümleyle yazın.");
       return;
     }
     setBusy(true);
@@ -140,7 +132,6 @@ export function PeriodicAssessmentMobileForm({
         strengthsNote: d.strengthsNote.trim() || undefined,
         areasForImprovementNote: d.areasForImprovementNote.trim() || undefined,
         recommendationNote: d.recommendationNote.trim() || undefined,
-        teacherSignedName: (d.teacherSignedName || teacherName).trim() || undefined,
       }),
     });
     setBusy(false);
@@ -171,7 +162,7 @@ export function PeriodicAssessmentMobileForm({
       ) : null}
 
       <FormSection
-        title="1. Önceki 4 Dersin Otomatik Özeti"
+        title="1. Dönemin 4 dersi"
         description={`${formatDate(period.periodStart)} – ${formatDate(period.periodEnd)} dönemi için sistemdeki ders kayıtlarından derlendi.`}
       >
         <div className="grid grid-cols-3 gap-2 rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-3 text-center">
@@ -275,8 +266,8 @@ export function PeriodicAssessmentMobileForm({
       </FormSection>
 
       <FormSection
-        title="2. Dönem Puan Özeti"
-        description="Puanlar önceki ders ortalamasından otomatik getirildi. Olduğu gibi bırakabilir veya aşağıdan değiştirebilirsiniz."
+        title="2. Puanlar"
+        description="Ders raporlarının ortalamasından hazır geldi; değiştirmeniz gerekmiyorsa dokunmayın."
       >
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {ASSESSMENT_SECTIONS.map((sec) => (
@@ -313,13 +304,10 @@ export function PeriodicAssessmentMobileForm({
         </OptionalSection>
       </FormSection>
 
-      <FormSection
-        title="3. Kontrol ve Değerlendirme"
-        description="Önceki derslerden derlenen metinleri kontrol edin; gerekirse düzenleyin veya kısa değerlendirmenizi ekleyin."
-      >
+      <FormSection title="3. Değerlendirme" description="Önceki derslerden hazırlanan metni kontrol edin; gerekirse kısaltın veya düzeltin.">
         <FieldTextarea
           id={`genel-${key}`}
-          label="4 derslik genel gelişim değerlendirmesi"
+          label="Genel değerlendirme"
           required
           rows={3}
           maxLength={4000}
@@ -328,62 +316,37 @@ export function PeriodicAssessmentMobileForm({
           onChange={(v) => update({ overallProgressNote: v })}
         />
         <FieldTextarea
-          id={`guclu-${key}`}
-          label="Dönemin öne çıkan güçlü yönleri"
-          rows={2}
-          maxLength={2000}
-          placeholder={PERIODIC_REPORT_PLACEHOLDERS.strengthsNote}
-          value={d.strengthsNote}
-          onChange={(v) => update({ strengthsNote: v })}
-        />
-        <FieldTextarea
-          id={`alan-${key}`}
-          label="Odaklanılacak gelişim alanları"
-          rows={2}
-          maxLength={2000}
-          placeholder={PERIODIC_REPORT_PLACEHOLDERS.areasForImprovementNote}
-          value={d.areasForImprovementNote}
-          onChange={(v) => update({ areasForImprovementNote: v })}
-        />
-        <FieldTextarea
           id={`oneri-${key}`}
-          label="Sonraki 4 ders için hedef ve öneriler"
+          label="Sonraki 4 ders hedefi"
           rows={2}
           maxLength={2000}
           placeholder={PERIODIC_REPORT_PLACEHOLDERS.recommendationNote}
           value={d.recommendationNote}
           onChange={(v) => update({ recommendationNote: v })}
         />
+        <OptionalSection title="Ek notlar (isteğe bağlı): güçlü yönler, gelişim alanı">
+          <FieldTextarea
+            id={`guclu-${key}`}
+            label="Öne çıkan güçlü yönler"
+            rows={2}
+            maxLength={2000}
+            placeholder={PERIODIC_REPORT_PLACEHOLDERS.strengthsNote}
+            value={d.strengthsNote}
+            onChange={(v) => update({ strengthsNote: v })}
+          />
+          <FieldTextarea
+            id={`alan-${key}`}
+            label="Odaklanılacak gelişim alanı"
+            rows={2}
+            maxLength={2000}
+            placeholder={PERIODIC_REPORT_PLACEHOLDERS.areasForImprovementNote}
+            value={d.areasForImprovementNote}
+            onChange={(v) => update({ areasForImprovementNote: v })}
+          />
+        </OptionalSection>
       </FormSection>
 
-      <FormSection title="4. Onay ve İmza">
-        <div>
-          <label htmlFor={`imza-${key}`} className="mb-1.5 block text-sm font-medium text-[var(--color-text)]">
-            Öğretmen adı soyadı (imza)
-          </label>
-          <input
-            id={`imza-${key}`}
-            value={d.teacherSignedName}
-            onChange={(e) => update({ teacherSignedName: e.target.value })}
-            placeholder="Örn: Deniz Aydın"
-            autoComplete="name"
-            className="min-h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-base text-[var(--color-text)] placeholder:text-[var(--color-text-muted)]/60 sm:text-sm"
-          />
-        </div>
-        <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-[var(--color-text)]">
-          <input
-            type="checkbox"
-            checked={d.approved}
-            onChange={(e) => update({ approved: e.target.checked })}
-            className="h-5 w-5 accent-[var(--color-primary)]"
-          />
-          <span>
-            4 derslik dönem özetini ve puanlarını kontrol ettim, <strong>onaylıyorum</strong>.
-          </span>
-        </label>
-      </FormSection>
-
-      <SubmitBar busy={busy} label="Onaylıyorum ve Raporu Tamamlıyorum" error={error} />
+      <SubmitBar busy={busy} label="Raporu gönder" error={error} />
     </form>
   );
 }

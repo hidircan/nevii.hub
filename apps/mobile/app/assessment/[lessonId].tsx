@@ -64,11 +64,11 @@ export default function AssessmentScreen() {
   }>();
   const isPeriodic = params.lessonId === "periodic";
 
-  const teachers = useApiGet<TeachersResponse>("/api/v1/teachers");
+  // Ad yalnız ders raporu imzası için; 4 haftalık raporda "Hazırlayan" adı sunucuda öğretmen kaydından yazılır.
+  const teachers = useApiGet<TeachersResponse>("/api/v1/teachers", { enabled: !isPeriodic });
   const pendingPeriodic = useApiGet<PendingPeriodicAssessmentsResponse>(
-    isPeriodic && params.studentId
-      ? `/api/v1/periodic-assessments/pending?studentId=${encodeURIComponent(params.studentId)}`
-      : null
+    `/api/v1/periodic-assessments/pending?studentId=${encodeURIComponent(params.studentId ?? "")}`,
+    { enabled: isPeriodic && Boolean(params.studentId) }
   );
 
   // Varsayılan 3/5 puan ile başlar — öğretmen yalnız farklılaşan kriterlere dokunur.
@@ -112,8 +112,6 @@ export default function AssessmentScreen() {
     if (isPeriodic && draft && !draftHydrated) {
       setScores({ ...draft.suggestedScores });
       setOverallProgressNote((prev) => prev || draft.synthesizedNotes.overallProgressNote);
-      setPeriodicStrengthsNote((prev) => prev || draft.synthesizedNotes.strengthsNote);
-      setAreasForImprovementNote((prev) => prev || draft.synthesizedNotes.areasForImprovementNote);
       setRecommendationNote((prev) => prev || draft.synthesizedNotes.recommendationNote);
       setDraftHydrated(true);
     }
@@ -122,13 +120,8 @@ export default function AssessmentScreen() {
   const allScored = CRITERIA.every((c) => scores[c.key] !== null);
   const canSubmitLesson =
     allScored && strengthNote.trim() && improvementNote.trim() && nextStepsNote.trim() && !busy;
-  const canSubmitPeriodic =
-    allScored &&
-    overallProgressNote.trim() &&
-    periodicStrengthsNote.trim() &&
-    areasForImprovementNote.trim() &&
-    recommendationNote.trim() &&
-    !busy;
+  // Web formuyla aynı kural: yalnız genel değerlendirme zorunlu.
+  const canSubmitPeriodic = allScored && overallProgressNote.trim() && !busy;
 
   async function onSubmitLesson() {
     setBusy(true);
@@ -155,8 +148,9 @@ export default function AssessmentScreen() {
   }
 
   async function onSubmitPeriodic() {
-    const periodStart = params.periodStart || matchedPending?.periodStart;
-    const periodEnd = params.periodEnd || matchedPending?.periodEnd;
+    // Ekranda gösterilen özetin dönemi gönderilir (bağlantıdaki tarih eskimiş olabilir).
+    const periodStart = matchedPending?.periodStart || params.periodStart;
+    const periodEnd = matchedPending?.periodEnd || params.periodEnd;
     if (!params.studentId || !periodStart || !periodEnd) {
       setError(tr("assess.saveFailed"));
       return;
@@ -168,11 +162,10 @@ export default function AssessmentScreen() {
       periodStart,
       periodEnd,
       overallProgressNote: overallProgressNote.trim(),
-      strengthsNote: periodicStrengthsNote.trim(),
-      areasForImprovementNote: areasForImprovementNote.trim(),
-      recommendationNote: recommendationNote.trim(),
+      strengthsNote: periodicStrengthsNote.trim() || undefined,
+      areasForImprovementNote: areasForImprovementNote.trim() || undefined,
+      recommendationNote: recommendationNote.trim() || undefined,
       scores,
-      teacherSignedName: teacherName || user?.email || tr("assess.teacherFallback"),
     });
     setBusy(false);
     if (!res.ok) {

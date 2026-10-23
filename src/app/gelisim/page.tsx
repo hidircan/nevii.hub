@@ -9,6 +9,7 @@ import { pendingLessonAssessments, PENDING_LESSON_WINDOW_DAYS } from "@/lib/repo
 import { isOwnStudent } from "@/lib/teacher-portal-scope";
 import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
 import { formatDate, formatDateTime } from "@/lib/utils";
+import { reportInstitutionName } from "@/lib/reports/identity";
 import { ReportListItem, ReportSectionTitle, ReportShell } from "@/components/reports/report-shell";
 import { StudentPicker } from "@/components/reports/student-picker";
 
@@ -30,7 +31,7 @@ export default async function ReportHomePage() {
 
   const now = new Date();
   const data = await readLessonWindow(subDays(now, PENDING_LESSON_WINDOW_DAYS + 1).toISOString(), addDays(now, 1).toISOString());
-  const institution = data.settings.shortName || data.settings.name;
+  const institution = reportInstitutionName(data.settings);
 
   if (session.role !== "TEACHER" || !session.teacherId) {
     return (
@@ -91,15 +92,15 @@ export default async function ReportHomePage() {
 
       {pendingPeriods.length > 0 ? (
         <section className="space-y-2">
-          <ReportSectionTitle count={pendingPeriods.length}>4 haftalık / 4 derslik onay bekleyenler</ReportSectionTitle>
+          <ReportSectionTitle count={pendingPeriods.length}>Yazılacak 4 haftalık raporlar</ReportSectionTitle>
           <ul className="space-y-2">
             {pendingPeriods.map((p) => (
               <ReportListItem
                 key={`${p.studentId}:${p.periodStart}`}
-                href={`/gelisim/${p.studentId}?sekme=donemsel&donem=${encodeURIComponent(p.periodStart)}`}
+                href={`/gelisim/${p.studentId}?sekme=donemsel`}
                 title={p.studentName}
-                meta={`${formatDate(p.periodStart)} – ${formatDate(p.periodEnd)}${p.draft ? ` · ${p.draft.lessonCount} ders · Ort. ${p.draft.overallScore.toFixed(1)}/5` : ""}`}
-                badge="4 ders özeti"
+                meta={`${formatDate(p.periodStart)} – ${formatDate(p.periodEnd)} · ${p.lessonCount} ders`}
+                badge="4 haftalık"
               />
             ))}
           </ul>
