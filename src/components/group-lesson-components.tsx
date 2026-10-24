@@ -10,7 +10,8 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api/client-fetch";
 import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { StudentSearchCombobox, type StudentSearchOption } from "@/components/student-search-combobox";
-import type { GroupLesson } from "@/lib/group-lessons";
+import type { GroupBackfillSession, GroupLesson } from "@/lib/group-lessons";
+import { formatDateTime } from "@/lib/utils";
 
 const field =
   "w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-sm text-[var(--color-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-focus-ring)] disabled:opacity-60";
@@ -259,12 +260,82 @@ export function GroupSessionAdd({ groupLessonId }: { groupLessonId: string }) {
   return (
     <form onSubmit={(e) => void submit(e)} className="flex flex-wrap items-end gap-2">
       <div>
-        <label htmlFor="gl-extra" className={label}>Ek oturum (tarih ve saat)</label>
+        <label htmlFor="gl-extra" className={label}>Ek oturum (tarih ve saat; geçmiş tarih yapılmış dersi işler)</label>
         <input id="gl-extra" type="datetime-local" value={startLocal} onChange={(e) => setStartLocal(e.target.value)} className={field} required />
       </div>
       <button type="submit" disabled={busy || !startLocal} className={primaryBtn}>{busy ? "Ekleniyor…" : "Oturum ekle"}</button>
       <div className="w-full"><Msg msg={msg} /></div>
     </form>
+  );
+}
+
+const BACKFILL_STATUS: Record<GroupBackfillSession["status"], string> = {
+  create: "oluşturulacak",
+  exists: "zaten var — atlanır",
+  closed: "kapalı gün — atlanır",
+  issue: "sorunlu — atlanır",
+  empty: "o tarihte katılımcı yok",
+};
+
+/**
+ * 2026-10-24 — Geçmiş oturumları tamamla: önce önizleme (oluşturulacak / mevcut / kapalı / sorunlu oturumlar), sonra onay.
+ * Satırlar "Planlandı" yazılır; yoklama öğrenci bazında ayrıca girilir. Tekrar basmak kopya üretmez.
+ */
+export function GroupBackfill({ groupLessonId }: { groupLessonId: string }) {
+  const router = useRouter();
+  const [preview, setPreview] = useState<GroupBackfillSession[] | null>(null);
+  const [skipIssues, setSkipIssues] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function run(dryRun: boolean) {
+    if (busy) return;
+    setBusy(true);
+    setMsg(null);
+    const r = await send({ action: "backfill", groupLessonId, dryRun, skipIssues });
+    setBusy(false);
+    if (!r.ok) return setMsg({ ok: false, text: r.message });
+    const d = r.data as { created: number; sessions?: GroupBackfillSession[] };
+    if (dryRun) return setPreview(d.sessions ?? []);
+    setPreview(null);
+    setMsg({ ok: true, text: `${d.created} geçmiş katılımcı satırı eklendi. Yoklamayı oturum ekranından öğrenci bazında girin.` });
+    router.refresh();
+  }
+  const toCreate = preview?.filter((s) => s.status === "create") ?? [];
+  const issues = preview?.filter((s) => s.status === "issue") ?? [];
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-[11px] text-[var(--color-text-muted)]">
+        Grubun başlangıcından bugüne yapılmış ama sistemde satırı olmayan oturumları ekler (o tarihte kaydı geçerli öğrenciler için). Yoklama, telafi veya
+        bildirim otomatik oluşmaz; borç üretmez. Hakediş, girdiğiniz yoklamaya göre hesaplanır.
+      </p>
+      <button type="button" onClick={() => void run(true)} disabled={busy} className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text)] disabled:opacity-60">
+        {busy && !preview ? "Hazırlanıyor…" : "Geçmiş oturumları önizle"}
+      </button>
+      {preview ? (
+        <div className="space-y-2 rounded-md border border-[var(--color-border)] p-3">
+          {preview.length === 0 ? <p className="text-xs text-[var(--color-text-muted)]">Bugünden önce planlı oturum yok.</p> : null}
+          <ul className="max-h-72 space-y-1 overflow-y-auto text-xs">
+            {preview.map((s) => (
+              <li key={s.key} className={s.status === "issue" ? "text-[var(--color-danger)]" : s.status === "create" ? "text-[var(--color-text)]" : "text-[var(--color-text-muted)]"}>
+                {formatDateTime(s.startAt)} · {BACKFILL_STATUS[s.status]}
+                {s.students.length && s.status !== "exists" ? ` · ${s.students.join(", ")}` : ""}
+                {s.message ? ` — ${s.message}` : ""}
+              </li>
+            ))}
+          </ul>
+          {issues.length ? (
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={skipIssues} onChange={(e) => setSkipIssues(e.target.checked)} />
+              Sorunlu {issues.length} oturumu atla, kalanları ekle
+            </label>
+          ) : null}
+          <button type="button" onClick={() => void run(false)} disabled={busy || !toCreate.length || (issues.length > 0 && !skipIssues)} className={primaryBtn}>
+            {busy ? "Ekleniyor…" : `${toCreate.length} oturumu ekle`}
+          </button>
+        </div>
+      ) : null}
+      <Msg msg={msg} />
+    </div>
   );
 }
 

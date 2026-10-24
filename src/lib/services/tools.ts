@@ -40,6 +40,7 @@ import {
   addLesson,
   addLessonSeries,
   EnrollmentRequiredError,
+  groupEnrollmentLessonMessage,
   addPayment,
   addRoom,
   updateRoom,
@@ -8737,6 +8738,14 @@ export async function previewLessonSeriesTool(
   );
   const student = data.students.find((s) => s.id === v.data.studentId);
   if (!student) return fail("NOT_FOUND", "Öğrenci bulunamadı.");
+  // Oluşturmayla AYNI kural (store.resolveLessonEnrollmentId): grup kaydına bireysel seri önizlenmez.
+  const activeEnr = ((await readStudentById(v.data.studentId))?.enrollments ?? []).filter((e) => e.active);
+  const groupEnr = v.data.enrollmentId
+    ? activeEnr.find((e) => e.id === v.data.enrollmentId && e.groupLessonId)
+    : activeEnr.some((e) => !e.groupLessonId && e.instrument === v.data.instrument)
+      ? undefined
+      : activeEnr.find((e) => e.groupLessonId && e.instrument === v.data.instrument);
+  if (groupEnr) return fail("VALIDATION_ERROR", groupEnrollmentLessonMessage(groupEnr.instrument));
   if (!data.teachers.some((t) => t.id === v.data.teacherId)) return fail("NOT_FOUND", "Öğretmen bulunamadı.");
   if (!data.rooms.some((r) => r.id === v.data.roomId)) return fail("NOT_FOUND", "Oda bulunamadı.");
   if (!data.settings.branches.some((b) => b.id === v.data.branchId)) return fail("NOT_FOUND", "Şube bulunamadı.");

@@ -879,7 +879,7 @@ export async function addLesson(input: {
   enrollmentId?: string;
 }): Promise<string> {
   return withTenantScope(async () => {
-    const enrollmentId = input.enrollmentId ?? (await inferLessonEnrollmentId(input.studentId, input.instrument, input.teacherId));
+    const enrollmentId = await resolveLessonEnrollmentId(input.studentId, input.instrument, input.teacherId, input.enrollmentId);
     return store.addLesson({ ...input, enrollmentId });
   });
 }
@@ -896,8 +896,10 @@ export class EnrollmentRequiredError extends Error {
  */
 async function inferLessonEnrollmentId(studentId: string, instrument: string, teacherId?: string): Promise<string | undefined> {
   const student = await store.readStudentById(studentId);
-  const active = (student?.enrollments ?? []).filter((e) => e.active);
-  if (active.length === 0) return undefined;
+  const all = (student?.enrollments ?? []).filter((e) => e.active);
+  if (all.length === 0) return undefined;
+  // 2026-10-24 — grup dersi kaydı bireysel ders adayı DEĞİLDİR (grup oturumu grup ekranından planlanır).
+  const active = all.filter((e) => !e.groupLessonId);
   const byInstrument = active.filter((e) => e.instrument === instrument);
   if (byInstrument.length === 1) return byInstrument[0]!.id;
   if (byInstrument.length > 1) {
@@ -907,10 +909,26 @@ async function inferLessonEnrollmentId(studentId: string, instrument: string, te
       `Bu öğrencinin birden fazla aktif ${instrument} branş kaydı var ve seçilen öğretmen bunlardan birine ait değil. Dersi ilgili branş kaydının öğretmeniyle planlayın veya tekil ders planlamada "Eğitim" alanından branşı seçin.`
     );
   }
-  if (active.length === 1) return undefined;
+  if (all.some((e) => e.groupLessonId && e.instrument === instrument)) throw new EnrollmentRequiredError(groupEnrollmentLessonMessage(instrument));
+  if (all.length === 1) return undefined;
   throw new EnrollmentRequiredError(
     `Öğrencinin aktif ${instrument} branş kaydı yok. Önce öğrenci kartından "Branş kaydı ekle" ile ${instrument} kaydını açın veya dersin enstrümanını düzeltin.`
   );
+}
+
+/** Grup kaydına bireysel ders/seri yazılmaya çalışıldığında (UI, CSV, AI, mobil — hepsi bu kapıdan geçer). */
+export function groupEnrollmentLessonMessage(instrument: string): string {
+  return `Öğrencinin ${instrument} kaydı bir grup dersine bağlı. Grup dersi öğrenci başına tekil veya tekrarlayan ders olarak planlanmaz (bireysel ders oluşur, grup oturumuna bağlanmaz). Grup Dersleri ekranında grubu açın: geçmiş dersler için "Geçmiş oturumları tamamla", tek seferlik oturum için "Ek oturum ekle". Öğrenci ayrıca bireysel ders alıyorsa önce bireysel ${instrument} branş kaydını açıp onu seçin.`;
+}
+
+/** Açık bağ grup kaydıysa REDDEDİLİR; bağ yoksa `inferLessonEnrollmentId`. */
+async function resolveLessonEnrollmentId(studentId: string, instrument: string, teacherId: string | undefined, explicit: string | undefined): Promise<string | undefined> {
+  if (!explicit) return inferLessonEnrollmentId(studentId, instrument, teacherId);
+  if (!explicit.startsWith("legacy:")) {
+    const enr = (await store.readStudentById(studentId))?.enrollments?.find((e) => e.id === explicit);
+    if (enr?.groupLessonId) throw new EnrollmentRequiredError(groupEnrollmentLessonMessage(enr.instrument));
+  }
+  return explicit;
 }
 
 /** 2026-10-06 — kulüp oturumu satırları (bkz. clubs.ts). */
@@ -1157,7 +1175,7 @@ export async function addLessonSeries(
   options?: { skipConflicts?: boolean; allowAvailabilityOverride?: boolean; overriddenByUserId?: string; createdByUserId?: string }
 ): Promise<CreateSeriesResult> {
   return withTenantScope(async () => {
-    const enrollmentId = params.enrollmentId ?? (await inferLessonEnrollmentId(params.studentId, params.instrument, params.teacherId));
+    const enrollmentId = await resolveLessonEnrollmentId(params.studentId, params.instrument, params.teacherId, params.enrollmentId);
     return store.addLessonSeries({ ...params, enrollmentId }, options);
   });
 }
