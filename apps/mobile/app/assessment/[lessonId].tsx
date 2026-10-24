@@ -76,7 +76,7 @@ export default function AssessmentScreen() {
   // (react-hooks/set-state-in-effect), kullanıcı düzenlemesini ayrı bir
   // "override" katmanında tutuyoruz: taslak gelene kadar varsayılanlar,
   // geldikten sonra taslak değerleri görünür; kullanıcı dokununca override kazanır.
-  const [scoresOverride, setScoresOverride] = useState<Record<string, number | null> | null>(null);
+  const [scoreOverrides, setScoreOverrides] = useState<Record<string, number | null>>({});
   const [showCriteriaEditor, setShowCriteriaEditor] = useState(!isPeriodic);
 
   // Tekil ders raporu alanları
@@ -117,7 +117,7 @@ export default function AssessmentScreen() {
   // kullanıcı dokunduğu anda override katmanı kazanır.
   const draftScores: Record<string, number | null> =
     isPeriodic && draft ? { ...DEFAULT_SCORES, ...draft.suggestedScores } : DEFAULT_SCORES;
-  const scores = scoresOverride ?? draftScores;
+  const scores: Record<string, number | null> = { ...draftScores, ...scoreOverrides };
   const overallProgressNote =
     overallNoteOverride ?? (isPeriodic ? draft?.synthesizedNotes.overallProgressNote ?? "" : "");
   const recommendationNote =
@@ -268,7 +268,7 @@ export default function AssessmentScreen() {
                     key={c.key}
                     label={tr(c.labelKey)}
                     value={scores[c.key] ?? 3}
-                    onChange={(v) => setScoresOverride((s) => ({ ...(s ?? draftScores), [c.key]: v }))}
+                    onChange={(v) => setScoreOverrides((s) => ({ ...s, [c.key]: v }))}
                   />
                 ))}
               </View>
@@ -373,7 +373,7 @@ export default function AssessmentScreen() {
             key={c.key}
             label={tr(c.labelKey)}
             value={scores[c.key] ?? null}
-            onChange={(v) => setScoresOverride((s) => ({ ...(s ?? draftScores), [c.key]: v }))}
+            onChange={(v) => setScoreOverrides((s) => ({ ...s, [c.key]: v }))}
           />
         ))}
 
