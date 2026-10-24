@@ -132,6 +132,8 @@ export type CalendarMonthPlan =
       /** Bu aya düşen plan satırlarının 1-tabanlı sıraları. */
       installmentSequences: number[];
       paymentIds: string[];
+      /** Bu ayda hâlâ tahsil edilecek kalanı olan satırlar — tahsilat adayı yalnız bunlardır. */
+      openPaymentIds: string[];
       /** Sözleşmede DONDURULMUŞ ödenecek tutar (birden fazla satır varsa toplamı). */
       amount: number;
       paidAmount: number;
@@ -309,17 +311,50 @@ function parentFullyCollected(p: CalendarPlanInstallment): boolean {
   return p.status === "paid" || (amount > 0 && paid >= amount);
 }
 
+/** Sözleşme → o sözleşmenin İPTAL EDİLMEMİŞ satırlarının kendi (tutarlı, `unsplit` olmayan) payı olan aylar. */
+export type ContractOwnMonths = ReadonlyMap<string, ReadonlySet<string>>;
+
+export function contractOwnInstallmentMonths(rows: readonly CalendarPlanInstallment[]): ContractOwnMonths {
+  const out = new Map<string, Set<string>>();
+  for (const p of rows) {
+    if (!p.contractId || p.status === "voided") continue;
+    for (const s of installmentMonthShares(p)) {
+      if (s.unsplit) continue;
+      const set = out.get(p.contractId) ?? new Set<string>();
+      set.add(s.month);
+      out.set(p.contractId, set);
+    }
+  }
+  return out;
+}
+
+/**
+ * 2026-10-24 — "takip eden ayı da ekle" işaretinin ürettiği tutarsız (`unsplit`) ay, AYNI sözleşmenin o ay için kendi
+ * taksiti varsa geçersizdir: sözleşme planı o ayı ayrı taksitle borçlandırmış, ilk tahsilat o ayı kapsamıyor (ilk
+ * tahsilat sonradan tek aya düzeltilip işaret açık kalmıştı — Ediz A. H.: Ekim'de 0 TL'lik ikinci "aday" tahsilatı
+ * engelliyor, sayaç Ekim'i ödenmiş sayıyordu). Sözleşmesiz satırda ve ayın kendi taksiti olmayan eski kayıtta işaret
+ * aynen geçerlidir.
+ */
+export function isStaleUnsplitShare(
+  p: CalendarPlanInstallment,
+  share: InstallmentMonthShare,
+  ownMonths: ContractOwnMonths
+): boolean {
+  return !!share.unsplit && !!p.contractId && !!ownMonths.get(p.contractId)?.has(share.month);
+}
+
 /**
  * Bu satırın fiilen kapattığı dönem/taksit sayısı. Satır adedi değildir: iki dönemlik tek tahsilat 2'dir.
  * Paralı bir pay yalnız kendi tutarı tam karşılanınca sayılır (kısmi ödeme en eski dönemi kapatır).
- * Tutarı yazılmamış (`unsplit`) ay, satırın kendisi tam tahsil edildiyse sayılır.
+ * Tutarı yazılmamış (`unsplit`) ay, satırın kendisi tam tahsil edildiyse sayılır — sözleşmenin o ay için kendi
+ * taksiti yoksa (`ownMonths` verilirse bayat işaret sayılmaz; bkz. `isStaleUnsplitShare`).
  */
-export function coveredInstallmentCount(p: CalendarPlanInstallment): number {
+export function coveredInstallmentCount(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): number {
   if (p.status === "voided") return 0;
   let n = 0;
   for (const share of installmentMonthShares(p)) {
     if (share.unsplit) {
-      if (parentFullyCollected(p)) n += 1;
+      if (parentFullyCollected(p) && !(ownMonths && isStaleUnsplitShare(p, share, ownMonths))) n += 1;
       continue;
     }
     if (share.amount > 0 && share.paidAmount >= share.amount) n += 1;
@@ -327,8 +362,13 @@ export function coveredInstallmentCount(p: CalendarPlanInstallment): number {
   return n;
 }
 
+/**
+ * Öğrencinin TÜM geçmişinde tam kapanmış benzersiz dönem sayısı (revize/iptal edilmiş sözleşmelerde fiilen ödenmiş
+ * dönemler dahil — gerçek tahsilattır). Tahsilat işlemi sayısı değildir: iki kısmi ödeme tek dönemi kapatır.
+ */
 export function paidInstallmentCount(payments: readonly CalendarPlanInstallment[]): number {
-  return payments.reduce((n, p) => n + coveredInstallmentCount(p), 0);
+  const ownMonths = contractOwnInstallmentMonths(payments);
+  return payments.reduce((n, p) => n + coveredInstallmentCount(p, ownMonths), 0);
 }
 
 const CONTRACT_INSTALLMENT_DESC = /^(Sözleşme taksiti )(\d+)\/(\d+)/;
@@ -339,13 +379,13 @@ const CONTRACT_INSTALLMENT_DESC = /^(Sözleşme taksiti )(\d+)\/(\d+)/;
  * kapanan dönem kadar ilerler: iki dönem tam kapanmışsa 2, yalnız ilki tamsa 1.
  * Hiç dönem kapanmamışsa planlanan sıra durur.
  */
-export function contractInstallmentProgressIndex(p: CalendarPlanInstallment): number | undefined {
+export function contractInstallmentProgressIndex(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): number | undefined {
   const match = p.description?.match(CONTRACT_INSTALLMENT_DESC);
   const start = p.installmentSequence != null && p.installmentSequence > 0
     ? p.installmentSequence
     : match ? Number(match[2]) : undefined;
   if (start == null) return undefined;
-  const covered = coveredInstallmentCount(p);
+  const covered = coveredInstallmentCount(p, ownMonths);
   if (covered <= 1) return start;
   const total = match ? Number(match[3]) : undefined;
   const reached = start + covered - 1;
@@ -353,11 +393,11 @@ export function contractInstallmentProgressIndex(p: CalendarPlanInstallment): nu
 }
 
 /** Saklanan açıklamadaki "Sözleşme taksiti X/N" payını dönem ilerlemesiyle değiştirir. Tutar/tarih yazılmaz. */
-export function contractInstallmentProgressDescription(p: CalendarPlanInstallment): string {
+export function contractInstallmentProgressDescription(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): string {
   const description = p.description ?? "";
   const match = description.match(CONTRACT_INSTALLMENT_DESC);
   if (!match) return description;
-  const index = contractInstallmentProgressIndex(p);
+  const index = contractInstallmentProgressIndex(p, ownMonths);
   if (index == null || index === Number(match[2])) return description;
   return description.replace(CONTRACT_INSTALLMENT_DESC, `$1${index}/${match[3]}`);
 }
@@ -459,10 +499,15 @@ export function resolveContractPlanForMonth(input: {
   }
 
   const contract = covering[0]!;
-  const rows = sharesForMonth(
-    input.installments.filter((p) => p.contractId === contract.id && p.installmentSequence != null),
-    monthKey
-  ).sort((a, b) => (a.row.installmentSequence ?? 0) - (b.row.installmentSequence ?? 0));
+  // 2026-10-24 — aday satırlar: yalnız bu sözleşmenin İPTAL EDİLMEMİŞ taksitleri; aynı ayın kendi taksiti varken
+  // önceki satırın bayat "takip eden ay" payı aday sayılmaz (bkz. `isStaleUnsplitShare`).
+  const contractRows = input.installments.filter(
+    (p) => p.contractId === contract.id && p.installmentSequence != null && p.status !== "voided"
+  );
+  const ownMonths = contractOwnInstallmentMonths(contractRows);
+  const rows = sharesForMonth(contractRows, monthKey)
+    .filter((r) => !isStaleUnsplitShare(r.row, r.share, ownMonths))
+    .sort((a, b) => (a.row.installmentSequence ?? 0) - (b.row.installmentSequence ?? 0));
 
   if (rows.length === 0) {
     return {
@@ -486,6 +531,7 @@ export function resolveContractPlanForMonth(input: {
     contractNumber: contract.contractNumber,
     installmentSequences: rows.map((r) => r.row.installmentSequence!),
     paymentIds: rows.map((r) => r.row.id),
+    openPaymentIds: rows.filter((r) => remainingAmount(r.share.amount, r.share.paidAmount) > 0).map((r) => r.row.id),
     amount,
     paidAmount,
     remaining: remainingAmount(amount, paidAmount),

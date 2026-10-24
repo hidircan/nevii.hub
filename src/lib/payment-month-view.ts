@@ -7,7 +7,7 @@
  * DURUM: `resolvePaymentDisplayStatus` (payments/status.ts) o ayın payına uygulanır — liste, filtre ve özet aynı
  * kaynaktan. İptal edilmiş satır ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti aylık beklentiye girmez.
  */
-import { contractInstallmentProgressDescription, coveredInstallmentCount, installmentMonthShares } from "./attendance-calendar-plan";
+import { contractInstallmentProgressDescription, contractOwnInstallmentMonths, coveredInstallmentCount, installmentMonthShares, isStaleUnsplitShare } from "./attendance-calendar-plan";
 import { resolvePaymentDisplayStatus, remainingAmount, type PaymentDisplayStatus } from "./payments/status";
 import type { PaymentListRow } from "./reference-data";
 import { normalizePaymentMethodEnum } from "./utils";
@@ -100,11 +100,14 @@ export function buildPaymentMonthView(
   const rows: MonthPaymentRow[] = [];
   const carryover: MonthPaymentRow[] = [];
   let excludedCount = 0;
+  const ownMonths = contractOwnInstallmentMonths(payments);
   for (const p of payments) {
     const shares = installmentMonthShares(p);
-    const coveredInstallments = coveredInstallmentCount(p);
+    const coveredInstallments = coveredInstallmentCount(p, ownMonths);
     for (const share of shares) {
       if (share.month > opts.month) continue;
+      // Sözleşmenin o ay için kendi taksiti var: önceki satırın bayat "takip eden ay" payı ayrı satır olarak gösterilmez.
+      if (isStaleUnsplitShare(p, share, ownMonths)) continue;
       if (share.month < opts.month && p.status === "paid") continue;
       const status = resolvePaymentDisplayStatus(
         { status: p.status, contractId: p.contractId, amount: share.amount, paidAmount: share.paidAmount, dueDate: p.dueDate },
@@ -122,8 +125,8 @@ export function buildPaymentMonthView(
         studentName: opts.studentName(p.studentId),
         branchLabel: opts.branchLabel?.(p),
         description: share.periodLabel && shares.length > 1
-          ? `${contractInstallmentProgressDescription(p)} · ${share.periodLabel}`
-          : contractInstallmentProgressDescription(p),
+          ? `${contractInstallmentProgressDescription(p, ownMonths)} · ${share.periodLabel}`
+          : contractInstallmentProgressDescription(p, ownMonths),
         expected: share.amount,
         collected: share.paidAmount,
         remaining: remainingAmount(share.amount, share.paidAmount),

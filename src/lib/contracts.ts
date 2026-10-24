@@ -437,14 +437,29 @@ export function allocatePriorCollections(
   return { rows: out, applied, leftover: remaining };
 }
 
-/** Revize edilen sürümün taksit satırlarında fiilen tahsil edilmiş toplam (iptal satırı hariç). */
+/**
+ * Revize edilen sürümde VE onun revizyon zincirindeki önceki sürümlerde fiilen tahsil edilmiş toplam (iptal satırı
+ * hariç). 2026-10-24 — mahsup tahsilat sayılmadığı için (yalnız taksit tutarını düşürür) ikinci revizyon yalnız bir
+ * önceki sürüme bakınca ilk sürümdeki gerçek tahsilat kayboluyordu: v1'de tahsil → v2 mahsup etti → v3 hiç mahsup
+ * etmedi, dönem yeniden tam borçlandı. Zincir `amendment` bağı boyunca yürür; yenileme/ilk sözleşmede durur (yenileme
+ * yeni dönemdir, önceki dönemin tahsilatı mahsup edilmez).
+ */
 export async function computePriorContractCollected(tenantId: string, contractId: string): Promise<number> {
-  const rows = await listInstallmentsForContract(tenantId, contractId);
-  return rows.reduce((sum, r) => {
-    if (r.status === "voided") return sum;
-    if (r.status === "paid") return sum + (r.paidAmount > 0 ? r.paidAmount : r.amount);
-    return sum + Math.max(0, r.paidAmount);
-  }, 0);
+  let total = 0;
+  const visited = new Set<string>();
+  let id: string | undefined = contractId;
+  while (id && !visited.has(id)) {
+    visited.add(id);
+    const rows = await listInstallmentsForContract(tenantId, id);
+    total += rows.reduce((sum, r) => {
+      if (r.status === "voided") return sum;
+      if (r.status === "paid") return sum + (r.paidAmount > 0 ? r.paidAmount : r.amount);
+      return sum + Math.max(0, r.paidAmount);
+    }, 0);
+    const contract = await getContract(tenantId, id);
+    id = contract?.contractType === "amendment" ? contract.previousContractId : undefined;
+  }
+  return total;
 }
 
 /**

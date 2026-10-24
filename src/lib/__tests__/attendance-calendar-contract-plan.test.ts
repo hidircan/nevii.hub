@@ -336,3 +336,24 @@ describe("Senaryo 7 — tenant izolasyonu", () => {
     }
   });
 });
+
+describe("2026-10-24 — bayat 'takip eden ay' işareti Ekim tahsilatını engellemez", () => {
+  it("ilk tahsilat tek aya ait ama işaret açık; sözleşmenin Ekim taksiti var → Ekim tahsilatı o taksite yazılır", async () => {
+    const created = await createContractFor(5950);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const { mutateStoreUnderLock } = await import("../store-json");
+    await mutateStoreUnderLock(async (d) => ({
+      ...d,
+      payments: d.payments.map((p) => (p.source === "registration_first_payment" ? { ...p, firstCollectionIncludesNextMonth: true } : p)),
+    }));
+    const ekim = created.data.installments.find((r) => r.sequence === 2)!;
+
+    const res = await collectAttendanceCalendarPaymentTool(adminCtx(), { studentId: "s1", month: "2026-10", amount: 5950, method: "cash" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.paymentId).toBe(ekim.paymentId);
+    const after = (await readData()).payments.find((p) => p.id === ekim.paymentId);
+    expect(after?.paidAmount).toBe(5950);
+  });
+});

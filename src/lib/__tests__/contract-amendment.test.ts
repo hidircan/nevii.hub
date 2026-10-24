@@ -203,6 +203,33 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     expect(payments.filter((p) => p.contractId && contractIds.has(p.contractId)).reduce((s, p) => s + collectedAmountOf(p), 0)).toBe(3000);
   });
 
+  it("2026-10-24: ikinci revizyon ilk sürümdeki gerçek tahsilatı da mahsup eder (zincir); çift sayım yok", async () => {
+    const initial = await createInitial();
+    const v2 = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
+    expect(v2.ok).toBe(true);
+    if (!v2.ok) return;
+    const v3 = await createStudentContractTool(adminCtx(), amendInput(v2.data.contract.id, { monthlyAmount: 4000 }));
+    expect(v3.ok).toBe(true);
+    if (!v3.ok) return;
+    // v1'de kayıtta alınan 3.000 TL v2'de yalnız tutardan düşülmüştü (tahsilat değil) — v3 yine 3.000 mahsup eder.
+    expect(v3.data.amendmentCredit).toEqual({ collected: 3000, applied: 3000, leftover: 0 });
+    expect(v3.data.installments.map((r) => r.amount)).toEqual([1000, 4000, 4000]);
+  });
+
+  it("2026-10-24: revize edilmiş sözleşmenin açık taksidine tahsilat yazılmaz (güncel sözleşmeye yönlendirir)", async () => {
+    const initial = await createInitial();
+    const v2 = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
+    expect(v2.ok).toBe(true);
+    const old = initial.installments.find((r) => r.status !== "paid")!;
+    const res = await createPaymentTool(adminCtx(), { paymentId: old.paymentId, amount: old.amount });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+    expect(res.error.message).toContain("revize edildi");
+    const { readData } = await import("../store-json");
+    expect((await readData()).payments.find((p) => p.id === old.paymentId)?.paidAmount).toBe(0);
+  });
+
   it("2026-10-04: hiçbir alanı/planı değişmeyen revizyon sunucuda reddedilir (mükerrer sürüm yok)", async () => {
     const initial = await createInitial();
     const res = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id, { monthlyAmount: 3000 }));
