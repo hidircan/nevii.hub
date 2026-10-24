@@ -34,6 +34,19 @@ export function makeupPlanningDeadline(expiresAtIso: string, timeZone = resolveA
 }
 
 /**
+ * 2026-10-24 — KANONİK "kalan gün": kurum saat diliminde takvim-günü farkı
+ * (son gün − bugün). Kart, aciliyet filtresi ve kalan-gün etiketi bu tek hesabı
+ * kullanır; sunucu saati dilimindeki `differenceInCalendarDays` gece yarısına
+ * yakın ±1 gün sapıyordu. Planlama sınırı her zamanki gibi `makeupPlanningDeadline`.
+ */
+export function makeupDaysLeft(expiresAtIso: string, now: Date = new Date(), timeZone = resolveAppTimezone()): number {
+  if (Number.isNaN(new Date(expiresAtIso).getTime()) || Number.isNaN(now.getTime())) return NaN;
+  const end = toZonedYmd(new Date(expiresAtIso), timeZone);
+  const start = toZonedYmd(now, timeZone);
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
  * Otomatik kapatma kesme tarihi (OWNER KARARI, hakediş korunur): planlama sınırı bu andan ÖNCE olan talepler
  * "legacy"dir — ekranda eskisi gibi yalnız `expired` görünür, kaynak derse/hakedişe dokunulmaz ve DB'ye yazılmaz.
  * Sınırı bu andan sonra olanlar tam kapatılır (kaynak ders İşlendi). Deploy günü için `MAKEUP_EXPIRY_CLOSURE_FROM`

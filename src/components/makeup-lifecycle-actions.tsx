@@ -84,10 +84,13 @@ export function MakeupLifecycleActions({
   row,
   teachers,
   rooms,
+  /** Açık (bekleyen) kart yalnız uzatma sunar — revize onaylıya, silme/iptal geçmiş akışa aittir. */
+  only,
 }: {
   row: MakeupLifecycleRow;
   teachers: TeacherOption[];
   rooms: RoomOption[];
+  only?: "extend";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<"extend" | "revise" | "delete" | "cancel" | null>(null);
@@ -111,9 +114,9 @@ export function MakeupLifecycleActions({
   const [time, setTime] = useState(planTime);
   const [roomId, setRoomId] = useState(row.roomId && activeRooms.some((room) => room.id === row.roomId) ? row.roomId : activeRooms[0]?.id ?? "");
   const canExtend = row.status === "expired" || row.status === "confirmed" || row.status === "pending" || row.status === "suggested" || row.status === "awaiting_info";
-  const canRevise = row.status === "confirmed" && row.hasActivePlan;
-  const canDelete = !!row.hasActivePlan && row.status !== "cancelled" && row.status !== "completed";
-  const canCancelRight = row.status !== "cancelled" && row.status !== "completed";
+  const canRevise = only !== "extend" && row.status === "confirmed" && row.hasActivePlan;
+  const canDelete = only !== "extend" && !!row.hasActivePlan && row.status !== "cancelled" && row.status !== "completed";
+  const canCancelRight = only !== "extend" && row.status !== "cancelled" && row.status !== "completed";
   if (!canExtend && !canRevise && !canDelete && !canCancelRight) return null;
 
   return (
