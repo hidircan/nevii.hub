@@ -37,6 +37,15 @@
       ],
       "expo-secure-store",
       "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "@react-native-community/datetimepicker",
       [
         "expo-image-picker",
