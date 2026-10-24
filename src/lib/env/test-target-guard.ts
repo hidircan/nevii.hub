@@ -14,14 +14,15 @@
 
 /**
  * Bilinen Supabase projeleri (2026-10-01 canlı geçişinden sonra). Env ile override edilebilir.
- * - Production: yeni canlı proje.
+ * - Production: `ddskhtirzywbuucxeovz` (2026-10-18'den beri, org NeviiHub-October, eu-central-1).
+ * - Önceki canlı proje (`wsbucznpujcfzhitzrbl`, 2026-10-01→10-18) donmuş geri dönüş kaynağı → production gibi korunur.
  * - Eski test projesi (`vxzewyiwfshobjizzetw`) geçişe kadar GERÇEK veriyi taşıdı ve geri dönüş kaynağı
  *   olarak salt-okunur saklanıyor → production gibi korunur; artık test hedefi DEĞİL.
  * - Uzak test DB'si yok (local-first, docs/operations/LOCAL_FIRST_DEPLOYMENT.md). Geçici bir test
  *   projesi açılırsa ref'i `TEST_SUPABASE_REF` ile verilir; verilmezse hiçbir uzak hedef "test" sayılmaz.
  */
-export const PRODUCTION_SUPABASE_REF = process.env.PROD_SUPABASE_REF || "wsbucznpujcfzhitzrbl";
-const PROTECTED_SUPABASE_REFS = new Set([PRODUCTION_SUPABASE_REF, "vxzewyiwfshobjizzetw"]);
+export const PRODUCTION_SUPABASE_REF = process.env.PROD_SUPABASE_REF || "ddskhtirzywbuucxeovz";
+const PROTECTED_SUPABASE_REFS = new Set([PRODUCTION_SUPABASE_REF, "wsbucznpujcfzhitzrbl", "vxzewyiwfshobjizzetw"]);
 export const TEST_SUPABASE_REF = process.env.TEST_SUPABASE_REF || "";
 
 export type TargetClassification =

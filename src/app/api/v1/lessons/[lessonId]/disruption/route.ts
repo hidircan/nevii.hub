@@ -3,7 +3,7 @@ import { setLessonDisruptionTool } from "@/lib/services";
 
 export const dynamic = "force-dynamic";
 
-/** POST /api/v1/lessons/:lessonId/disruption { disruptionSource, disruptionNote?, teacherAttendance? } */
+/** POST /api/v1/lessons/:lessonId/disruption { disruptionSource, disruptionNote? } */
 export const POST = withApiHandler(
   async ({ ctx, body, params }) =>
     setLessonDisruptionTool(ctx, {

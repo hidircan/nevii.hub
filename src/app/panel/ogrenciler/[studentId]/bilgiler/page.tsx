@@ -1,9 +1,11 @@
 import { ChangeHistory } from "@/components/change-history";
+import { studentBranchIds } from "@/lib/student-enrollments";
 import { notFound } from "next/navigation";
 import { getSocialMediaConsentTool } from "@/lib/services";
 import { Card } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { StudentProfileEditor } from "@/components/student-profile-editor";
+import type { StudentProfileSection } from "@/lib/profile-sections";
 import { StudentPortalAccessCard } from "@/components/portal-access-card";
 import { StudentTermTypeEditor } from "@/components/student-term-type-editor";
 import { NationalIdReveal } from "@/components/national-id-reveal";
@@ -13,6 +15,8 @@ import { REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import { effectiveStudentTypes } from "@/lib/student-types";
 import { isMebStudent, resolveMebExamStatus, MEB_EXAM_STATUS_LABELS } from "@/lib/meb";
 import { computeAge, formatDate } from "@/lib/utils";
+import { effectiveEnrollments, enrollmentDisplayName, enrollmentTerms } from "@/lib/student-enrollments";
+import Link from "@/components/link";
 import { loadStudentPageContext } from "../_context";
 import { Field } from "../_components/fields";
 import { ContractReturnBanner } from "../_components/contract-return-banner";
@@ -30,10 +34,10 @@ export default async function StudentInfoTab({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ duzenle?: string; sozlesmeDon?: string }>;
+  searchParams: Promise<{ duzenle?: string; sozlesmeDon?: string; brans?: string }>;
 }) {
   const { studentId } = await params;
-  const { duzenle, sozlesmeDon } = await searchParams;
+  const { duzenle, sozlesmeDon, brans } = await searchParams;
   const { session, data, student, canManage } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
@@ -41,6 +45,13 @@ export default async function StudentInfoTab({
   const socialMediaConsent = consentResult.ok ? consentResult.data.consent : undefined;
 
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
+  // 2026-10-10 — çok branşlı öğrencide branşa özgü bilgiler (tür, paket, MEB, tarihler, süre) öğrenci satırından DEĞİL her
+  // branşın kendi kaydından gösterilir; satırdaki değerler yalnız uyumluluk aynasıdır ve başka bir branşa ait olabilir.
+  const branchList = effectiveEnrollments(student, data.teachers);
+  const multi = branchList.length > 1;
+  const shownBranches = branchList
+    .filter((e) => !multi || !brans || brans === "__unassigned__" || e.id === brans)
+    .map((e) => ({ enrollment: e, terms: enrollmentTerms(student, e, data.teachers), label: enrollmentDisplayName(e, branchList, data.teachers) }));
   const age = student.birthDate ? computeAge(student.birthDate) : null;
 
   const profileEditorInitial = {
@@ -77,13 +88,16 @@ export default async function StudentInfoTab({
   const mebIncomplete =
     mebStudent && (!student.level || !student.mebLevelStartDate || !student.mebLevelEndDate);
 
-  const editor = (
+  // Her kart YALNIZ kendi bölümünün alanlarını açar/gönderir (bkz. lib/profile-sections.ts).
+  const editor = (section: StudentProfileSection) => (
     <StudentProfileEditor
+      section={section}
       studentId={student.id}
       branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
       hasNationalId={!!student.nationalIdCipher}
       initial={profileEditorInitial}
       showPortalInvite={false}
+      branchScopedTerms={multi}
     />
   );
 
@@ -120,22 +134,34 @@ export default async function StudentInfoTab({
                 }
               />
               <Field label="Adres" value={canManage ? student.address || "Eklenmemiş" : "Yalnız yetkili rol görebilir"} />
-              <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
-              <Field label="Paket" value={student.packageName.split("—")[0]?.trim() ?? student.packageName} />
+              <Field label="Ana şube" value={branch?.name ?? "Eklenmemiş"} />
+              {studentBranchIds(student).length > 1 ? (
+                <Field
+                  label="Şubeler"
+                  value={studentBranchIds(student)
+                    .map((id) => data.settings.branches.find((b) => b.id === id)?.name ?? id)
+                    .join(", ")}
+                />
+              ) : null}
               <Field label="Eğitim metodu" value={student.educationMethod ?? "Eklenmemiş"} />
-              <Field label="Seviye" value={student.level ?? "Eklenmemiş"} />
-              <Field label="Kayıt tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Eklenmemiş"} />
-              <Field
-                label="Ders başlangıç tarihi"
-                value={
-                  student.lessonStartDate
-                    ? formatDate(student.lessonStartDate)
-                    : student.enrollmentStartDate
-                      ? `${formatDate(student.enrollmentStartDate)} (kayıt tarihi)`
-                      : "Eklenmemiş"
-                }
-              />
-              <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
+              {multi ? null : (
+                <>
+                  <Field label="Paket" value={student.packageName.split("—")[0]?.trim() ?? student.packageName} />
+                  <Field label="Seviye" value={student.level ?? "Eklenmemiş"} />
+                  <Field label="Kayıt tarihi" value={student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : "Eklenmemiş"} />
+                  <Field
+                    label="Ders başlangıç tarihi"
+                    value={
+                      student.lessonStartDate
+                        ? formatDate(student.lessonStartDate)
+                        : student.enrollmentStartDate
+                          ? `${formatDate(student.enrollmentStartDate)} (kayıt tarihi)`
+                          : "Eklenmemiş"
+                    }
+                  />
+                  <Field label="Ders süresi" value={student.lessonDurationMinutes ? `${student.lessonDurationMinutes} dk` : "Eklenmemiş"} />
+                </>
+              )}
               <Field label="Doğum yeri" value={student.birthPlace ?? "Eklenmemiş"} />
               <Field label="Okulu / mesleği" value={student.schoolOrOccupation ?? "Eklenmemiş"} />
               <Field
@@ -150,12 +176,76 @@ export default async function StudentInfoTab({
               />
             </dl>
           }
-          edit={editor}
+          edit={editor("basic")}
           defaultEditing={duzenle === "kayit"}
         />
       </section>
 
-      {mebStudent ? (
+      {multi ? (
+        <section id="brans-bilgileri">
+          <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">Branş bilgileri</h2>
+          <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+            Her branşın türü, MEB bilgileri, paketi, tarihleri ve süresi kendi kaydındadır; biri değişince diğeri etkilenmez.
+            {brans && brans !== "__unassigned__" ? "" : " Üstteki Branş seçicisiyle tek bir branşa daraltabilirsiniz."}
+          </p>
+          <div className="space-y-4">
+            {shownBranches.map(({ enrollment: e, terms: t, label }) => {
+              const isMeb = t.studentTypes.includes("MEB");
+              const examStatus = resolveMebExamStatus({ mebExamDate: t.mebExamDate, mebExamAttended: t.mebExamAttended });
+              const incomplete = isMeb && (!t.level || !t.mebLevelStartDate || !t.mebLevelEndDate);
+              return (
+                <Card key={e.id}>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--color-text)]">
+                      {label}
+                      {e.active ? "" : " (sonlandı)"}
+                    </h3>
+                    {canManage ? (
+                      <Link
+                        href={`/panel/ogrenciler/${student.id}?duzenleBrans=${encodeURIComponent(e.id)}#brans-kayitlari`}
+                        className="text-xs font-medium text-[var(--color-primary)] hover:underline"
+                      >
+                        Bu branşı düzenle →
+                      </Link>
+                    ) : null}
+                  </div>
+                  <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Öğrenci türü" value={t.studentTypes.length ? t.studentTypes.join(", ") : "Belirtilmemiş"} />
+                    <Field label="Paket" value={t.packageName?.split("—")[0]?.trim() || "Paketsiz"} />
+                    <Field label="Aylık ücret" value={`${t.monthlyFee.toLocaleString("tr-TR")} ₺`} />
+                    <Field label="Kayıt tarihi" value={t.startDate ? formatDate(t.startDate) : "Eklenmemiş"} />
+                    <Field
+                      label="Ders başlangıç tarihi"
+                      value={t.lessonStartDate ? formatDate(t.lessonStartDate) : t.startDate ? `${formatDate(t.startDate)} (kayıt tarihi)` : "Eklenmemiş"}
+                    />
+                    <Field label="Ders süresi / haftalık" value={`${t.lessonDurationMinutes ? `${t.lessonDurationMinutes} dk` : "—"} · haftada ${t.weeklyLessonCount}`} />
+                    <Field label="Ders günü ve saati" value={t.lessonScheduleText || "Eklenmemiş"} />
+                    <Field label="Kayıt süresi" value={t.intendedDurationMonths ? `${t.intendedDurationMonths} ay` : "Eklenmemiş"} />
+                    {isMeb ? null : <Field label="Seviye" value={t.level || "Eklenmemiş"} />}
+                  </dl>
+                  {isMeb ? (
+                    <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">MEB bilgileri — {e.instrument}</p>
+                      <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                        <Field label="MEB seviyesi" value={t.level ? `${t.level}. Seviye` : "Eklenmemiş"} />
+                        <Field label="MEB seviye başlangıç tarihi" value={t.mebLevelStartDate ? formatDate(t.mebLevelStartDate) : "Eklenmemiş"} />
+                        <Field label="MEB seviye bitiş tarihi" value={t.mebLevelEndDate ? formatDate(t.mebLevelEndDate) : "Eklenmemiş"} />
+                        <Field label="MEB sınav tarihi" value={t.mebExamDate ? formatDate(t.mebExamDate) : "Eklenmemiş"} />
+                        <Field label="Sınava girdi mi?" value={MEB_EXAM_STATUS_LABELS[examStatus]} />
+                      </dl>
+                      {incomplete ? (
+                        <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                          Bu branşın MEB seviye/dönem bilgileri eksik — branşı düzenleyerek ya da MEB Panelinden tamamlayın.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      ) : mebStudent ? (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">MEB Bilgileri</h2>
           <Card>
@@ -201,7 +291,7 @@ export default async function StudentInfoTab({
               />
             </dl>
           }
-          edit={editor}
+          edit={editor("contact")}
         />
       </section>
 

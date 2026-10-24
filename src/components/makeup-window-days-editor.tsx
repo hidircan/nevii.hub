@@ -146,6 +146,9 @@ export function MakeupWindowDaysEditor({
           Vazgeç
         </button>
       </div>
+      <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+        Pencere artırılınca açık ve planlı telafilerin son günü de uzar; azaltmak mevcut talepleri kısaltmaz.
+      </p>
       {error ? <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]">{error}</p> : null}
     </div>
   );

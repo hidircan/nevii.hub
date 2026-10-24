@@ -1,6 +1,9 @@
+import { expiresAtForPolicyWindow, makeupExpiresAtFromSource } from "./makeup-deadline";
 import { collectedAmountOf } from "./payment-profile";
+import { mergeImportRowIntoStudent } from "./import/student-merge";
 import {
   applyLessonRevision,
+  revisionConflictWindow,
   planLessonDeletion,
   planForcedLessonDeletion,
   type ForcedLessonDeletionPlan,
@@ -24,25 +27,47 @@ import { tryTenantId } from "./tenant-context";
 import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import {
+  applyEnrollmentChange,
+  applyProfilePatchToStudent,
+  mergeStudentPatches,
+  type ChangeStudentEnrollmentsInput,
+  type ChangeStudentEnrollmentsResult,
+  type RegisterStudentInput,
+  type RegisterStudentResult,
+} from "./student-enrollments";
+import { buildRegistrationFirstPayment, REGISTRATION_FIRST_PAYMENT_SOURCE, registrationPaymentIdsByEnrollment } from "./registration-payment";
+import {
   narrowToDashboard,
   narrowToLessonWindow,
+  type ClubOnlyOptions,
+  narrowToMakeupCenter,
+  type MakeupCenterOptions,
+  type MakeupCenterData,
   narrowToPaymentsPage,
+  narrowToPaymentsList,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
   type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PaymentsListData,
   type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
   type StudentScopeData,
 } from "./reference-data";
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag } from "./lesson-ops";
+import {
+  applyMakeupLifecycleOnFull,
+  closeExpiredUnplannedMakeups,
+  normalizeAttendanceNote,
+  type MakeupLifecycleOp,
+  type MakeupLifecycleResult,
+} from "./makeup-lifecycle";
 import { allocateSequenceValue, formatDisplayId } from "./entity-sequence";
-import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
-import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
+import { reassignConflictWindow, reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
 import type {
   AppData,
   Attendance,
@@ -76,6 +101,7 @@ import {
   cancelMakeupData,
   validateLessonSlot,
   LessonSlotValidationError,
+  assertGroupRowsFree,
   type MakeupDecision,
 } from "./makeup-engine";
 import {
@@ -83,7 +109,7 @@ import {
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { mergeLessonScope, narrowLessonScope, narrowSlotScope } from "./lesson-scope";
+import { editOnScope, mergeLessonScope, narrowLessonScope, narrowSlotScope, type SlotScopeTarget } from "./lesson-scope";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -92,7 +118,7 @@ import {
   type LessonLiveUpdateResult,
 } from "./lesson-live-status";
 import {
-  createLessonSeriesData,
+  createLessonSeriesOnFullData,
   cancelSeriesFromLesson,
   cancelEntireSeries,
   type SeriesParams,
@@ -132,7 +158,8 @@ import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
 import { uid, isOutstandingPaymentStatus } from "./utils";
-import { addDays, formatISO } from "date-fns";
+import { teacherAttendanceRows } from "./insights/teacher-performance";
+import { mobileDashboardCounts } from "./dashboard/mobile-counts";
 
 const DATA_DIR = resolveDataDir(path.join(process.cwd(), "data"));
 const DATA_FILE = path.join(DATA_DIR, "store.json");
@@ -270,9 +297,14 @@ export async function readStudentScope(studentId: string): Promise<StudentScopeD
   return narrowToStudentScope(await readData(), studentId);
 }
 
+/** Bkz. src/lib/reference-data.ts `narrowToMakeupCenter`. */
+export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<MakeupCenterData> {
+  return narrowToMakeupCenter(await readData(), opts);
+}
+
 /** Bkz. src/lib/reference-data.ts `narrowToLessonWindow`. */
-export async function readLessonWindow(fromIso: string, toIso: string): Promise<LessonWindowData> {
-  return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso));
+export async function readLessonWindow(fromIso: string, toIso: string, opts?: ClubOnlyOptions): Promise<LessonWindowData> {
+  return narrowToLessonWindow(await readData(), new Date(fromIso), new Date(toIso), opts);
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToPayoutWindow`. */
@@ -286,14 +318,23 @@ export async function readDashboardData(fromIso: string, toIso: string, nowIso: 
 }
 
 /** Bkz. src/lib/reference-data.ts `narrowToPaymentsPage`. */
-export async function readPaymentsPageData(): Promise<PaymentsPageData> {
-  return narrowToPaymentsPage(await readData());
+export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<PaymentsPageData> {
+  return narrowToPaymentsPage(await readData(), opts);
+}
+
+/** Bkz. src/lib/reference-data.ts `narrowToPaymentsList`. */
+export async function readPaymentsListData(): Promise<PaymentsListData> {
+  return narrowToPaymentsList(await readData());
 }
 
 /** Bkz. src/lib/reference-data.ts `StudentListData`. */
 export async function readStudentListData(): Promise<StudentListData> {
   const data = await readData();
-  return { ...toReferenceData(data), payments: data.payments.map(toPaymentStatusRow) };
+  const { listTerminalContractIds } = await import("./contracts");
+  const { supersededUncollectedMonthlyPlanIds } = await import("./superseded-monthly-plan");
+  const drop = supersededUncollectedMonthlyPlanIds(data.payments, await listTerminalContractIds(data.settings.tenantId));
+  const payments = drop.size === 0 ? data.payments : data.payments.filter((p) => !drop.has(p.id));
+  return { ...toReferenceData(data), payments: toPaymentStatusRows(payments) };
 }
 
 /** Bkz. store-db.readStudentById — tek dosya/süreç verisi zaten okunur; sonuç `readData()` ile aynı. */
@@ -301,9 +342,83 @@ export async function readStudentById(studentId: string): Promise<Student | unde
   return (await readData()).students.find((s) => s.id === studentId);
 }
 
+export async function readTeacherPortalDetails(teacherId: string) {
+  const data = await readData();
+  const teacher = data.teachers.find((item) => item.id === teacherId);
+  if (!teacher) return null;
+  return {
+    teacherId: teacher.id,
+    teacherName: teacher.name,
+    contactEmail: teacher.email,
+    institutionName: data.settings.name,
+    schoolPhone: data.settings.phone,
+    schoolWebsite: data.settings.website,
+    logoUrl: data.settings.logoUrl,
+  };
+}
+
+/** E-posta şablonları için kurum adı/iletişim/logo (db tek satır okur). */
+export async function readSchoolBranding() {
+  const { settings } = await readData();
+  return { name: settings.name, phone: settings.phone, website: settings.website, logoUrl: settings.logoUrl };
+}
+
 /** Bkz. store-db.readLessonById — sonuç `readData().lessons.find` ile aynı. */
 export async function readLessonById(lessonId: string): Promise<Lesson | undefined> {
   return (await readData()).lessons.find((l) => l.id === lessonId);
+}
+
+/** Bkz. store-db.readLessonSeriesByIds. */
+export async function readLessonSeriesByIds(seriesIds: string[]): Promise<AppData["lessonSeries"]> {
+  const ids = new Set(seriesIds);
+  return (await readData()).lessonSeries.filter((s) => ids.has(s.id));
+}
+
+/** Bkz. store-db.readLessonSeriesForStudent. */
+export async function readLessonSeriesForStudent(studentId: string): Promise<AppData["lessonSeries"]> {
+  return (await readData()).lessonSeries.filter((s) => s.studentId === studentId);
+}
+
+/** Bkz. store-db.readSlotScopeData — tam veriden aynı dilim (lesson-scope.ts `narrowSlotScope`). */
+export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
+  return narrowSlotScope(await readData(), target, days);
+}
+
+/** Bkz. store-db.readLessonsStartingBetween — sonuç `readData().lessons` [from, to] süzgeciyle aynı. */
+/** Bkz. store-db.readNationalIdCandidates. */
+export async function readNationalIdCandidates(last2: string) {
+  return (await readData()).students.flatMap((s) =>
+    s.nationalIdCipher && s.nationalIdLast2 === last2 ? [{ id: s.id, nationalIdCipher: s.nationalIdCipher }] : []
+  );
+}
+
+/** Bkz. store-db.readBranches. */
+export async function readBranches() {
+  return (await readData()).settings.branches;
+}
+
+/** Bkz. store-db.readLessonsForTeacher — `readData().lessons` öğretmen süzgeciyle aynı. */
+export async function readLessonsForTeacher(teacherId: string): Promise<Lesson[]> {
+  return (await readData()).lessons.filter((l) => l.teacherId === teacherId);
+}
+
+/** Bkz. store-db.readTeacherAttendanceRows. */
+export async function readTeacherAttendanceRows() {
+  return teacherAttendanceRows(await readData());
+}
+
+/** Bkz. store-db.readMobileDashboardCounts. */
+export async function readMobileDashboardCounts(now: Date) {
+  return mobileDashboardCounts(await readData(), now);
+}
+
+export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<Lesson[]> {
+  const lo = new Date(fromIso).getTime();
+  const hi = new Date(toIso).getTime();
+  return (await readData()).lessons.filter((l) => {
+    const t = new Date(l.startAt).getTime();
+    return t >= lo && t <= hi;
+  });
 }
 
 /** Bkz. store-db.readPaymentById — sonuç `readData().payments.find` ile aynı. */
@@ -381,7 +496,7 @@ export async function markAttendance(input: {
         status: "pending",
         reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
         // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
-        expiresAt: formatISO(addDays(new Date(lesson.startAt), data.settings.makeupWindowDays)),
+        expiresAt: makeupExpiresAtFromSource(lesson.startAt, data.settings.makeupWindowDays),
         suggestedSlots: [],
         createdAt: new Date().toISOString(),
         policyNote:
@@ -427,10 +542,12 @@ export async function confirmSlot(
   slot: MakeupSlot,
   decision: MakeupDecision
 ): Promise<AppData> {
-  const data = await readData();
-  const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
-  await writeData(next);
-  return next;
+  // Okuma ve yazma aynı kilitte: iki sekme aynı hakkı farklı saatlere planlarsa
+  // ikincisi aktif dersi görür ve REQUEST_NOT_OPEN ile durur.
+  return mutateStoreUnderLock(async (data) => {
+    const { data: next } = confirmMakeupSlot(data, requestId, slot, decision);
+    return next;
+  });
 }
 
 export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
@@ -501,6 +618,82 @@ export async function addStudent(
 }
 
 /**
+ * 2026-10-10 — YENİ ÖĞRENCİ KAYDI TEK İŞLEMDE (bkz. store.ts StoreApi.registerStudent): öğrenci + tüm branş kayıtları +
+ * her branşın ilk tahsilatı tek kilitli yazımla gelir; yarım kayıt bırakmaz. Aynı `registrationId` ikinci kez gelirse
+ * (çift tık / yeniden deneme) yeni öğrenci/ödeme YARATILMAZ, mevcut kayıt döner.
+ */
+export async function registerStudent(input: RegisterStudentInput): Promise<RegisterStudentResult> {
+  let result = undefined as RegisterStudentResult | undefined;
+  await mutateStoreUnderLock(async (data) => {
+    if (input.registrationId) {
+      const dup = data.students.find((s) => s.enrollments?.some((e) => e.registrationId === input.registrationId));
+      if (dup) {
+        result = { studentId: dup.id, duplicate: true, paymentIds: registrationPaymentIdsByEnrollment(data.payments, dup.id) };
+        return data;
+      }
+    }
+    assertBranchExists(data, input.student.branchId);
+    const { assigned, records } = allocateSequenceValue(data.entitySequences ?? [], DEFAULT_TENANT_ID, "student");
+    const nowIso = new Date().toISOString();
+    const studentId = uid("stu");
+    const s: Student = { ...input.student, id: studentId, active: true, createdAt: nowIso, displayId: formatDisplayId("student", assigned) };
+    const paymentIds: Record<string, string> = {};
+    const payments = input.firstPayments.map((fp) => {
+      const id = uid("pay");
+      paymentIds[fp.enrollmentId] = id;
+      return buildRegistrationFirstPayment(id, studentId, fp, nowIso);
+    });
+    result = { studentId, duplicate: false, paymentIds };
+    return { ...data, students: [...data.students, s], payments: [...data.payments, ...payments], entitySequences: records };
+  });
+  return result!;
+}
+
+/**
+ * 2026-10-10 — branş listesinde ATOMİK değişiklik (bkz. store.ts StoreApi.changeStudentEnrollments): tüm
+ * oku-değiştir-yaz döngüsü tek kilit altındadır; eşzamanlı iki ekleme/düzenleme birbirini ezmez. Branş koşulu +
+ * öğrenci satırı aynası + (eklemede) ilk tahsilat aynı yazımda gider.
+ */
+export async function changeStudentEnrollments(input: ChangeStudentEnrollmentsInput): Promise<ChangeStudentEnrollmentsResult> {
+  let result = undefined as ChangeStudentEnrollmentsResult | undefined;
+  await mutateStoreUnderLock(async (data) => {
+    const idx = data.students.findIndex((s) => s.id === input.studentId);
+    if (idx < 0) {
+      result = { ok: false, code: "NOT_FOUND", message: "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+      return data;
+    }
+    const student = data.students[idx]!;
+    const applied = applyEnrollmentChange(student, input.change, input.teachers);
+    if (!applied.ok) {
+      result = applied;
+      return data;
+    }
+    const nextStudent = applyProfilePatchToStudent(
+      { ...student, enrollments: applied.enrollments },
+      mergeStudentPatches(input.person, applied.mirror)
+    );
+    let payments = data.payments;
+    let paymentId: string | undefined;
+    const fp = input.firstPayment;
+    if (fp && input.change.kind === "add") {
+      const existing = data.payments.find(
+        (p) => p.studentId === student.id && p.source === REGISTRATION_FIRST_PAYMENT_SOURCE && (p.enrollmentId ?? null) === fp.enrollmentId
+      );
+      if (existing) {
+        paymentId = existing.id;
+      } else {
+        paymentId = uid("pay");
+        payments = [...payments, buildRegistrationFirstPayment(paymentId, student.id, fp, new Date().toISOString())];
+      }
+    }
+    result = { ok: true, enrollments: applied.enrollments, changed: applied.changed, ...(paymentId ? { paymentId } : {}) };
+    const students = data.students.map((s, i) => (i === idx ? nextStudent : s));
+    return { ...data, students, payments };
+  });
+  return result!;
+}
+
+/**
  * Geri alınabilir öğrenci silme (2026-09-22). Silmede öğrenci pasife alınır;
  * geri almada yalnız silme işareti kalkar (öğrenci pasif kalır, ayrıca aktifleştirilir).
  */
@@ -517,23 +710,6 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
   return next;
 }
 
-/**
- * Kalıcı silme — YALNIZ bağlı kaydı olmayan (boş/deneme) öğrenci. Çağıran tool
- * uygunluğu doğrular; burada da ikinci kez kontrol edilir (savunma derinliği).
- */
-export async function hardDeleteStudent(studentId: string): Promise<AppData> {
-  const data = await readData();
-  const linked =
-    data.payments.some((p) => p.studentId === studentId) ||
-    data.lessons.some((l) => l.studentId === studentId) ||
-    data.lessonSeries.some((l) => l.studentId === studentId) ||
-    data.attendances.some((a) => a.studentId === studentId) ||
-    data.makeupRequests.some((m) => m.studentId === studentId);
-  if (linked) throw new Error("STUDENT_HAS_LINKED_RECORDS");
-  const next = { ...data, students: data.students.filter((s) => s.id !== studentId) };
-  await writeData(next);
-  return next;
-}
 
 /** 2026-10-03 — öğretmeni listeden kaldırma (geri alınabilir); kaldırmada pasife alınır. `null` = geri al. */
 export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<AppData> {
@@ -549,21 +725,6 @@ export async function setTeacherDeletion(teacherId: string, state: TeacherDeleti
   return next;
 }
 
-/** Kalıcı silme — YALNIZ bağlı kaydı olmayan öğretmen; tool uygunluğu doğrular, burada ikinci kez kontrol edilir. */
-export async function hardDeleteTeacher(teacherId: string): Promise<AppData> {
-  const data = await readData();
-  const linked =
-    data.students.some((s) => s.teacherId === teacherId) ||
-    data.lessons.some((l) => l.teacherId === teacherId) ||
-    data.lessonSeries.some((l) => l.teacherId === teacherId) ||
-    data.makeupRequests.some((m) => m.teacherId === teacherId) ||
-    data.teacherFeeRules.some((r) => r.teacherId === teacherId) ||
-    data.teacherPayouts.some((p) => p.teacherId === teacherId);
-  if (linked) throw new Error("TEACHER_HAS_LINKED_RECORDS");
-  const next = { ...data, teachers: data.teachers.filter((t) => t.id !== teacherId) };
-  await writeData(next);
-  return next;
-}
 
 export async function updateStudentProfile(
   studentId: string,
@@ -591,7 +752,7 @@ export async function updateStudentProfile(
 export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
   const { applyMebStudentQuery } = await import("./meb-list");
   const data = await readData();
-  return applyMebStudentQuery(data.students, query);
+  return applyMebStudentQuery(data.students, query, data.teachers);
 }
 
 /** Nilüfer Acar politikası §1E — pause/reactivate TEK yol; `state=null` reaktivasyon (alanları temizler). */
@@ -782,6 +943,15 @@ export async function addClubSessionLessons(rows: Lesson[]): Promise<void> {
   await mutateStoreUnderLock(async (data) => ({ ...data, lessons: [...data.lessons, ...rows] }));
 }
 
+/** 2026-10-23 — bkz. store-db.ts addGroupLessonRows (mode parity: kilit altında yeniden çakışma denetimi). */
+export async function addGroupLessonRows(rows: Lesson[]): Promise<void> {
+  if (rows.length === 0) return;
+  await mutateStoreUnderLock(async (data) => {
+    assertGroupRowsFree(data.lessons, rows);
+    return { ...data, lessons: [...data.lessons, ...rows] };
+  });
+}
+
 /** 2026-10-06 — bkz. store-db.ts patchClubLessons (yalnız `type: "group"`). */
 export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
   let count = 0;
@@ -789,7 +959,7 @@ export async function patchClubLessons(ids: string[], patch: import("./clubs").C
   await mutateStoreUnderLock(async (data) => ({
     ...data,
     lessons: data.lessons.map((l) => {
-      if (!set.has(l.id) || l.type !== "group") return l;
+      if (!set.has(l.id) || (l.type !== "group" && !l.groupSessionId)) return l;
       count++;
       return { ...l, ...patch };
     }),
@@ -967,44 +1137,49 @@ export async function addLessonSeries(
 ): Promise<CreateSeriesResult> {
   const data = await readData();
   assertLessonSeriesRefsExist(data, params);
-  const result = createLessonSeriesData(data, params, options);
+  const result = createLessonSeriesOnFullData(data, params, options);
   if (result.ok) await writeData(result.data);
   return result;
 }
 
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {
-  const data = await readData();
-  const result = cancelSeriesFromLesson(data, lessonId);
-  if (result.ok) await writeData(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => cancelSeriesFromLesson(d, lessonId));
+  if (next) await writeData(next);
   return result;
 }
 
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
-  const data = await readData();
-  const result = cancelEntireSeries(data, seriesId);
-  if (result.ok) await writeData(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessonSeries.find((x) => x.id === seriesId)?.studentId, (d) => cancelEntireSeries(d, seriesId));
+  if (next) await writeData(next);
   return result;
 }
 
 /** M — kritik şifreyle statülü tek ders silme (bkz. planForcedLessonDeletion). */
 export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
-  const data = await readData();
-  const result = planForcedLessonDeletion(data, lessonId);
-  if (result.ok) await writeData(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => planForcedLessonDeletion(d, lessonId));
+  if (next) await writeData(next);
   return result;
 }
 
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
-  const data = await readData();
-  const result = planLessonDeletion(data, lessonId, scope);
-  if (result.ok) await writeData(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === lessonId)?.studentId, (d) => planLessonDeletion(d, lessonId, scope));
+  if (next) await writeData(next);
   return result;
 }
 
 export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
-  const data = await readData();
-  const result = applyLessonRevision(data, input);
-  if (result.ok) await writeData(result.data);
+  // DB egress paritesi (2026-10-18): kural db ile aynı dilimde çalışır (lesson-scope.ts `editOnScope`).
+  const full = await readData();
+  const { result, next } = editOnScope(full, full.lessons.find((l) => l.id === input.lessonId)?.studentId, (d) => applyLessonRevision(d, input), (d) => revisionConflictWindow(d, input));
+  if (next) await writeData(next);
   return result;
 }
 
@@ -1213,7 +1388,15 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
   const data = await readData();
-  const next = { ...data, settings: { ...data.settings, makeupWindowDays } };
+  const next = {
+    ...data,
+    settings: { ...data.settings, makeupWindowDays },
+    // Açık/planlı taleplerin son günü yeni pencereyi izler (bkz. expiresAtForPolicyWindow).
+    makeupRequests: data.makeupRequests.map((m) => ({
+      ...m,
+      expiresAt: expiresAtForPolicyWindow(m, makeupWindowDays, data.lessons.find((l) => l.id === m.sourceLessonId)?.startAt),
+    })),
+  };
   await writeData(next);
   return next;
 }
@@ -1386,31 +1569,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
   for (const row of rows) {
     const idx = students.findIndex((s) => s.phone.trim() === row.phone.trim());
     if (idx >= 0) {
-      students[idx] = {
-        ...students[idx],
-        name: row.name,
-        email: row.email || students[idx].email,
-        parentName: row.parentName,
-        parentPhone: row.parentPhone,
-        branchId: row.branchId,
-        instruments: [row.instrument],
-        teacherId: row.teacherId,
-        packageName: row.packageName,
-        weeklyLessonCount: row.weeklyLessonCount,
-        monthlyFee: row.monthlyFee,
-        notes: row.notes || students[idx].notes,
-        lessonDurationMinutes: row.lessonDurationMinutes ?? students[idx].lessonDurationMinutes,
-        birthDate: row.birthDate ?? students[idx].birthDate,
-        birthPlace: row.birthPlace ?? students[idx].birthPlace,
-        schoolOrOccupation: row.schoolOrOccupation ?? students[idx].schoolOrOccupation,
-        address: row.address ?? students[idx].address,
-        nationalIdCipher: row.nationalIdCipher ?? students[idx].nationalIdCipher,
-        nationalIdLast2: row.nationalIdLast2 ?? students[idx].nationalIdLast2,
-        enrollmentStartDate: row.enrollmentStartDate ?? students[idx].enrollmentStartDate,
-        derivedPerLessonAmount: row.derivedPerLessonAmount ?? students[idx].derivedPerLessonAmount,
-        accountResponsibility: students[idx].accountResponsibility ?? row.accountResponsibility,
-        displayId: students[idx].displayId ?? nextDisplayId(),
-      };
+      students[idx] = mergeImportRowIntoStudent(students[idx], row, nextDisplayId);
       updated++;
     } else {
       students.push({
@@ -1669,6 +1828,8 @@ export async function upsertMonthlyPlanPayment(input: {
             description: `Aylık plan — ${input.month} (${input.amount} TL)`,
             installmentPeriodLabel: p.installmentPeriodLabel ?? monthlyPlanPeriodLabel(input.month),
             method: input.method ?? p.method,
+            // 2026-10-23 — sistemin askıya aldığı satıra takvimden tahsilat: askı işareti kalkar (bkz. payments/accrual-rows.ts).
+            ...(p.adjustedBy?.startsWith("system:") ? { adjustedBy: undefined, adjustmentReason: undefined, adjustedAt: undefined } : {}),
           }
         : p
     );
@@ -1767,7 +1928,8 @@ async function persistLessonOpsUnderLock(
   actorUserId: string,
   apply: typeof applyLessonOpsFlag | typeof switchLessonOpsFlag,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   await ensureDataFile();
   return withFileLock(DATA_FILE, async () => {
@@ -1782,7 +1944,7 @@ async function persistLessonOpsUnderLock(
      */
     const scope = narrowLessonScope(data, lessonId);
     if (!scope) return { ok: false, message: "Ders bulunamadı." };
-    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption);
+    const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption, attendanceNote);
     if (result.ok && !result.alreadySet) {
       await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
     }
@@ -1805,9 +1967,10 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ReturnType<typeof switchLessonOpsFlag>> {
-  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption);
+  return persistLessonOpsUnderLock(lessonId, flag, actorUserId, switchLessonOpsFlag, reason, disruption, attendanceNote);
 }
 
 /** 2026-09-29 — yoklama statüsünü geri alma (bkz. lesson-ops.ts clearLessonOpsFlag); dar dilim + dosya kilidi. */
@@ -1832,33 +1995,13 @@ export async function clearLessonOpsFlagLive(
   });
 }
 
-/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol. */
-export async function markTeacherAttendanceLive(
-  lessonId: string,
-  status: TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof markTeacherAttendance>> {
-  let result!: ReturnType<typeof markTeacherAttendance>;
-  await mutateStoreUnderLock(async (data) => {
-    // Mode parity (DB egress 2026-10-10): kural db'deki dar dilimin AYNISIYLA çalışır; sonuç bütüne birleştirilir.
-    const scope = narrowLessonScope(data, lessonId);
-    if (!scope) {
-      result = { ok: false, message: "Ders bulunamadı." };
-      return data;
-    }
-    result = markTeacherAttendance(scope, lessonId, status, actorUserId, note);
-    return result.ok ? mergeLessonScope(data, result.data, lessonId) : data;
-  });
-  return result;
-}
-
 /** Faz 13 — ders öğretmeni/şube değişimi (tek/bundan sonrası/tüm seri). */
 export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
   let result!: ReassignLessonResult;
-  await mutateStoreUnderLock(async (data) => {
-    result = reassignLessonTeacherOrBranch(data, input);
-    return result.ok ? result.data : data;
+  await mutateStoreUnderLock(async (full) => {
+    const edit = editOnScope(full, full.lessons.find((l) => l.id === input.lessonId)?.studentId, (d) => reassignLessonTeacherOrBranch(d, input), (d) => reassignConflictWindow(d, input));
+    result = edit.result;
+    return edit.next ?? full;
   });
   return result;
 }
@@ -1897,4 +2040,77 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
     return result.ok ? result.data : data;
   });
   return result;
+}
+
+async function readJsonRaw(): Promise<AppData> {
+  const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const data = JSON.parse(raw) as AppData;
+  if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
+  assertTenant(data);
+  return data;
+}
+
+/** Planlanmamış telafi süresi dolduysa kaynak dersi İşlendi yapar. Değişiklik yoksa dosyaya yazılmaz. */
+export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
+  await ensureDataFile();
+  await withFileLock(DATA_FILE, async () => {
+    const data = await readJsonRaw();
+    const closed = closeExpiredUnplannedMakeups(data, now);
+    if (!closed.changed) return;
+    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(closed.data));
+  });
+}
+
+export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const data = await readData();
+  return applyMakeupLifecycleOnFull(data, op);
+}
+
+export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  await ensureDataFile();
+  return withFileLock(DATA_FILE, async () => {
+    const raw = await readJsonRaw();
+    const overlaid = await withClosedDayOverrides(raw, raw.settings.tenantId);
+    const result = applyMakeupLifecycleOnFull(overlaid, op);
+    if (!result.ok) return result;
+    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(result.data));
+    return result;
+  });
+}
+
+/** Yalnız Geldi dersinin notunu yazar. Statü ve hakediş alanlarına dokunmaz. */
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const stored = normalizeAttendanceNote(note) ?? null;
+  await ensureDataFile();
+  return withFileLock(DATA_FILE, async () => {
+    const data = await readJsonRaw();
+    const lesson = data.lessons.find((row) => row.id === lessonId);
+    if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    if (lesson.studentAttended !== true) {
+      return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
+    }
+    const lessons = data.lessons.map((row) => (row.id === lessonId ? { ...row, studentAttendanceNote: stored } : row));
+    await writeJsonFileAtomic(DATA_FILE, { ...data, lessons });
+    return { ok: true };
+  });
+}
+
+/** 2026-10-15 — kalıcı silme (plan + yürütme): kurallar `person-purge.ts`, dosya tabloları `person-purge-files.ts`. */
+export async function loadPurgeSnapshot(kind: import("./person-purge").PurgeKind, id: string) {
+  const { loadPurgeSnapshotFiles } = await import("./person-purge-files");
+  return loadPurgeSnapshotFiles({ readData, writeData }, kind, id);
+}
+
+export async function executePurge(
+  kind: import("./person-purge").PurgeKind,
+  id: string,
+  expectedFingerprint: string,
+  mode: import("./person-purge").PurgeMode = "standard",
+  opts: import("./person-purge").WipeOptions = {}
+) {
+  const { executePurgeFiles } = await import("./person-purge-files");
+  return executePurgeFiles({ readData, writeData }, kind, id, expectedFingerprint, mode, opts);
 }

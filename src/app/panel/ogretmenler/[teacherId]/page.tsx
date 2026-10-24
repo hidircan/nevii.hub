@@ -4,8 +4,10 @@ import { AlertTriangle, ArrowRight, CalendarDays, CheckCircle2 } from "lucide-re
 import { Badge, Card } from "@/components/ui";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
 import { formatDate, formatMoney, formatTime } from "@/lib/utils";
-import { loadTeacherPageContext } from "./_context";
+import { loadTeacherLessonsData, loadTeacherPageContext } from "./_context";
+import { readScopedPayoutWindow } from "@/lib/institution/context";
 import { MiniStat } from "./_components/fields";
+import { isActiveOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +17,12 @@ export const dynamic = "force-dynamic";
  */
 export default async function TeacherOverviewTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const { data, teacher, canManage } = await loadTeacherPageContext(teacherId);
+  const [{ teacher, canManage }, data] = await Promise.all([loadTeacherPageContext(teacherId), loadTeacherLessonsData(teacherId)]);
   if (!teacher) notFound();
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
-  const students = data.students.filter((s) => s.teacherId === teacher.id);
-  const activeStudents = students.filter((s) => s.active);
+  // 2026-10-14 — sekme etiketi ve "Öğrenci" kutusu Öğrenciler sekmesiyle AYNI kural (yalnız aktif ilişki).
+  const activeStudents = data.students.filter((s) => isActiveOwnStudent(s, teacher.id));
   const lessons = data.lessons.filter((l) => l.teacherId === teacher.id && l.status !== "cancelled");
 
   const now = new Date();
@@ -45,7 +47,14 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-  const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, monthStart, monthEnd);
+  // DB egress (2026-10-18): ayın hakediş penceresi (öğretmen ana sayfasıyla aynı dilim) — eskiden tam okuma.
+  const { kurum } = await loadTeacherPageContext(teacherId);
+  const payoutWindow = await readScopedPayoutWindow(
+    kurum.scope,
+    new Date(new Date(`${monthStart}T00:00:00.000Z`).getTime() - 2 * 86_400_000),
+    new Date(new Date(`${monthEnd}T23:59:59.999Z`).getTime() + 2 * 86_400_000)
+  );
+  const earnings = computeTeacherEarningsWithRevisions(payoutWindow, teacher.id, monthStart, monthEnd);
   const teacherFeeRules = data.teacherFeeRules.filter((r) => r.teacherId === teacher.id);
 
   const contractDaysLeft = teacher.contractEndDate
@@ -97,8 +106,7 @@ export default async function TeacherOverviewTab({ params }: { params: Promise<{
     { href: `/panel/ogretmenler/${teacher.id}/bilgiler`, label: "Bilgiler" },
     { href: `/panel/ogretmenler/${teacher.id}/program`, label: "Program" },
     { href: `/panel/ogretmenler/${teacher.id}/musaitlik`, label: "Müsaitlik" },
-    { href: `/panel/ogretmenler/${teacher.id}/ogrenciler`, label: `Öğrenciler (${students.length})` },
-    { href: `/panel/ogretmenler/${teacher.id}/yoklama`, label: "Yoklama" },
+    { href: `/panel/ogretmenler/${teacher.id}/ogrenciler`, label: `Öğrenciler (${activeStudents.length})` },
     { href: `/panel/ogretmenler/${teacher.id}/performans`, label: "Performans" },
     { href: `/panel/ogretmenler/${teacher.id}/hakedis`, label: "Hakediş" },
     { href: `/panel/ogretmenler/${teacher.id}/odemeler`, label: "Ödemeler" },

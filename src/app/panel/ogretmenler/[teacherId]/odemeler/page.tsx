@@ -2,13 +2,14 @@ import Link from "@/components/link";
 import { redirect, notFound } from "next/navigation";
 import { TeacherPayoutHistory } from "@/components/teacher-payout-history";
 import { loadTeacherPageContext } from "../_context";
+import { readScopedTeacherPayouts } from "@/lib/institution/context";
 
 export const dynamic = "force-dynamic";
 
 /** Öğretmen ödeme geçmişi — layout altında. */
 export default async function TeacherPayoutHistoryTab({ params }: { params: Promise<{ teacherId: string }> }) {
   const { teacherId } = await params;
-  const { session, data, teacher } = await loadTeacherPageContext(teacherId);
+  const { session, kurum, teacher } = await loadTeacherPageContext(teacherId);
 
   const { canAccessTeacherEarnings } = await import("@/lib/platform/teacher-earnings-access");
   if (!(await canAccessTeacherEarnings(session))) {
@@ -16,7 +17,7 @@ export default async function TeacherPayoutHistoryTab({ params }: { params: Prom
   }
   if (!teacher) notFound();
 
-  const payouts = data.teacherPayouts.filter((p) => p.teacherId === teacherId);
+  const payouts = await readScopedTeacherPayouts(kurum.scope, teacherId);
 
   return (
     <div className="space-y-4">

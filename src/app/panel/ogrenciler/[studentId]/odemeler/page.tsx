@@ -1,8 +1,10 @@
 import { ChangeHistory } from "@/components/change-history";
 import Link from "@/components/link";
 import { notFound } from "next/navigation";
-import { Badge, Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
+import { PaymentsMonthBoard } from "@/components/payments-month-board";
+import { buildStudentOpenDebtRows } from "@/lib/payment-month-view";
+import { todayYmdInstitution } from "@/lib/payments/status";
 import { StudentPaymentProfileEditor } from "@/components/student-payment-profile-editor";
 import { StudentLessonPauseControl } from "@/components/student-lesson-pause-control";
 import { listStudentContractsTool } from "@/lib/services";
@@ -17,6 +19,7 @@ import {
 } from "@/lib/payment-profile";
 import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { effectivePaymentDueRanges, formatPaymentDueRanges } from "@/lib/payment-due-ranges";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { loadStudentPageContext } from "../_context";
 import {
@@ -35,19 +38,21 @@ import { Field, MiniStat } from "../_components/fields";
 export const dynamic = "force-dynamic";
 
 /** Ödemeler sekmesi — ödeme profili (düzenlenebilir) + tahsilat özeti + geçmiş. */
-export default async function StudentPaymentsTab({ params }: { params: Promise<{ studentId: string }> }) {
+export default async function StudentPaymentsTab({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ studentId: string }>;
+  searchParams: Promise<{ brans?: string; odeme?: string }>;
+}) {
   const { studentId } = await params;
+  const { brans, odeme } = await searchParams;
   const { session, data, student, canManage, kurum } = await loadStudentPageContext(studentId);
   if (!student) notFound();
 
-  const payments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
+  const allPayments = sortPaymentsForProfile(data.payments.filter((p) => p.studentId === student.id));
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
-  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
-  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
-  const debt = splitStudentDebt(
-    payments,
-    new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id))
-  );
+  const allContracts = contractsResult.ok ? contractsResult.data.contracts : [];
   // 2026-10-09 — çok branşlı öğrenci: her satır TEK branşa düşer (açık bağ → sözleşmesi → dersi; tahmin yok);
   // belirlenemeyen eski satır "Branş belirtilmemiş" grubunda kalır ve "Branşa bağla" ile açıkça bağlanır.
   const branchList = effectiveEnrollments(student, data.teachers);
@@ -56,12 +61,28 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
     const e = id ? branchList.find((x) => x.id === id) : undefined;
     return e ? enrollmentDisplayName(e, branchList, data.teachers) : UNASSIGNED_ENROLLMENT_LABEL;
   };
-  const branchOfPayment = (p: (typeof payments)[number]) =>
-    paymentEnrollmentId(student, p, { contracts, lessons: data.lessons }, data.teachers);
+  const branchOfPayment = (p: (typeof allPayments)[number]) =>
+    paymentEnrollmentId(student, p, { contracts: allContracts, lessons: data.lessons }, data.teachers);
+  // 2026-10-10 — branş seçiciyle (`?brans=`) daraltılmış görünüm: özet, borç ve hareketler yalnız seçili branşın satırlarıdır.
+  // Seçim yok = tüm branşlar (genel bakış). Kulüp ücretleri branş değildir; yalnız "tüm branşlar" görünümünde yer alır.
+  const selectedBranchId = multiBranch && brans && branchList.some((e) => e.id === brans) ? brans : undefined;
+  const showUnassignedOnly = multiBranch && brans === "__unassigned__";
+  const payments = selectedBranchId
+    ? allPayments.filter((p) => p.source !== "club" && !p.clubMembershipId && branchOfPayment(p) === selectedBranchId)
+    : showUnassignedOnly
+      ? allPayments.filter((p) => p.source !== "club" && !p.clubMembershipId && !branchOfPayment(p))
+      : allPayments;
+  const contracts = selectedBranchId
+    ? allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === selectedBranchId)
+    : showUnassignedOnly
+      ? allContracts.filter((c) => !contractEnrollmentId(student, c, data.teachers))
+      : allContracts;
+  const paymentSummary = computeStudentPaymentSummary(payments, contracts);
+  const debt = splitStudentDebt(payments, new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id)));
   const branchBreakdown = multiBranch
     ? computeBranchPaymentBreakdown({
-        payments,
-        contracts,
+        payments: allPayments,
+        contracts: allContracts,
         branches: branchList.map((e) => ({ id: e.id, label: branchName(e.id) })),
         paymentBranchOf: branchOfPayment,
         contractBranchOf: (c) => contractEnrollmentId(student, c, data.teachers),
@@ -69,8 +90,24 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
       })
     : [];
   const canAssign = canManage && kurum.scope.mode === "single";
+  // Açık borç satırları kanonik öğrenci ödeme ekranıyla AYNI kurucudan — tek dil, tek bileşen.
+  const terminalIds = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const openRows = buildStudentOpenDebtRows(debt.open, {
+    studentName: student.name,
+    todayYmd: todayYmdInstitution(),
+    terminalContractIds: terminalIds,
+    branchLabel: (p) => {
+      const full = p as (typeof allPayments)[number];
+      if (full.source === "club" || full.clubMembershipId) return undefined;
+      return branchName(branchOfPayment(full));
+    },
+  });
+  const unassignedOpen =
+    canAssign && multiBranch
+      ? debt.open.filter((p) => !p.contractId && p.source !== "club" && !p.clubMembershipId && !branchOfPayment(p))
+      : [];
   const branchOptions = branchList.map((e) => ({ id: e.id, label: branchName(e.id) }));
-  const branchTag = (p: (typeof payments)[number]) =>
+  const branchTag = (p: (typeof allPayments)[number]) =>
     multiBranch && p.source !== "club" && !p.clubMembershipId ? `${branchName(branchOfPayment(p))} · ` : "";
   const packages = data.packages ?? [];
   const studentPackage = packages.find((p) => p.id === student.packageId);
@@ -92,25 +129,28 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
             Ödeme Detayında Aç →
           </Link>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* Özet kartları kanonik öğrenci ödeme ekranıyla (`/panel/odemeler/[studentId]`) AYNI etiket/sıra — tek dil. */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {multiBranch ? (
             <MiniStat
-              label="Güncel sözleşmeler tahakkuku (tüm branşlar)"
+              label="Geçerli tahakkuk (tüm branşlar)"
               value={formatMoney(branchBreakdown.reduce((sum, r) => sum + (r.currentContractBilled ?? 0), 0))}
             />
           ) : (
             <MiniStat
-              label={paymentSummary.currentContractNumber ? `Sözleşme tahakkuku · ${paymentSummary.currentContractNumber}` : "Sözleşme tahakkuku — aktif sözleşme yok"}
+              label="Geçerli tahakkuk"
               value={paymentSummary.currentContractBilled === null ? "—" : formatMoney(paymentSummary.currentContractBilled)}
             />
           )}
-          <MiniStat label="Tahsil edilen (tüm kayıtlar)" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
-          <MiniStat label="Kalan" value={formatMoney(paymentSummary.remaining)} />
+          <MiniStat label="Toplam tahsil edilen" value={formatMoney(paymentSummary.totalCollected)} tone="success" />
+          <MiniStat label="Kalan borç" value={formatMoney(paymentSummary.remaining)} />
           <MiniStat
             label="Gecikmiş kalan"
             value={formatMoney(paymentSummary.overdueRemaining)}
             tone={paymentSummary.overdueRemaining > 0 ? "danger" : undefined}
           />
+          <MiniStat label="Açık ödeme kaydı" value={String(paymentSummary.openCount)} />
+          <MiniStat label="Ödenmiş taksit sayısı" value={String(paymentSummary.paidInstallmentCount)} tone="success" />
         </div>
       </section>
 
@@ -263,50 +303,41 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
           </p>
         ) : null}
 
+        {odeme && !payments.some((p) => p.id === odeme) ? (
+          <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+            Bildirimdeki ödeme kaydı bu listede yok: silinmiş, başka bir branş filtresinde ya da artık bu öğrenciye ait değil.
+            {brans ? " Branş filtresini \"Tüm branşlar\" yapıp tekrar bakın." : ""}
+          </p>
+        ) : null}
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Açık borçlar</h3>
-        {debt.open.length === 0 ? (
-          <EmptyState title="Açık borç yok" description="Bu öğrencinin ödenmemiş geçerli bir borç kaydı yok." />
-        ) : (
-          <div className="space-y-2">
-            {debt.open.map((p) => (
-              <Card key={p.id} className="!p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <div>
-                    <p className="font-medium text-[var(--color-text)]">
-                      {branchTag(p)}
-                      {p.installmentPeriodLabel ?? p.description}
-                    </p>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                      {DEBT_SOURCE_LABEL[debtSourceOf(p)]}
-                      {p.contractId ? ` · ${contracts.find((c) => c.id === p.contractId)?.contractNumber ?? "sözleşme"}` : ""}
-                    </p>
-                    <p className="text-xs text-[var(--color-text-muted)]">
-                      Vade: {formatDate(p.dueDate)} · Tutar {formatMoney(p.amount)}
-                      {p.paidAmount > 0 ? ` · Ödenen ${formatMoney(p.paidAmount)}` : ""}
-                    </p>
-                    {p.lessonId ? (
-                      <Link
-                        href={`/panel/ogrenciler/${student.id}/program`}
-                        className="text-xs font-medium text-[var(--color-primary)] hover:underline"
-                      >
-                        Kaynak ders →
-                      </Link>
-                    ) : null}
-                    {canAssign && multiBranch && !p.contractId && p.source !== "club" && !branchOfPayment(p) ? (
-                      <div className="mt-1">
-                        <AssignEnrollmentControl studentId={student.id} paymentId={p.id} branches={branchOptions} />
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">Kalan {formatMoney(Math.max(p.amount - p.paidAmount, 0))}</span>
-                    <Badge status={p.status} />
-                  </div>
-                </div>
-              </Card>
-            ))}
+        {/* Kanonik öğrenci ödeme ekranıyla AYNI liste (`PaymentsMonthBoard`) — ayrı finans ekranı hissi vermez. */}
+        <PaymentsMonthBoard
+          monthLabel="Açık borçlar"
+          empty={{ title: "Açık borç yok", hint: "Bu öğrencinin tahsil edilmeyi bekleyen canlı bir borç satırı bulunmuyor." }}
+          rows={openRows}
+          carryover={[]}
+          paidInstallmentCounts={{ [student.id]: paymentSummary.paidInstallmentCount }}
+          canWrite={canAssign}
+          canDelete={canAssign}
+          highlightPaymentId={odeme}
+        />
+        {unassignedOpen.length > 0 ? (
+          <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+            <p className="mb-1 text-xs font-medium text-[var(--color-text-muted)]">
+              Branşa bağlı olmayan {unassignedOpen.length} kayıt — doğru branşa bağlayın:
+            </p>
+            <ul className="space-y-1">
+              {unassignedOpen.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-[var(--color-text)]">
+                    {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)} · vade {formatDate(p.dueDate)}
+                  </span>
+                  <AssignEnrollmentControl studentId={student.id} paymentId={p.id} branches={branchOptions} />
+                </li>
+              ))}
+            </ul>
           </div>
-        )}
+        ) : null}
 
         <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Ödeme hareketleri</h3>
         {debt.movements.length === 0 ? (
@@ -314,10 +345,14 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
         ) : (
           <ul className="divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-sm">
             {debt.movements.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <li
+                key={p.id}
+                id={`odeme-${p.id}`}
+                className={`flex scroll-mt-24 flex-wrap items-center justify-between gap-2 px-3 py-2${p.id === odeme ? " ring-2 ring-inset ring-[var(--color-primary)]" : ""}`}
+              >
                 <span className="text-[var(--color-text)]">
                   {branchTag(p)}
-                  {p.installmentPeriodLabel ?? p.description}
+                  {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)}
                 </span>
                 <span className="text-xs text-[var(--color-text-muted)]">
                   {p.paidAt ? formatDate(p.paidAt) : "Tarih yok"} ·{" "}
@@ -335,8 +370,8 @@ export default async function StudentPaymentsTab({ params }: { params: Promise<{
             </summary>
             <ul className="mt-2 space-y-1 text-xs text-[var(--color-text-muted)]">
               {debt.closedByContract.map((p) => (
-                <li key={p.id}>
-                  {p.installmentPeriodLabel ?? p.description} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
+                <li key={p.id} id={`odeme-${p.id}`} className={p.id === odeme ? "font-semibold text-[var(--color-text)]" : undefined}>
+                  {p.installmentPeriodLabel ?? contractInstallmentProgressDescription(p)} · vade {formatDate(p.dueDate)} · {formatMoney(p.amount - p.paidAmount)}
                 </li>
               ))}
             </ul>

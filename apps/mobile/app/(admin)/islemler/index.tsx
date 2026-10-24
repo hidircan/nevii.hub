@@ -116,6 +116,14 @@ export default function IslemlerIndex() {
       count: null,
     },
     {
+      key: "group-lessons",
+      icon: "people-outline",
+      label: tr("adm.opsGroup"),
+      description: tr("adm.opsGroupD"),
+      route: "/(admin)/islemler/grup-dersleri",
+      count: null,
+    },
+    {
       key: "katalog",
       icon: "business-outline",
       label: tr("adm.opsCat"),

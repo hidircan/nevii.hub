@@ -13,6 +13,7 @@
  * | Telafi (opsMakeupFlag) — ders yapılmamış            | HAYIR           | asıl saatinde yapılmayacak               |
  * | Telafi + İşlendi/Geldi/başladı/tamamlandı (eski çift bayrak) | Evet   | ders fiilen yapılmış; saat boşaltılmaz   |
  * | İptal (status "cancelled")                          | HAYIR           | (önceden de böyleydi)                    |
+ * | Süre dolumu kapanışı (İşlendi + gerekçe tam metin, Geldi/actualStart yok) | HAYIR | telafi saati yeniden dolmasın |
  *
  * Telafi'ye alınan ders SİLİNMEZ, programda görünmeye devam eder; kaydı, telafi talebi/hakkı, yoklama ve
  * hakediş hesabı aynen kalır — yalnız saati başka bir derse verilebilir. Saati verildikten sonra dersi
@@ -20,12 +21,19 @@
  * engellenir (`reoccupyBlockMessage`).
  */
 import type { AppData, Lesson } from "./types";
+import { isMakeupPlanningExpiryClosure } from "./makeup-deadline";
 import { formatDate, formatTime } from "./utils";
 
-export type SlotOccupancyInput = Pick<Lesson, "status" | "opsMakeupFlag" | "lessonProcessed" | "studentAttended">;
+export type SlotOccupancyInput = Pick<
+  Lesson,
+  "status" | "opsMakeupFlag" | "lessonProcessed" | "studentAttended" | "lessonProcessedReason" | "actualStartAt"
+>;
 
 export function lessonOccupiesSlot(lesson: SlotOccupancyInput): boolean {
   if (lesson.status === "cancelled") return false;
+  // Süre dolumu "İşlendi" yazar ama saati yeniden doldurmaz (2026-10-03: telafi saati boşalır).
+  // Normal İşlendi (başka gerekçe) doldurmaya devam eder. Hakediş kuralı değişmez.
+  if (isMakeupPlanningExpiryClosure(lesson)) return false;
   if (lesson.lessonProcessed || lesson.studentAttended || lesson.status === "in_progress" || lesson.status === "completed") {
     return true;
   }
@@ -33,7 +41,7 @@ export function lessonOccupiesSlot(lesson: SlotOccupancyInput): boolean {
 }
 
 export type SlotResource = "teacher" | "room" | "student";
-type SlotLesson = SlotOccupancyInput & Pick<Lesson, "id" | "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { clubSessionId?: string };
+type SlotLesson = SlotOccupancyInput & Pick<Lesson, "id" | "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { clubSessionId?: string; groupSessionId?: string };
 export type SlotConflict<L extends SlotLesson = SlotLesson> = { lesson: L; resource: SlotResource };
 
 const RESOURCE_KEY = { teacher: "teacherId", room: "roomId", student: "studentId" } as const;
@@ -44,7 +52,7 @@ const RESOURCE_KEY = { teacher: "teacherId", room: "roomId", student: "studentId
  */
 export function findSlotConflict<L extends SlotLesson>(
   lessons: readonly L[],
-  candidate: Pick<Lesson, "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { id?: string; clubSessionId?: string }
+  candidate: Pick<Lesson, "teacherId" | "roomId" | "studentId" | "startAt" | "endAt"> & { id?: string; clubSessionId?: string; groupSessionId?: string }
 ): SlotConflict<L> | null {
   const start = Date.parse(candidate.startAt);
   const end = Date.parse(candidate.endAt);
@@ -55,6 +63,8 @@ export function findSlotConflict<L extends SlotLesson>(
         l.id !== candidate.id &&
         // 2026-10-06 — aynı kulüp oturumunun satırları (aynı öğretmen/oda, farklı üye) birbirini doldurmaz.
         !(candidate.clubSessionId && l.clubSessionId === candidate.clubSessionId) &&
+        // 2026-10-23 — grup dersi oturumunun katılımcı satırları da öğretmen/odayı birbirleriyle paylaşır.
+        !(candidate.groupSessionId && l.groupSessionId === candidate.groupSessionId && key !== "studentId") &&
         l[key] === candidate[key] &&
         lessonOccupiesSlot(l) &&
         Date.parse(l.startAt) < end &&

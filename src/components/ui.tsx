@@ -106,9 +106,14 @@ export function Button({
   onClick,
   name,
   value,
+  "aria-expanded": ariaExpanded,
+  "aria-controls": ariaControls,
 }: {
   children: ReactNode;
   variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
+  /** Açılır bölüm tetikleyicisi için (ör. "Dersi düzenle"). */
+  "aria-expanded"?: boolean;
+  "aria-controls"?: string;
   className?: string;
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
@@ -134,6 +139,8 @@ export function Button({
       onClick={onClick}
       name={name}
       value={value}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] px-3.5 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 disabled:grayscale",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-focus-ring)]",

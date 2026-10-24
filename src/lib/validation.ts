@@ -32,13 +32,6 @@ export const attendanceSchema = z.object({
   reason: z.string().optional(),
 });
 
-/** Faz 2 — öğretmenin KENDİ derse gelip gelmediği; öğrenci yoklamasından tamamen ayrı. */
-export const markTeacherAttendanceSchema = z.object({
-  lessonId: z.string().min(1),
-  status: z.enum(["geldi", "gelmedi", "mazeretli"]),
-  note: z.string().max(500).optional(),
-});
-
 /** Faz 13 — bir dersin öğretmeni ve/veya şubesi/odası değişimi. */
 export const reassignLessonTeacherOrBranchSchema = z
   .object({
@@ -98,7 +91,7 @@ const optionalDateOnly = optionalTrimmed.refine((v) => v === undefined || isVali
   message: "Geçerli bir tarih seçin (YYYY-MM-DD).",
 });
 
-export const studentSchema = z.object({
+const studentBaseObject = z.object({
   name: z.string().min(1),
   email: optionalEmail,
   /**
@@ -286,7 +279,9 @@ export const studentSchema = z.object({
   firstCollectionIncludesNextMonth: z.boolean().optional(),
   /** H — deneme dersinden dönüşüm: kaynak TrialLesson.id (sunucu doğrular, dönüşümü yapan = oturum). */
   convertedFromTrialId: z.string().min(1).max(80).optional(),
-}).refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
+});
+
+export const studentSchema = studentBaseObject.refine((v) => v.monthlyFeeOverrideAmount === undefined || !!v.monthlyFeeOverrideReason, {
   message: "Manuel ücret girildiyse gerekçe zorunludur.",
   path: ["monthlyFeeOverrideReason"],
 }).refine((v) => !v.createPortalAccess || !!v.email, {
@@ -303,6 +298,62 @@ export const studentSchema = z.object({
   path: ["phone"],
 });
 
+/**
+ * 2026-10-10 — ÇOKLU BRANŞLI YENİ ÖĞRENCİ KAYDI girdisi. Kişi düzeyi alanlar `studentSchema` ile AYNI tanımdan gelir
+ * (tek kaynak); branşa özgü HİÇBİR düz alan (enstrüman, öğretmen, ücret, tarih, MEB…) burada yoktur — bunlar
+ * `enrollmentDrafts` içinde, her branş için eksiksiz taşınır (doğrulama: enrollment-form.ts, tek kaynak).
+ * `registrationId`: aynı gönderimin yeniden denenmesini (çift tık/ağ yeniden denemesi) tek kayda bağlar.
+ */
+export const studentRegistrationSchema = studentBaseObject
+  .pick({
+    name: true,
+    email: true,
+    phone: true,
+    parentName: true,
+    parentPhone: true,
+    motherName: true,
+    fatherName: true,
+    referralSource: true,
+    referralSourceDetail: true,
+    branchId: true,
+    notes: true,
+    termType: true,
+    birthDate: true,
+    birthPlace: true,
+    schoolOrOccupation: true,
+    address: true,
+    specialNotes: true,
+    accountResponsibility: true,
+    createPortalAccess: true,
+    portalAccessType: true,
+    convertedFromTrialId: true,
+  })
+  .extend({
+    enrollmentDrafts: z.array(z.record(z.string(), z.unknown())).min(1, "En az bir branş kaydı gerekli.").max(6, "Bir kayıtta en fazla 6 branş eklenebilir."),
+    registrationId: z
+      .string()
+      .min(8)
+      .max(100)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
+  })
+  .refine((v) => !v.createPortalAccess || !!v.email, {
+    message: "Portal erişimi için e-posta zorunludur.",
+    path: ["email"],
+  })
+  .refine((v) => v.accountResponsibility === "SELF_MANAGED" || !!v.parentName, {
+    message: "Veli adı soyadı zorunludur — ödeme/iletişim muhatabı veli olarak seçili.",
+    path: ["parentName"],
+  })
+  .refine((v) => v.accountResponsibility === "SELF_MANAGED" || !!v.parentPhone, {
+    message: "Veli telefonu zorunludur — ödeme/iletişim muhatabı veli olarak seçili.",
+    path: ["parentPhone"],
+  })
+  .refine((v) => v.accountResponsibility !== "SELF_MANAGED" || !!v.phone, {
+    message: "Öğrenci telefonu zorunludur — ödeme/iletişim muhatabı öğrencinin kendisi olarak seçili.",
+    path: ["phone"],
+  });
+
 /** Öğrenci düzenleme ekranından SONRADAN portal erişimi/davet oluşturma — task #34. */
 export const provisionStudentPortalAccessSchema = z.object({
   studentId: z.string().min(1),
@@ -313,6 +364,8 @@ export const provisionStudentPortalAccessSchema = z.object({
 export const updateStudentProfileSchema = z
   .object({
     studentId: z.string().min(1),
+    /** 2026-10-10 — branşa özgü alanlar (tür, tarih, seviye/MEB, süre, ücret…) hangi BRANŞ kaydına yazılacak. Çok branşlı öğrencide zorunlu. */
+    enrollmentId: z.string().min(1).max(100).optional(),
     studentType: z.enum(STUDENT_TYPE_ENUM).optional(),
     /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
     studentTypes: studentTypesSchema,
@@ -405,6 +458,8 @@ export const updateStudentProfileSchema = z
 export const updateStudentPaymentProfileSchema = z
   .object({
     studentId: z.string().min(1),
+    /** 2026-10-10 — paket/ücret/indirim/ödeme profili hangi BRANŞ kaydına yazılacak. Çok branşlı öğrencide zorunlu. */
+    enrollmentId: z.string().min(1).max(100).optional(),
     packageId: z.string().min(1).optional(),
     lessonDurationMinutes: z.coerce.number().int().refine((v) => [30, 40, 50].includes(v), {
       message: "Ders süresi yalnızca 30, 40 veya 50 dakika olabilir.",
@@ -628,6 +683,8 @@ export const lessonSeriesParamsBaseSchema = z.object({
   branchId: z.string().min(1),
   /** Bkz. studentSchema.instrument yorumu — sabit enum yerine katalog-uyumlu serbest metin; gerçek eşleşme kontrolü makeup-engine.ts'te yapılır. */
   instrument: z.string().min(1),
+  /** 2026-10-10 — serinin ait olduğu branş kaydı. Çok branşlı öğrencide ekran AÇIKÇA gönderir (enstrüman+öğretmen belirsizse tahmin yapılmaz). */
+  enrollmentId: z.string().max(100).optional(),
   weekday: z.coerce.number().int().min(0).max(6),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat HH:mm biçiminde olmalı"),
   durationMinutes: z.coerce.number().int().min(15).max(240),
@@ -807,6 +864,11 @@ export const updateCollectionsSettingsSchema = z.object({
   /** Faz 2 — kayıt sözleşmesi ödeme penceresi (yalnız gelecek sözleşmeleri etkiler). */
   contractCardWindowEndDay: z.number().int().min(1).max(28).optional(),
   contractBankCashDueDay: z.number().int().min(1).max(28).optional(),
+  /** 2026-10-20 — ödeme hatırlatması (bkz. payment-reminder-policy.ts). */
+  paymentReminderEnabled: z.boolean().optional(),
+  paymentReminderDaysBefore: z.number().int().min(0).max(30).optional(),
+  paymentReminderRepeatDays: z.number().int().min(0).max(60).optional(),
+  paymentReminderMaxRepeats: z.number().int().min(0).max(12).optional(),
 });
 
 export const markNotificationReadSchema = z.object({
@@ -945,7 +1007,20 @@ export const createAssessmentSchema = z.object({
   teacherSignedName: z.string().min(1),
 });
 
-/** Faz 3B — dört haftalık genel gelişim değerlendirmesi. */
+export const assessmentScoresSchema = z.object({
+  teknikBecerisi: scoreItem(),
+  notaOkuma: scoreItem(),
+  muzikalite: scoreItem(),
+  ritimDuyusu: scoreItem(),
+  calismaDuzeni: scoreItem(),
+  evOdeviTamamlama: scoreItem(),
+  dersKatilimi: scoreItem(),
+  motivasyon: scoreItem(),
+  genelIlerleme: scoreItem(),
+  hedefeUlasma: scoreItem(),
+});
+
+/** Faz 3B — dört haftalık / 4 derslik genel gelişim değerlendirmesi. */
 export const createPeriodicAssessmentSchema = z.object({
   studentId: z.string().min(1),
   periodStart: z.string().min(1),
@@ -954,6 +1029,8 @@ export const createPeriodicAssessmentSchema = z.object({
   strengthsNote: z.string().max(2000).optional(),
   areasForImprovementNote: z.string().max(2000).optional(),
   recommendationNote: z.string().max(2000).optional(),
+  scores: assessmentScoresSchema.optional(),
+  teacherSignedName: z.string().max(200).optional(),
 });
 
 export const startLessonSchema = z.object({
@@ -1082,6 +1159,8 @@ const teacherFeedbackScoreSchema = z.number().int().min(1).max(5);
 
 export const submitTeacherFeedbackSchema = z.object({
   studentId: z.string().min(1),
+  /** 2026-10-14 — değerlendirilen öğretmen (çoklu branş). Yoksa atanmış öğretmen; varsa uygunluk kümesinde doğrulanır. */
+  teacherId: z.string().min(1).optional(),
   scores: z.object({
     clarity: teacherFeedbackScoreSchema,
     communication: teacherFeedbackScoreSchema,

@@ -285,6 +285,34 @@ function formatDayTr(day: string): string {
   return `${d} ${TR_MONTHS[m - 1]} ${y}`;
 }
 
+/**
+ * 2026-10-14 — SÖZLEŞMESİZ kayıt ilk tahsilatının dönem etiketi + kırılımı. Sözleşmenin birleşik ilk taksitiyle
+ * (`buildPerLessonInstallmentSchedule`) AYNI biçim: "24–30 Eylül 2026 + Ekim 2026", kırılım = otomatik bileşenler.
+ * Böylece "takip eden ay" seçiminin hangi aya ne kadar mahsup edildiği kayıtta durur; takvim/tahakkuk tahsilat
+ * tarihinden ya da öğrencinin sonradan değişen ücretinden TAHMİN etmez. Tahsil edilen tutar kırılımdan farklıysa
+ * (manuel tutar) satır tutarı yine fiilen alınan tutardır; dağılım `installmentMonthShares` kuralıyla yapılır.
+ */
+export function registrationFirstCollectionPeriods(
+  s: { startDay: string; firstPeriodEnd: string; firstPeriodAmount: number; includesNextMonth: boolean },
+  monthlyFee: number
+): { installmentPeriodLabel: string; installmentBreakdown?: { periodLabel: string; amount: number }[] } {
+  const first = formatPeriodLabel({ periodStart: s.startDay, periodEnd: s.firstPeriodEnd });
+  if (!s.includesNextMonth) return { installmentPeriodLabel: first };
+  const [y, m] = s.startDay.slice(0, 7).split("-").map(Number) as [number, number];
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  const nextStart = `${ny}-${String(nm).padStart(2, "0")}-01`;
+  const nextEnd = `${ny}-${String(nm).padStart(2, "0")}-${String(new Date(Date.UTC(ny, nm, 0)).getUTCDate()).padStart(2, "0")}`;
+  const second = formatPeriodLabel({ periodStart: nextStart, periodEnd: nextEnd });
+  return {
+    installmentPeriodLabel: `${first} + ${second}`,
+    installmentBreakdown: [
+      { periodLabel: first, amount: s.firstPeriodAmount },
+      { periodLabel: second, amount: monthlyFee },
+    ],
+  };
+}
+
 /** Bir `PeriodBillingLine` için okunabilir dönem etiketi — tam bir takvim ayını kapsıyorsa "Ekim 2026", kısmi ise "17–30 Eylül 2026". */
 function formatPeriodLabel(line: Pick<import("./period-lesson-billing").PeriodBillingLine, "periodStart" | "periodEnd">): string {
   const start = ymdParts(line.periodStart);
@@ -775,6 +803,12 @@ export type CreateContractInput = {
   blockOnUnassignedActive?: boolean;
   /** 2026-10-09 — kayıt ilk tahsilatının aranacağı branş kapsamı (yoksa eski davranış: öğrenci başına). */
   registrationPaymentScope?: import("./student-enrollments").EnrollmentScope;
+  /**
+   * 2026-10-23 — verilirse sözleşmenin kapsadığı aylardaki tahsilat görmemiş sözleşmesiz aylık plan satırları bu
+   * işlemin PARÇASI olarak askıya alınır (`payments/accrual-rows.ts`). Adım başarısız olursa sözleşme geri alınır:
+   * sözleşme ile aynı aya açık sözleşmesiz borç asla birlikte kalmaz.
+   */
+  standaloneSuspension?: { enrollmentId?: string; includeUnlinked: boolean; carriedOverIds?: string[] };
 };
 
 export type CreateContractResult = {
@@ -1420,11 +1454,40 @@ export async function createContract(input: CreateContractInput): Promise<Create
     enrollmentId: row.enrollmentId,
   });
 
+  if (input.standaloneSuspension) {
+    // SON adım (bilinçli): kendi kilidi/transaction'ı içinde ya hep ya hiç yazılır; hata verirse aşağıdaki geri alma
+    // sözleşmeyi ve taksitlerini kaldırır — askıya alınmış satır kalmaz, açık çift borç da kalmaz.
+    const { applyAccrualOps } = await import("./payments/accrual-rows");
+    await applyAccrualOps(
+      input.tenantId,
+      input.studentId,
+      [
+        {
+          kind: "suspendForContract",
+          contractId: row.id,
+          contractNumber: row.contractNumber,
+          fromMonth: row.enrollmentStartDate.slice(0, 7),
+          toMonth: row.enrollmentEndDate.slice(0, 7),
+          ...input.standaloneSuspension,
+        },
+      ],
+      { actorUserId: input.createdBy }
+    );
+  }
+
   return { contract: toPublic(row), installments: installmentPayments, amendmentCredit };
   } catch (e) {
     await rollbackContractRow(createdPaymentIds).catch((rollbackError) => {
       logger.error("createContract rollback failed", rollbackError);
     });
+    if (input.standaloneSuspension) {
+      // Askıya alma kısmen yazıldıysa (ör. dosya modunda vaka senkronu sonrası hata) bu sözleşmenin askıya aldığı
+      // satırlar eski haline döner: sözleşme yok → sözleşmesiz borç kaybolmaz.
+      const { applyAccrualOps } = await import("./payments/accrual-rows");
+      await applyAccrualOps(input.tenantId, input.studentId, [{ kind: "releaseContract", contractId: row.id }], { actorUserId: input.createdBy }).catch(
+        (releaseError) => logger.error("createContract standalone release failed", releaseError)
+      );
+    }
     throw e;
   }
 }
@@ -1629,68 +1692,85 @@ export type StudentContractSummary = {
   enrollmentId?: string;
 };
 
-/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. */
-export async function listContractSummaryRows(tenantId: string): Promise<StudentContractSummary[]> {
-  let rows: StudentContractSummary[];
+/** Sözleşme özeti satırının DB seçimi + eşlemesi — tahakkuk kilidi içinde (tx) de aynı şekil okunur. */
+export const CONTRACT_SUMMARY_SELECT = {
+  id: true,
+  studentId: true,
+  contractNumber: true,
+  status: true,
+  enrollmentStartDate: true,
+  enrollmentEndDate: true,
+  versionNumber: true,
+  monthlyAmount: true,
+  enrollmentId: true,
+} as const;
+
+export function toContractSummaryRow(r: {
+  id: string;
+  studentId: string;
+  contractNumber: string;
+  status: string;
+  enrollmentStartDate: Date;
+  enrollmentEndDate: Date;
+  versionNumber: number;
+  monthlyAmount: number;
+  enrollmentId: string | null;
+}): StudentContractSummary {
+  return {
+    enrollmentId: r.enrollmentId ?? undefined,
+    monthlyAmount: r.monthlyAmount,
+    studentId: r.studentId,
+    contractId: r.id,
+    contractNumber: r.contractNumber,
+    status: r.status as ContractStatus,
+    enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
+    enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
+    versionNumber: r.versionNumber,
+  };
+}
+
+/** 2026-10-09 — kurumun TÜM sözleşme özetleri (branş bağıyla); branş başına güncel seçim çağıranda yapılır. `studentId`: yalnız o öğrenci. */
+export async function listContractSummaryRows(tenantId: string, studentId?: string): Promise<StudentContractSummary[]> {
   if (isDbMode) {
     const { prisma } = await import("./db");
     const found = await prisma.studentContract.findMany({
-      where: { tenantId },
-      select: {
-        id: true,
-        studentId: true,
-        contractNumber: true,
-        status: true,
-        enrollmentStartDate: true,
-        enrollmentEndDate: true,
-        versionNumber: true,
-        monthlyAmount: true,
-        enrollmentId: true,
-      },
+      where: { tenantId, ...(studentId ? { studentId } : {}) },
+      select: CONTRACT_SUMMARY_SELECT,
       orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }],
     });
-    rows = found.map((r) => ({
-      enrollmentId: r.enrollmentId ?? undefined,
-      monthlyAmount: r.monthlyAmount,
-      studentId: r.studentId,
-      contractId: r.id,
-      contractNumber: r.contractNumber,
-      status: r.status as ContractStatus,
-      enrollmentStartDate: r.enrollmentStartDate.toISOString().slice(0, 10),
-      enrollmentEndDate: r.enrollmentEndDate.toISOString().slice(0, 10),
-      versionNumber: r.versionNumber,
-    }));
-  } else {
-    const all = await loadAll();
-    rows = all
-      .filter((x) => x.tenantId === tenantId)
-      .sort((a, b) => b.versionNumber - a.versionNumber)
-      .map((x) => ({
-        enrollmentId: x.enrollmentId,
-        monthlyAmount: x.monthlyAmount,
-        studentId: x.studentId,
-        contractId: x.id,
-        contractNumber: x.contractNumber,
-        status: x.status,
-        enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
-        enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
-        versionNumber: x.versionNumber,
-      }));
+    return found.map(toContractSummaryRow);
   }
-  return rows;
+  const all = await loadAll();
+  return all
+    .filter((x) => x.tenantId === tenantId && (!studentId || x.studentId === studentId))
+    .sort((a, b) => b.versionNumber - a.versionNumber)
+    .map((x) => ({
+      enrollmentId: x.enrollmentId,
+      monthlyAmount: x.monthlyAmount,
+      studentId: x.studentId,
+      contractId: x.id,
+      contractNumber: x.contractNumber,
+      status: x.status,
+      enrollmentStartDate: x.enrollmentStartDate.slice(0, 10),
+      enrollmentEndDate: x.enrollmentEndDate.slice(0, 10),
+      versionNumber: x.versionNumber,
+    }));
 }
 
 export async function listContractSummariesByStudent(
   tenantId: string
 ): Promise<Map<string, StudentContractSummary>> {
-  const rows = await listContractSummaryRows(tenantId);
+  return currentContractSummaryByStudent(await listContractSummaryRows(tenantId));
+}
 
-  /**
-   * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
-   * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
-   * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
-   * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
-   */
+/**
+ * Öğrenci başına TEK özet: `getLatestContractForStudent` ile AYNI kural —
+ * önce iptal/yenilenmiş olmayanların en yüksek versiyonu, hiç yoksa
+ * en yüksek versiyonlu kayıt. İki farklı "güncel sözleşme" tanımı
+ * bırakmamak için kural burada da birebir tekrarlanır, gevşetilmez.
+ * Saf — tahakkuk kilidi içindeki yeniden kontrol de bunu kullanır.
+ */
+export function currentContractSummaryByStudent(rows: StudentContractSummary[]): Map<string, StudentContractSummary> {
   const byStudent = new Map<string, StudentContractSummary>();
   for (const row of rows) {
     const current = byStudent.get(row.studentId);

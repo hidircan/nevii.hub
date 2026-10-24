@@ -17,6 +17,15 @@ import type {
   HomeworkSubmission as DbHomeworkSubmission,
 } from "@prisma/client";
 import type { Homework, HomeworkSubmission } from "./types";
+import { cache } from "react";
+
+/**
+ * Kota (2026-10-14, docs/performance/QUOTA_AUDIT_2026_10_12.md): liste sorguları base64 dosya gövdesini DB'den hiç
+ * okumaz; "dosya var" göstergesi dosya adından türetilir (her yükleme formu ad + tür + içeriği birlikte gönderir).
+ * Dosya içeriği yalnız tekil okuma (getHomework / getSubmission) ile gelir.
+ */
+const LIST_OMIT = { fileData: true } as const;
+type ListRow<T extends { fileData: string | null }> = Omit<T, "fileData"> & { fileData?: string | null };
 
 const HOMEWORK_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "homework.json");
 const SUBMISSIONS_FILE = path.join(
@@ -62,7 +71,7 @@ async function saveSubmissions(rows: StoredSubmission[]): Promise<void> {
   await fs.writeFile(SUBMISSIONS_FILE, JSON.stringify(rows, null, 2));
 }
 
-function mapDbHomework(h: DbHomework): StoredHomework {
+function mapDbHomework(h: ListRow<DbHomework>): StoredHomework {
   return {
     id: h.id,
     tenantId: h.tenantId,
@@ -94,7 +103,7 @@ function toPublicHomeworkSummary(h: StoredHomework): Homework {
     updatedAt: h.updatedAt,
     fileName: h.fileName,
     fileMimeType: h.fileMimeType,
-    fileData: h.fileData ? "1" : undefined,
+    fileData: h.fileData || h.fileName ? "1" : undefined,
   };
 }
 
@@ -116,7 +125,7 @@ function toPublicHomework(h: StoredHomework): Homework {
   };
 }
 
-function mapDbSubmission(s: DbHomeworkSubmission): StoredSubmission {
+function mapDbSubmission(s: ListRow<DbHomeworkSubmission>): StoredSubmission {
   return {
     id: s.id,
     tenantId: s.tenantId,
@@ -141,7 +150,7 @@ function toPublicSubmissionSummary(s: StoredSubmission): HomeworkSubmission {
     note: s.note,
     fileName: s.fileName,
     fileMimeType: s.fileMimeType,
-    fileData: s.fileData ? "1" : undefined,
+    fileData: s.fileData || s.fileName ? "1" : undefined,
     submittedAt: s.submittedAt,
     teacherFeedback: s.teacherFeedback,
     reviewedAt: s.reviewedAt,
@@ -225,6 +234,7 @@ async function listForStudentDb(tenantId: string, studentId: string): Promise<Ho
   const rows = await prisma.homework.findMany({
     where: { tenantId, studentId },
     orderBy: { dueDate: "asc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicHomeworkSummary(mapDbHomework(r)));
 }
@@ -243,6 +253,7 @@ async function listForTeacherDb(tenantId: string, teacherId: string): Promise<Ho
   const rows = await prisma.homework.findMany({
     where: { tenantId, teacherId },
     orderBy: { dueDate: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicHomeworkSummary(mapDbHomework(r)));
 }
@@ -340,6 +351,7 @@ async function listSubmissionsDb(tenantId: string, homeworkId: string): Promise<
   const rows = await prisma.homeworkSubmission.findMany({
     where: { tenantId, homeworkId },
     orderBy: { submittedAt: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicSubmissionSummary(mapDbSubmission(r)));
 }
@@ -415,6 +427,7 @@ async function listAllHomeworkDb(tenantId: string): Promise<Homework[]> {
   const rows = await prisma.homework.findMany({
     where: { tenantId },
     orderBy: { createdAt: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicHomeworkSummary(mapDbHomework(r)));
 }
@@ -445,6 +458,7 @@ async function listAllSubmissionsDb(tenantId: string): Promise<HomeworkSubmissio
   const rows = await prisma.homeworkSubmission.findMany({
     where: { tenantId },
     orderBy: { submittedAt: "desc" },
+    omit: LIST_OMIT,
   });
   return rows.map((r) => toPublicSubmissionSummary(mapDbSubmission(r)));
 }
@@ -454,14 +468,18 @@ async function listAllSubmissionsDb(tenantId: string): Promise<HomeworkSubmissio
  * `fileData` HARİÇ (özet) — CSV satırına ham base64 gömmek dosyayı
  * kullanışsız şişirir; export yalnızca "dosya var mı" bilgisini taşır.
  */
-export async function listAllHomeworkSubmissions(tenantId: string): Promise<HomeworkSubmission[]> {
+export const listAllHomeworkSubmissions = cache(async function listAllHomeworkSubmissions(
+  tenantId: string
+): Promise<HomeworkSubmission[]> {
+  // Kota (2026-10-14): React `cache` — Öğretmenler listesi skoru öğretmen BAŞINA hesaplar; aynı sunucu render'ında kurumun
+  // teslim listesi tek kez okunur. Render dışı çağrı (API/tool) her seferinde okur. Dönen dizi çağıranlarca değiştirilmez.
   if (isDbMode) return listAllSubmissionsDb(tenantId);
   const all = await loadSubmissions();
   return all
     .filter((s) => s.tenantId === tenantId)
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
     .map(toPublicSubmissionSummary);
-}
+});
 
 async function clearHomeworkDb(tenantId: string): Promise<void> {
   const { prisma } = await import("./db");

@@ -67,7 +67,7 @@ export default async function AttendanceReportPage({
   }
 
   const sp = await searchParams;
-  // 9. tur — öğrenci ve öğretmen yoklaması ayrı görünüm; öğrenci raporu aynen korunur.
+  // 9. tur — öğrenci yoklaması ve öğretmen aksamaları (iptal/telafi kaynağı) ayrı görünüm; öğrenci raporu aynen korunur.
   const view = sp.gorunum === "ogretmen" ? "ogretmen" : "ogrenci";
   const viewTabs = (
     <div className="mb-4">
@@ -76,7 +76,7 @@ export default async function AttendanceReportPage({
         active={view}
         items={[
           { key: "ogrenci", label: "Öğrenci yoklaması", href: "/panel/yoklama-raporu" },
-          { key: "ogretmen", label: "Öğretmen yoklaması", href: "/panel/yoklama-raporu?gorunum=ogretmen" },
+          { key: "ogretmen", label: "Öğretmen aksamaları", href: "/panel/yoklama-raporu?gorunum=ogretmen" },
         ]}
       />
     </div>
@@ -86,7 +86,7 @@ export default async function AttendanceReportPage({
       <div>
         <PageHeader
           title="Yoklama Raporu"
-          description="Öğretmen katılımı ve iptal/telafi kaynağı — derse kadar inilebilir."
+          description="İptal/telafi kaynağı (öğretmen kaynaklı aksamalar dahil) — derse kadar inilebilir."
         />
         {viewTabs}
         <TeacherAttendanceView session={session} data={await readData()} sp={sp} />

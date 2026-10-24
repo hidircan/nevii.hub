@@ -1,3 +1,4 @@
+import { isActiveStudent } from "./payment-scope";
 import type { Lesson, Student, TeacherPayout } from "./types";
 
 /**
@@ -25,13 +26,37 @@ export function findOwnPayout(
 }
 
 /** Yalnızca bu öğretmene atanmış öğrenciler (aktif filtre çağıran tarafta). */
-export function ownStudents(students: Student[], teacherId: string): Student[] {
+export function ownStudents<S extends Pick<Student, "teacherId" | "enrollments">>(students: S[], teacherId: string): S[] {
   return students.filter((s) => isOwnStudent(s, teacherId));
 }
 
 /** 2026-10-04 — öğrencinin birincil öğretmeni VEYA aktif bir eğitiminin öğretmeni. */
 export function isOwnStudent(student: Pick<Student, "teacherId" | "enrollments">, teacherId: string): boolean {
   return student.teacherId === teacherId || Boolean(student.enrollments?.some((e) => e.active && e.teacherId === teacherId));
+}
+
+/**
+ * 2026-10-14 — öğrencinin şu an AKTİF eğitim ilişkisi olan öğretmenleri (tekil). Kalıcı branş kaydı olan öğrencide
+ * yalnız aktif kayıtlardan okunur: öğrenci satırındaki `teacherId` aynası, tüm kayıtları kapandığında eski öğretmende
+ * kalır (`primaryFieldsFromEnrollments` geri düşüşü). Kaydı olmayan eski öğrencide `teacherId`.
+ */
+export function activeTeacherIdsOf(student: Pick<Student, "teacherId" | "enrollments">): string[] {
+  if (student.enrollments && student.enrollments.length > 0) {
+    return [...new Set(student.enrollments.filter((e) => e.active && e.teacherId).map((e) => e.teacherId!))];
+  }
+  return student.teacherId ? [student.teacherId] : [];
+}
+
+/**
+ * 2026-10-14 — Öğretmenler ekranı (liste sayacı, özet, Öğrenciler sekmesi): öğretmenin AKTİF öğrencisi = kanonik
+ * aktiflik (`isActiveStudent`: aktif + silinmemiş) VE öğretmenle aktif bir eğitim ilişkisi. Pasif/arşivli/silinmiş
+ * öğrenci ve kapanmış branş ilişkisi sayılmaz. Portal erişimi (`isOwnStudent`) bilinçli olarak AYRI kalır.
+ */
+export function isActiveOwnStudent(
+  student: Pick<Student, "id" | "teacherId" | "enrollments" | "active" | "deletedAt">,
+  teacherId: string
+): boolean {
+  return isActiveStudent(student) && activeTeacherIdsOf(student).includes(teacherId);
 }
 
 /**

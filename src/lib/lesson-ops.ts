@@ -22,8 +22,8 @@ import { buildDisruptionPatch, type LessonDisruptionInput, type LessonDisruption
 import type { AppData, Attendance, Lesson, MakeupRequest } from "./types";
 import { uid } from "./utils";
 import { reoccupyBlockMessage } from "./lesson-occupancy";
-import { addDays, formatISO } from "date-fns";
 import { assertCanCreateMakeup } from "./makeup-quota";
+import { closedMakeupToReopen, makeupExpiresAtFromSource, reopenMakeupRequest } from "./makeup-deadline";
 
 export type LessonOpsFlag = "attended" | "processed" | "makeup" | "absent" | "excused";
 
@@ -90,7 +90,8 @@ function applyLessonOpsFlagUnguarded(
   actorUserId: string,
   now: Date = new Date(),
   reason?: string,
-  disruption?: LessonDisruptionInput
+  disruption?: LessonDisruptionInput,
+  attendanceNote?: string | null
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -130,7 +131,11 @@ function applyLessonOpsFlagUnguarded(
       createsMakeupCredit: false,
     };
     attendances = [...attendances, attendance];
-    const lessons = data.lessons.map((l) => (l.id === lessonId ? { ...l, ...patch } : l));
+    const lessons = data.lessons.map((l) =>
+      l.id === lessonId
+        ? { ...l, ...patch, ...(attendanceNote !== undefined ? { studentAttendanceNote: attendanceNote } : {}) }
+        : l
+    );
     const next = { ...data, lessons, attendances };
     const nextLesson = lessons.find((l) => l.id === lessonId)!;
     return {
@@ -138,7 +143,7 @@ function applyLessonOpsFlagUnguarded(
       alreadySet: false,
       data: next,
       lesson: nextLesson,
-      message: "Geldi işaretlendi.",
+      message: attendanceNote ? "Geldi işaretlendi. Not kaydedildi." : "Geldi işaretlendi.",
     };
   }
 
@@ -233,6 +238,22 @@ function applyLessonOpsFlagUnguarded(
     if (!quota.ok) return { ok: false, message: quota.message };
     const branch = data.settings.branches.find((b) => b.id === lesson.branchId);
     /**
+     * 2026-10-15 — Telafi → Geri al/hak iptali → yeniden Telafi: ders başına tek yoklama, yoklama başına tek telafi
+     * talebi (şemada ikisi de @unique). İkinci talep açılamaz; kapanmış talep YENİDEN AÇILIR. Eskiden burada aynı
+     * yoklamaya ikinci talep kuruluyordu: db modunda hiç yazılmıyordu (ders "Telafi" görünüyor, Telafi Merkezi'nde
+     * açık talep yok), ders silme ise kapanmış eski talebi "bağlı telafi var" diye engelliyordu.
+     */
+    const closed = closedMakeupToReopen(data, lessonId);
+    if (closed) {
+      makeupRequests = makeupRequests.map((m) =>
+        m.id === closed.id
+          ? reopenMakeupRequest(m, { reason: reason!.trim(), now, actorUserId, windowDays: data.settings.makeupWindowDays })
+          : m
+      );
+      const next = { ...data, lessons, makeupRequests, attendances };
+      return { ok: true, alreadySet: false, data: next, lesson: lessons.find((l) => l.id === lessonId)!, message: "Telafi işaretlendi." };
+    }
+    /**
      * `MakeupRequest.attendanceId` GERÇEK bir `Attendance` kaydına işaret
      * ETMELİDİR (şemada zorunlu FK + @unique). Burada eskiden yoklama kaydı
      * yoksa `uid("att")` ile HİÇBİR kayda karşılık gelmeyen bir id
@@ -264,7 +285,11 @@ function applyLessonOpsFlagUnguarded(
       attendanceId: attendance.id,
       status: "pending",
       reason: reason!.trim(),
-      expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
+      // 2026-10-24 — SON GÜN TEK ÇAPA (LESSONS_LEARNED #3): kaçan dersin başlangıcı + pencere.
+      // Eskiden işaretleme anı (`now`) kullanılıyordu; geç işaretlenen derste pencere haksız uzuyor,
+      // pencere değişimiyle de çelişiyordu (değişim kaynak çapalıdır). "Yeniden Telafi" (reopen)
+      // owner kararıyla bugünden başlar — aynen korunur.
+      expiresAt: makeupExpiresAtFromSource(lesson.startAt, data.settings.makeupWindowDays),
       suggestedSlots: [],
       createdAt: nowIso,
       policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · ${branch?.shortName ?? ""}`,
@@ -314,7 +339,8 @@ function switchLessonOpsFlagUnguarded(
   actorUserId: string,
   now: Date = new Date(),
   reason?: string,
-  disruption?: LessonDisruptionInput
+  disruption?: LessonDisruptionInput,
+  attendanceNote?: string | null
 ): ApplyLessonOpsResult {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   if (!lesson) return { ok: false, message: "Ders bulunamadı." };
@@ -322,11 +348,11 @@ function switchLessonOpsFlagUnguarded(
   const current = effectiveLessonOpsStatus(lesson);
   if (current === flag) {
     // Zaten bu statüde — applyLessonOpsFlag kendi "alreadySet" mesajını üretir.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
   }
   if (current === null) {
     // Hiçbir statü etkin değil — ilk tıklama, doğrudan set.
-    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption);
+    return applyLessonOpsFlag(data, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
   }
 
   // Farklı bir statüden geçiş — önce diğer bayrakları temizle (mali kayıt DOKUNULMAZ).
@@ -353,7 +379,7 @@ function switchLessonOpsFlagUnguarded(
     ...data,
     lessons: data.lessons.map((l) => (l.id === lessonId ? cleared : l)),
   };
-  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption);
+  return applyLessonOpsFlag(clearedData, lessonId, flag, actorUserId, now, reason, disruption, attendanceNote);
 }
 
 export type ClearLessonOpsResult =

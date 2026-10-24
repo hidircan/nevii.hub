@@ -1,4 +1,5 @@
 import Link from "@/components/link";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
 import { redirect } from "next/navigation";
 import { addDays, subDays, format } from "date-fns";
 import { AlertTriangle, ChevronRight, CreditCard, Mail, Phone, Upload, UserPlus, Wallet } from "lucide-react";
@@ -12,6 +13,8 @@ import { computeTeacherPerformanceReportV2 } from "@/lib/teacher-performance-v2"
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { TeacherListView } from "@/components/teacher-list-view";
 import { TEACHER_ROW_GRID } from "@/lib/teacher-list-filter";
+import { isActiveStudent } from "@/lib/payment-scope";
+import { activeTeacherIdsOf } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +54,7 @@ export default async function OgretmenlerPage() {
   const canManage = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   // 2026-10-03 — listeden kaldırılan öğretmenler hiçbir listede görünmez; geçmiş kayıtlar ve raporlar adı korur.
   const teachers = data.teachers.filter((t) => !t.deletedAt);
-  const removedTeachers = canManage ? data.teachers.filter((t) => t.deletedAt) : [];
+  const removedTeachers = canManage ? data.teachers.filter((t) => t.deletedAt && !t.purgedAt) : [];
 
   // Skor modeli detay ekranıyla (/panel/ogretmenler/[teacherId]/performans) aynı: teacher-performance-v2,
   // son 30 gün. `readScopedData` tek okuma; öğretmen başına v2 iç sorguları paralel çalışır.
@@ -75,7 +78,12 @@ export default async function OgretmenlerPage() {
     if (t >= weekStart.getTime() && t < weekEnd) weekLessonCount.set(l.teacherId, (weekLessonCount.get(l.teacherId) ?? 0) + 1);
   }
   const activeStudentCount = new Map<string, number>();
-  for (const s of data.students) if (s.active && s.teacherId) activeStudentCount.set(s.teacherId, (activeStudentCount.get(s.teacherId) ?? 0) + 1);
+  // 2026-10-14 — detaydaki Öğrenciler sekmesiyle AYNI kural: aktif + silinmemiş öğrenci, aktif eğitim ilişkisi (çok branşlı
+  // öğrenci her aktif öğretmeninde bir kez sayılır; yalnız öğrenci satırındaki `teacherId` aynasına bakılmaz).
+  for (const s of data.students) {
+    if (!isActiveStudent(s)) continue;
+    for (const tid of activeTeacherIdsOf(s)) activeStudentCount.set(tid, (activeStudentCount.get(tid) ?? 0) + 1);
+  }
   const teachersWithFee = new Set(data.teacherFeeRules.map((r) => r.teacherId));
 
   // Detay "Özet" sekmesindeki uyarılarla aynı kurallar — listede yalnız aktif öğretmenler için.
@@ -311,17 +319,18 @@ export default async function OgretmenlerPage() {
             Listeden kaldırılan öğretmenler ({removedTeachers.length})
           </summary>
           <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-            Geçmiş ders, yoklama ve hakediş kayıtları korunur. Geri almak için öğretmenin sayfasını açın.
+            Geçmiş ders, yoklama ve hakediş kayıtları korunur. Geri almak için öğretmenin sayfasını açın; kalıcı silmek için &quot;Kalıcı sil&quot; — önce neyin silinip neyin korunacağı gösterilir.
           </p>
           <ul className="mt-2 flex flex-wrap gap-2">
             {removedTeachers.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="inline-flex items-center gap-1.5">
                 <Link
                   href={`/panel/ogretmenler/${t.id}`}
                   className="inline-flex rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                 >
                   {t.name}
                 </Link>
+                {kurum.scope.mode === "single" ? <PersonPurgeDialog kind="teacher" id={t.id} name={t.name} compact /> : null}
               </li>
             ))}
           </ul>

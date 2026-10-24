@@ -9,20 +9,16 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext, readScopedStudentListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { effectiveEnrollments, enrollmentTerms, studentBranchIds } from "@/lib/student-enrollments";
 import { listContractSummariesByStudent, type StudentContractSummary, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { listLatestSocialMediaConsentsByStudent } from "@/lib/social-media-consent";
 import { listKvkkConsentedSubjectIds } from "@/lib/kvkk-consent";
+import { photoConsentLabel } from "@/lib/student-consent-labels";
 
 export const dynamic = "force-dynamic";
-
-/** Fotoğraf paylaşım izni: en güncel kayıt "verildi" VE kapsamında fotoğraf varsa "Veriyor". */
-function photoConsentLabel(c: { status: string; scopes: string[] } | undefined): StudentRow["photoConsent"] {
-  if (!c) return "Kayıt yok";
-  return c.status === "granted" && c.scopes.includes("photo") ? "Veriyor" : "Vermiyor";
-}
 
 export default async function OgrencilerPage({
   searchParams,
@@ -43,9 +39,10 @@ export default async function OgrencilerPage({
   // (kurum sahibi + kurum yöneticileri) "Silinenler" görünümünde görür (geri almak için detaya gider).
   const isOwner = canRunCriticalActions(session.role);
   const showDeleted = isOwner && silinenler === "1";
-  const deletedCount = data.students.filter((s) => s.deletedAt).length;
+  // Kalıcı silinip anonimleştirilen kayıt (purgedAt) hiçbir listede — Silinenler dahil — görünmez.
+  const deletedCount = data.students.filter((s) => s.deletedAt && !s.purgedAt).length;
   const students = data.students
-    .filter((s) => (showDeleted ? Boolean(s.deletedAt) : !s.deletedAt))
+    .filter((s) => (showDeleted ? Boolean(s.deletedAt) && !s.purgedAt : !s.deletedAt))
     .sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const canManage = (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN") && kurum.scope.mode === "single";
 
@@ -93,10 +90,35 @@ export default async function OgrencilerPage({
     // ödeme ve iptal/yenilenmiş sözleşmenin ödenmemiş taksiti borç/gecikme değildir.
     const debt = summarizeStudentDebt(paymentsByStudent.get(s.id) ?? [], terminalContractIds);
     const paymentStatus: StudentRow["paymentStatus"] = debt.status;
+    // 2026-10-10 — çok branşlı öğrencide öğretmen/paket/ücret/seviye ilk branştan değil TÜM aktif branşlardan okunur.
+    const branches = effectiveEnrollments(s, data.teachers);
+    const multi = branches.length > 1;
+    const live = multi ? branches.filter((e) => e.active) : [];
+    const liveTerms = live.map((e) => ({ e, t: enrollmentTerms(s, e, data.teachers) }));
+    const names = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+    const multiExtras: Partial<StudentRow> = multi
+      ? {
+          teacherNames: names(liveTerms.map(({ t }) => data.teachers.find((x) => x.id === t.teacherId)?.name)),
+          packageNames: names(liveTerms.map(({ t }) => t.packageName || "Paketsiz")),
+          levels: names(liveTerms.map(({ t }) => t.level)),
+          teacherName: names(liveTerms.map(({ t }) => data.teachers.find((x) => x.id === t.teacherId)?.name)).join(", "),
+          packageName: liveTerms.length > 1 ? "Birden fazla paket" : (liveTerms[0]?.t.packageName ?? s.packageName),
+          monthlyFee: liveTerms.reduce((sum, { t }) => sum + t.monthlyFee, 0),
+          studentTypes: names(liveTerms.flatMap(({ t }) => t.studentTypes)),
+          branchLines: liveTerms.map(({ e, t }) => {
+            const teacher = data.teachers.find((x) => x.id === t.teacherId)?.name;
+            const types = t.studentTypes.length ? t.studentTypes.join("+") : "tür yok";
+            return `${e.instrument}${teacher ? ` · ${teacher}` : ""} · ${types}${t.level ? ` · seviye ${t.level}` : ""} · ${t.monthlyFee.toLocaleString("tr-TR")} ₺`;
+          }),
+        }
+      : {};
     return {
       id: s.id,
       name: s.name,
       branchName: data.settings.branches.find((b) => b.id === s.branchId)?.shortName,
+      branchNames: studentBranchIds(s)
+        .map((id) => data.settings.branches.find((b) => b.id === id)?.shortName)
+        .filter((x): x is string => !!x),
       instruments: s.instruments,
       teacherName: data.teachers.find((t) => t.id === s.teacherId)?.name,
       packageName: s.packageName,
@@ -121,6 +143,7 @@ export default async function OgrencilerPage({
       createdByName: s.createdByUserId ? actorNames.get(s.createdByUserId) : undefined,
       convertedByName: s.convertedByUserId ? actorNames.get(s.convertedByUserId) : undefined,
       fromTrial: Boolean(s.convertedFromTrialId),
+      ...multiExtras,
       kvkkConsent: kvkkConsented ? (kvkkConsented.has(s.id) ? "Var" : "Yok") : undefined,
       photoConsent: photoConsents ? photoConsentLabel(photoConsents.get(s.id)) : undefined,
     };
@@ -163,7 +186,7 @@ export default async function OgrencilerPage({
 
       {showDeleted ? (
         <p className="mb-3 text-sm text-[var(--color-text-muted)]">
-          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın.
+          <strong>Silinen öğrenciler ({deletedCount})</strong> — geri almak için öğrenciyi açın; kalıcı silmek için satırdaki &quot;Kalıcı sil&quot;.
         </p>
       ) : null}
 

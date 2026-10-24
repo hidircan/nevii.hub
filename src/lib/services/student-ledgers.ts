@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { effectiveLessonOpsStatus } from "../lesson-ops";
 import { canViewReceipt } from "../receipt";
-import { readData } from "../store";
+import { readStudentById, readStudentScope } from "../store";
 import type { AppData, Lesson } from "../types";
 import { assertStudentAccess, requireRole, type ServiceContext } from "./context";
 import { fail, fromZodError, ok, type ServiceResult } from "./result";
@@ -95,15 +95,15 @@ function lessonStatusNote(ctx: ServiceContext, lesson: Lesson, key: LedgerDispla
   return lesson.notes ?? null;
 }
 
-function teacherNameById(data: AppData): Map<string, string> {
+function teacherNameById(data: Pick<AppData, "teachers">): Map<string, string> {
   return new Map(data.teachers.map((t) => [t.id, t.name]));
 }
 
-function branchNameById(data: AppData): Map<string, string> {
+function branchNameById(data: { settings?: Pick<AppData["settings"], "branches"> }): Map<string, string> {
   return new Map((data.settings?.branches ?? []).map((b) => [b.id, b.shortName ?? b.name]));
 }
 
-function roomNameById(data: AppData): Map<string, string> {
+function roomNameById(data: Pick<AppData, "rooms">): Map<string, string> {
   return new Map((data.rooms ?? []).map((r) => [r.id, r.name]));
 }
 
@@ -166,7 +166,9 @@ export async function getStudentAttendanceLedgerTool(
   const v = parseOrFail(attendanceLedgerSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğrenci/veli: yalnız bu öğrencinin dilimi (her süzgeç studentId ile;
+  // telafi/yoklama satırlarının dersi aynı öğrencinindir — bkz. reference-data.ts StudentScopeData).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -289,7 +291,9 @@ export async function getStudentMakeupLedgerTool(
   const v = parseOrFail(makeupLedgerSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil öğrenci/veli: yalnız bu öğrencinin dilimi (her süzgeç studentId ile;
+  // telafi/yoklama satırlarının dersi aynı öğrencinindir — bkz. reference-data.ts StudentScopeData).
+  const data = await readStudentScope(v.data.studentId);
   const student = data.students.find((s) => s.id === v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
@@ -416,7 +420,8 @@ export async function queryPaymentLedger(
     items: PaymentLedgerItem[];
   }>
 > {
-  const data = await readData();
+  // DB egress (2026-10-17) — yalnız bu öğrencinin ödeme/ders dilimi.
+  const data = await readStudentScope(query.studentId);
   const nowMs = now.getTime();
   const teacherNames = teacherNameById(data);
   const branchNames = branchNameById(data);
@@ -557,8 +562,8 @@ export async function buildPaymentLedgerCsv(
   );
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // Yalnız erişim kontrolü — tek öğrenci satırı (defter dilimi queryPaymentLedger'da okunur).
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 
@@ -640,8 +645,8 @@ export async function getStudentPaymentLedgerTool(ctx: ServiceContext, input: un
   const v = parseOrFail(paymentLedgerSchema, input);
   if (!v.ok) return v;
 
-  const data = await readData();
-  const student = data.students.find((s) => s.id === v.data.studentId);
+  // Yalnız erişim kontrolü — tek öğrenci satırı (defter dilimi queryPaymentLedger'da okunur).
+  const student = await readStudentById(v.data.studentId);
   const access = await assertStudentAccess(ctx, student, v.data.studentId);
   if (!access.ok) return fail(access.code, access.message);
 

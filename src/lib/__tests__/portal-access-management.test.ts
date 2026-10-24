@@ -38,7 +38,7 @@ import { consumePasswordResetToken } from "../auth/password-reset";
 import { passwordResetMail } from "../i18n/copy";
 import { STUDENT_PORTAL_ACCESS_FILE, hasActiveStudentAccess } from "../student-portal-access";
 import { DYNAMIC_USERS_FILE, findDynamicUserByEmail, findDynamicUserByTeacherId, createDynamicUser } from "../auth/dynamic-users";
-import { updateTeacherProfile } from "../store";
+import { readTeacherPortalDetails, updateTeacherProfile } from "../store";
 import { grantStudentAccess } from "./portal-access-test-helper";
 import {
   getStudentPortalAccessTool,
@@ -49,6 +49,7 @@ import {
   getTeacherAccountStatusTool,
   setTeacherAccountActiveTool,
   inviteTeacherAccountTool,
+  updateTeacherProfileTool,
   sendTeacherPasswordResetTool,
 } from "../services/tools";
 
@@ -368,7 +369,20 @@ describe("9 & 12. Öğretmen — erişim aç/kapat/davet, kapalıyken giriş yap
     expect(loginRestored?.userId).toBe(TEACHER_USER_ID);
   });
 
-  it("öğretmen daveti öğrenci şablonuyla KARIŞMAZ — role uygun ('ekibine hoş geldiniz') içerik gönderilir", async () => {
+  it("bekleyen öğretmen daveti öğrenci şablonuyla KARIŞMAZ — gerçek alıcıya role uygun içerik gönderilir", async () => {
+    const teacherId = "tch_7epmkwtkfvi8";
+    const details = await readTeacherPortalDetails(teacherId);
+    expect(details).not.toBeNull();
+    if (!details) return;
+    await createDynamicUser({
+      tenantId: DEFAULT_TENANT_ID,
+      email: details.contactEmail,
+      passwordHash: "test-password-hash",
+      role: "TEACHER",
+      teacherId,
+      invitationPending: true,
+    });
+
     const captured: EmailSendInput[] = [];
     setEmailTransportForTests({
       name: "mock",
@@ -378,15 +392,20 @@ describe("9 & 12. Öğretmen — erişim aç/kapat/davet, kapalıyken giriş yap
       },
     });
 
-    const res = await inviteTeacherAccountTool(adminCtx(), { teacherId: TEACHER_ID });
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.data.delivered).toBe(true);
+    try {
+      const res = await inviteTeacherAccountTool(adminCtx(), { teacherId });
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.data.delivered).toBe(true);
 
-    expect(captured).toHaveLength(1);
-    const email = captured[0]!;
-    expect(email.to).toBe(TEACHER_EMAIL);
-    expect(email.text).toContain("ekibine hoş geldiniz"); // öğretmen şablonu
-    expect(email.text).not.toContain("ailesine hoş geldiniz"); // öğrenci/veli şablonuyla KARIŞMADI
+      expect(captured).toHaveLength(1);
+      const email = captured[0]!;
+      expect(email.to).toBe(details.contactEmail.toLowerCase());
+      expect(email.text).toContain("ekibine hoş geldiniz");
+      expect(email.text).not.toContain("ailesine hoş geldiniz");
+    } finally {
+      await fs.rm(DYNAMIC_USERS_FILE, { force: true });
+      await fs.rm(PASSWORD_RESET_FILE, { force: true });
+    }
   });
 });
 
@@ -535,6 +554,144 @@ describe("Kök neden düzeltmesi (2026-08-31, CEO bildirdi) — User kaydı olma
     // Giriş de gerçekten çalışıyor mu (uçtan uca) — davet kabul edilmeden önce şifre
     // rastgele/bilinmez olduğu için burada yalnızca hesabın VAR OLDUĞUNU ve rolünün
     // DOĞRU olduğunu doğruluyoruz; şifre belirleme akışı account-invitation.test.ts'de.
+  });
+
+  it("profil e-postası güncellendikten sonra portal olmayan öğretmen daveti yeni adrese gider", async () => {
+    const { readData } = await import("../store");
+    const oldEmail = (await readData()).teachers.find((teacher) => teacher.id === REAL_TEACHER_ID)?.email ?? "";
+    const newEmail = "teacher.profile-update@ornek.test";
+    const sent: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { sent.push(input); return { delivered: true }; } });
+    try {
+      const saved = await updateTeacherProfileTool(adminCtx(), { teacherId: REAL_TEACHER_ID, email: newEmail });
+      expect(saved.ok).toBe(true);
+      expect((await readTeacherPortalDetails(REAL_TEACHER_ID))?.contactEmail).toBe(newEmail);
+
+      const invite = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(invite.ok).toBe(true);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.to).toBe(newEmail);
+      expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, REAL_TEACHER_ID))?.email).toBe(newEmail);
+    } finally {
+      await updateTeacherProfile(REAL_TEACHER_ID, { email: oldEmail });
+      await fs.rm(DYNAMIC_USERS_FILE, { force: true });
+      await fs.rm(PASSWORD_RESET_FILE, { force: true });
+    }
+  });
+
+  it("profil e-postası değişikliği eski bekleyen daveti iptal eder; yeni adrese daveti yalnız kurum sahibi yönlendirir", async () => {
+    const { readData } = await import("../store");
+    const oldEmail = (await readData()).teachers.find((teacher) => teacher.id === REAL_TEACHER_ID)?.email ?? "";
+    const newEmail = "teacher.pending-update@ornek.test";
+    const sent: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { sent.push(input); return { delivered: true }; } });
+    try {
+      const firstInvite = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(firstInvite.ok).toBe(true);
+      const oldTokenMatch = sent[0]?.text.match(/[?&]token=([A-Z0-9]+)/);
+      expect(oldTokenMatch).not.toBeNull();
+      const userId = (await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, REAL_TEACHER_ID))?.userId;
+      expect(userId).toBeTruthy();
+
+      const saved = await updateTeacherProfileTool(adminCtx(), { teacherId: REAL_TEACHER_ID, email: newEmail });
+      expect(saved.ok).toBe(true);
+      expect(await consumePasswordResetToken(oldTokenMatch![1]!)).toBeNull();
+      expect(sent).toHaveLength(1);
+
+      const pendingStatus = await getTeacherAccountStatusTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(pendingStatus.ok).toBe(true);
+      if (pendingStatus.ok) {
+        expect(pendingStatus.data.invitationPending).toBe(true);
+        expect(pendingStatus.data.invitationLinkActive).toBe(false);
+      }
+
+      // 2026-10-14 — bekleyen davetin giriş adresini başka adrese taşımak portal e-postasını değiştirmektir: kurum
+      // yöneticisi yapamaz (açık neden + yol), kurum sahibi yapar.
+      const byManager = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(byManager.ok).toBe(false);
+      if (!byManager.ok) expect(byManager.error.message).toContain("yalnız kurum sahibi");
+      expect(sent).toHaveLength(1);
+      const secondInvite = await inviteTeacherAccountTool(adminCtx({ role: "SUPER_ADMIN" }), { teacherId: REAL_TEACHER_ID });
+      expect(secondInvite.ok).toBe(true);
+      expect(sent).toHaveLength(2);
+      expect(sent[1]?.to).toBe(newEmail);
+      expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, REAL_TEACHER_ID))?.userId).toBe(userId);
+    } finally {
+      await updateTeacherProfile(REAL_TEACHER_ID, { email: oldEmail });
+      await fs.rm(DYNAMIC_USERS_FILE, { force: true });
+      await fs.rm(PASSWORD_RESET_FILE, { force: true });
+    }
+  });
+
+  it("aktif portal hesabının giriş e-postası profil e-postası değişince değişmez", async () => {
+    const { readData } = await import("../store");
+    const oldContactEmail = (await readData()).teachers.find((teacher) => teacher.id === REAL_TEACHER_ID)?.email ?? "";
+    const loginEmail = "teacher.login-stays@ornek.test";
+    const newContactEmail = "teacher.contact-only@ornek.test";
+    await createDynamicUser({
+      tenantId: DEFAULT_TENANT_ID,
+      email: loginEmail,
+      passwordHash: "test-password-hash",
+      role: "TEACHER",
+      teacherId: REAL_TEACHER_ID,
+    });
+    const sent: EmailSendInput[] = [];
+    setEmailTransportForTests({ name: "mock", async send(input) { sent.push(input); return { delivered: true }; } });
+    try {
+      const saved = await updateTeacherProfileTool(adminCtx(), { teacherId: REAL_TEACHER_ID, email: newContactEmail });
+      expect(saved.ok).toBe(true);
+      expect((await readTeacherPortalDetails(REAL_TEACHER_ID))?.contactEmail).toBe(newContactEmail);
+
+      const status = await getTeacherAccountStatusTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(status.ok).toBe(true);
+      if (status.ok) {
+        expect(status.data.email).toBe(loginEmail);
+        expect(status.data.invitationPending).toBe(false);
+      }
+      const invite = await inviteTeacherAccountTool(adminCtx(), { teacherId: REAL_TEACHER_ID });
+      expect(invite.ok).toBe(false);
+      expect(sent).toHaveLength(0);
+      expect((await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, REAL_TEACHER_ID))?.email).toBe(loginEmail);
+    } finally {
+      await updateTeacherProfile(REAL_TEACHER_ID, { email: oldContactEmail });
+      await fs.rm(DYNAMIC_USERS_FILE, { force: true });
+      await fs.rm(PASSWORD_RESET_FILE, { force: true });
+    }
+  });
+
+  it("öğretmen profil e-postası başka etkin veya kapalı kullanıcıya aitse kayıt değişmeden reddedilir", async () => {
+    const { readData } = await import("../store");
+    const oldEmail = (await readData()).teachers.find((teacher) => teacher.id === REAL_TEACHER_ID)?.email ?? "";
+    const activeEmail = "teacher.active-collision@ornek.test";
+    const inactiveEmail = "teacher.inactive-collision@ornek.test";
+    await createDynamicUser({
+      tenantId: DEFAULT_TENANT_ID,
+      email: activeEmail,
+      passwordHash: "test-password-hash",
+      role: "STUDENT",
+      studentId: "s1",
+    });
+    const inactiveOwner = await createDynamicUser({
+      tenantId: DEFAULT_TENANT_ID,
+      email: inactiveEmail,
+      passwordHash: "test-password-hash",
+      role: "STUDENT",
+      studentId: "s1",
+    });
+    const { setDynamicUserActive } = await import("../auth/dynamic-users");
+    await setDynamicUserActive(inactiveOwner.userId, false);
+    try {
+      for (const email of [activeEmail, inactiveEmail]) {
+        const result = await updateTeacherProfileTool(adminCtx(), { teacherId: REAL_TEACHER_ID, email });
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.message).toContain("başka bir portal hesabına ait");
+      }
+      expect((await readTeacherPortalDetails(REAL_TEACHER_ID))?.contactEmail).toBe(oldEmail);
+      expect(await findDynamicUserByTeacherId(DEFAULT_TENANT_ID, REAL_TEACHER_ID)).toBeNull();
+    } finally {
+      await fs.rm(DYNAMIC_USERS_FILE, { force: true });
+      await fs.rm(PASSWORD_RESET_FILE, { force: true });
+    }
   });
 
   it("3. StudentPortalAccess kaydı var ama User kaydı yok (bozuk ilişki): servis 'kullanıcı bulunamadı' ile ÇÖKMEZ; yeniden davet güvenle onarır", async () => {

@@ -10,7 +10,7 @@
 import { differenceInMinutes, parseISO } from "date-fns";
 import { resolveLessonFinalStatus } from "./lesson-live-status";
 import { getStudentMakeupQuota, makeupEnrollmentKey, type MakeupQuotaSnapshot } from "./makeup-quota";
-import type { AppData, MakeupRequest } from "./types";
+import type { AppData, MakeupRequest, StudentRef } from "./types";
 
 export type MakeupStage = "pending" | "planned" | "completed" | "cancelled" | "expired";
 
@@ -56,7 +56,7 @@ export function makeupStageOf(req: MakeupRequest, data: Pick<AppData, "lessons">
 }
 
 export function buildStudentMakeupSummary(
-  data: Pick<AppData, "lessons" | "makeupRequests" | "students" | "teachers" | "settings">,
+  data: Pick<AppData, "lessons" | "makeupRequests" | "teachers" | "settings"> & { students: StudentRef[] },
   studentId: string,
   now: Date = new Date(),
   /** 2026-10-09 — verilirse talepler ve hak yalnız bu branş kaydının (telafi hakkı branş başınadır). */

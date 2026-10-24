@@ -7,6 +7,7 @@ import { getPortalPageStudentId } from "@/lib/portal-context";
 import { readReferenceData } from "@/lib/store";
 import { listStudentContractsTool, getStudentContractTool } from "@/lib/services";
 import { Badge, Card, EmptyState } from "@/components/ui";
+import { contractInstallmentProgressIndex } from "@/lib/attendance-calendar-plan";
 import { formatMoney, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -107,7 +108,16 @@ export default async function StudentContractsPage() {
                     {latestInstallments.map((row) => (
                       <div key={row.paymentId} className="flex items-center justify-between py-0.5">
                         <span>
-                          {row.sequence}. taksit — {formatDate(row.dueDate)}
+                          {contractInstallmentProgressIndex({
+                            id: row.paymentId,
+                            amount: row.amount,
+                            paidAmount: row.paidAmount,
+                            dueDate: row.dueDate,
+                            status: row.status,
+                            installmentSequence: row.sequence,
+                            installmentPeriodLabel: row.periodLabel,
+                            installmentBreakdown: row.breakdown,
+                          }) ?? row.sequence}. taksit — {formatDate(row.dueDate)}
                         </span>
                         <span className="flex items-center gap-2">
                           {formatMoney(row.amount)}

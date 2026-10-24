@@ -177,6 +177,8 @@ export function resolveCollectorDisplayName(input: {
 export async function resolveCollectorDisplayNames(input: {
   userIds: string[];
   teachers: Pick<Teacher, "id" | "name" | "email">[];
+  /** Personel kayıtlarındaki ad soyad, küçük harf e-postaya göre (`resolveActorLabels` doldurur). */
+  staffNameByEmail?: Map<string, string>;
 }): Promise<Map<string, string>> {
   const { getUserById, getUserAccountStatus } = await import("./auth/users");
   const names = new Map<string, string>();
@@ -187,10 +189,14 @@ export async function resolveCollectorDisplayNames(input: {
       continue;
     }
     const email = status?.email ?? user?.email;
-    const teacherName = findTeacherDisplayNameForUser(input.teachers, {
-      teacherId: user?.teacherId,
-      email,
-    });
+    // Personel ad soyadı (girildiği gibi) e-postadan türetilen tahminden ve kullanıcı adından önce gelir.
+    const staffName = email ? input.staffNameByEmail?.get(email.trim().toLowerCase()) : undefined;
+    const teacherName =
+      staffName ??
+      findTeacherDisplayNameForUser(input.teachers, {
+        teacherId: user?.teacherId,
+        email,
+      });
     names.set(
       userId,
       resolveCollectorDisplayName({ teacherName, displayName: status?.displayName, email, active: status?.active ?? false })
@@ -201,8 +207,9 @@ export async function resolveCollectorDisplayNames(input: {
 
 /**
  * İşlemi yapan / raporu alan kişilerin görünen adları (toplu).
- * Önce personel kaydı (Ezgi Güçlü), sonra kullanıcı adı / öğretmen / e-posta tahmini.
- * Ham kullanıcı kimliği asla basılmaz.
+ * Önce personel kaydındaki ad soyad (Ezgi Güçlü) — portal hesabı bağlı değilse e-posta eşleşmesiyle
+ * (pasif personel dahil, geçmiş kayıtlar adını korur); sonra öğretmen kaydı / kullanıcı adı; e-posta
+ * tahmini yalnız hiçbir ad kaydı yoksa. Ham kullanıcı kimliği asla basılmaz.
  */
 export async function resolveActorLabels(input: {
   tenantId: string;
@@ -212,17 +219,23 @@ export async function resolveActorLabels(input: {
   const ids = Array.from(new Set(input.userIds.filter((id): id is string => Boolean(id))));
   const out = new Map<string, string>();
   if (ids.length === 0) return out;
+  const staffNameByEmail = new Map<string, string>();
   try {
     const { listStaff } = await import("./staff");
     const staff = await listStaff(input.tenantId);
     for (const s of staff) {
-      if (s.portalUserId && ids.includes(s.portalUserId) && s.name.trim()) out.set(s.portalUserId, s.name.trim());
+      const name = s.name.trim();
+      if (!name) continue;
+      if (s.portalUserId && ids.includes(s.portalUserId)) out.set(s.portalUserId, name);
+      const email = s.email?.trim().toLowerCase();
+      if (email && !staffNameByEmail.has(email)) staffNameByEmail.set(email, name);
     }
   } catch {
     // personel listesi yoksa kullanıcı çözümlemesine düş.
   }
   const rest = ids.filter((id) => !out.has(id));
-  const names = await resolveCollectorDisplayNames({ userIds: rest, teachers: input.teachers });
+  if (rest.length === 0) return out;
+  const names = await resolveCollectorDisplayNames({ userIds: rest, teachers: input.teachers, staffNameByEmail });
   for (const id of rest) out.set(id, names.get(id) ?? "Kayıtlı kullanıcı");
   return out;
 }

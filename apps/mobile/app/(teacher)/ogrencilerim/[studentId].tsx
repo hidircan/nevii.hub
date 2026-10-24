@@ -10,11 +10,13 @@ import { isPast, relativeDayLabel } from "../../../src/lib/date";
 import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type {
+  AssessmentReportResponse,
   AssessmentsResponse,
   CurriculumResponse,
   CurriculumTopic,
   CurriculumTopicStatus,
   HomeworkResponse,
+  PendingPeriodicAssessmentsResponse,
   ScheduleResponse,
   StudentProfile,
   StudentScoreResponse,
@@ -61,6 +63,10 @@ export default function StudentDetailScreen() {
   // "Son 3 geçmiş ders" tüm geçmişin kuyruğudur — kesilme payı için üst sınırla çekilir.
   const schedule = useApiGet<ScheduleResponse>(`/api/v1/students/${studentId}/schedule?limit=2000`);
   const assessments = useApiGet<AssessmentsResponse>(`/api/v1/assessments/${studentId}`);
+  const assessmentReport = useApiGet<AssessmentReportResponse>(`/api/v1/assessments/${studentId}/report`);
+  const pendingPeriodic = useApiGet<PendingPeriodicAssessmentsResponse>(
+    `/api/v1/periodic-assessments/pending?studentId=${studentId}`
+  );
   const score = useApiGet<StudentScoreResponse>(`/api/v1/students/${studentId}/score`);
 
   // Bir alt ekranda (değerlendirme formu vb.) yapılan bir değişiklikten sonra
@@ -69,6 +75,8 @@ export default function StudentDetailScreen() {
   // neden düzeltmesi (bkz. useFocusRefetch).
   useFocusRefetch(() => {
     assessments.autoRefresh();
+    assessmentReport.autoRefresh();
+    pendingPeriodic.autoRefresh();
     curriculum.autoRefresh();
     homework.autoRefresh();
     schedule.autoRefresh();
@@ -351,6 +359,63 @@ export default function StudentDetailScreen() {
       )}
 
       <SectionHeader title={tr("tStudent.assessHistory")} />
+      {pendingPeriodic.status === "success" && pendingPeriodic.data.items.length > 0 ? (
+        <View style={{ gap: 10, marginBottom: 12 }}>
+          {pendingPeriodic.data.items.map((item) => {
+            const range = `${item.periodStart.slice(0, 10)} – ${item.periodEnd.slice(0, 10)}`;
+            return (
+              <Card key={`${item.studentId}-${item.periodStart}`}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <AppText style={[t.typography.bodyStrong, { color: t.colors.text, flex: 1 }]}>
+                    {tr("tStudent.periodicPendingTitle")}
+                  </AppText>
+                  {item.draft ? (
+                    <StatusBadge label={`${item.draft.overallScore.toFixed(1)} / 5`} tone="info" />
+                  ) : null}
+                </View>
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                  {tr("tStudent.periodicPendingDesc", { range })}
+                </AppText>
+                <Button
+                  label={tr("tStudent.periodicPendingCta")}
+                  size="sm"
+                  icon="checkmark-circle-outline"
+                  onPress={() =>
+                    router.push(
+                      `/assessment/periodic?studentId=${student.id}&studentName=${encodeURIComponent(student.name)}&periodStart=${encodeURIComponent(item.periodStart)}&periodEnd=${encodeURIComponent(item.periodEnd)}`
+                    )
+                  }
+                  style={{ marginTop: 10 }}
+                />
+              </Card>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {assessmentReport.status === "success" &&
+      assessmentReport.data.periodicAssessments &&
+      assessmentReport.data.periodicAssessments.length > 0 ? (
+        <View style={{ gap: 8, marginBottom: 12 }}>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted, fontWeight: "700" }]}>
+            {tr("tStudent.periodicHistoryTitle")}
+          </AppText>
+          {assessmentReport.data.periodicAssessments.slice(0, 3).map((pa) => (
+            <Card key={pa.id}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>
+                  {pa.periodStart.slice(0, 10)} – {pa.periodEnd.slice(0, 10)}
+                </AppText>
+                {pa.overallScore !== undefined ? (
+                  <StatusBadge label={tr("tStudent.periodicScoreLine", { v: pa.overallScore.toFixed(1) })} tone="success" />
+                ) : null}
+              </View>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{pa.overallProgressNote}</AppText>
+            </Card>
+          ))}
+        </View>
+      ) : null}
+
       {assessments.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : assessments.status === "error" ? (

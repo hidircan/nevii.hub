@@ -8,19 +8,21 @@ import { MakeupDecisionForm } from "@/components/makeup-decision-form";
 import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
 import Link from "@/components/link";
-import { differenceInCalendarDays, parseISO } from "date-fns";
+import { makeupDaysLeft } from "@/lib/makeup-deadline";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { isRoomSchedulable, makeupDurationMinutes, validateLessonSlot } from "@/lib/makeup-engine";
+import { isMakeupPlanningExpiryClosure, lessonHasConductMark } from "@/lib/makeup-lifecycle";
 import { isTeacherSchedulable } from "@/lib/teacher-branches";
 import type { Instrument } from "@/lib/types";
 import { CheckCircle2, Download, Sparkles, X } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedMakeupCenterData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { MakeupWindowDaysEditor } from "@/components/makeup-window-days-editor";
+import { MakeupLifecycleActions } from "@/components/makeup-lifecycle-actions";
 import { MakeupPolicyDialog } from "@/components/makeup-policy-dialog";
 import { MakeupHistoryTable } from "@/components/makeup-history-table";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
@@ -88,7 +90,8 @@ export default async function TelafiPage({
   const qFold = q ? foldTurkishForSearch(q) : "";
   const durum: Durum = durumParam && durumParam in DURUM_LABEL ? (durumParam as Durum) : "tumu";
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-16): referans + dersler + telafi talepleri; ödeme/yoklama/seri/hakediş okunmaz.
+  const data = await readScopedMakeupCenterData(kurum.scope);
   const matchingStudentIds = qFold
     ? new Set(
         data.students
@@ -107,7 +110,7 @@ export default async function TelafiPage({
 
   const OPEN_STATUSES = ["pending", "suggested", "awaiting_info"];
   const now = new Date();
-  const daysLeft = (r: (typeof requests)[number]) => differenceInCalendarDays(parseISO(r.expiresAt), now);
+  const daysLeft = (r: (typeof requests)[number]) => makeupDaysLeft(r.expiresAt, now);
   // Önce çözülmesi gereken en üstte: son kullanım tarihi en yakın olan.
   const open = requests
     .filter((r) => OPEN_STATUSES.includes(r.status))
@@ -516,6 +519,19 @@ export default async function TelafiPage({
                     );
                   })()}
 
+                  {/* 2026-10-24 — bekleyen talepte talebe özel uzatma (sunucu: extendMakeupDeadlineTool,
+                      SCHOOL_ADMIN/SUPER_ADMIN). Eskiden bu düğme yalnız geçmiş satırlardaydı; açık karttaki
+                      "yetkili yönetici son günü uzatsın" yönergesi havada kalıyordu. Uzatma formu öğretmen/oda
+                      kullanmaz; planlama yazımında sunucu güncel son günü yeniden doğrular. */}
+                  {canWrite ? (
+                    <MakeupLifecycleActions
+                      row={{ id: req.id, status: req.status, expiresAt: req.expiresAt }}
+                      teachers={[]}
+                      rooms={[]}
+                      only="extend"
+                    />
+                  ) : null}
+
                   {/* İptal/ret gerekçe kutusu yalnız istenince açılır (yerel <details>: klavye + aria hazır). */}
                   <details className="group open:order-last open:basis-full">
                     <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-[var(--radius-md)] px-3 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-text)] [&::-webkit-details-marker]:hidden">
@@ -571,9 +587,32 @@ export default async function TelafiPage({
       {doneAll.length > 0 ? (
         <>
         <MakeupHistoryTable
+          canManage={canWrite}
+          teachers={data.teachers.map((teacher) => ({
+            id: teacher.id,
+            name: teacher.name,
+            branchId: teacher.branchId,
+            branchIds: teacher.branchIds,
+            active: teacher.active,
+          }))}
+          rooms={data.rooms.map((room) => ({
+            id: room.id,
+            name: room.name,
+            branchId: room.branchId,
+            active: room.active,
+            deletedAt: room.deletedAt,
+          }))}
           rows={done.map((req) => {
             const student = data.students.find((s) => s.id === req.studentId);
-            const lesson = data.lessons.find((l) => l.id === req.confirmedLessonId);
+            const plans = data.lessons.filter(
+              (lesson) =>
+                lesson.type === "makeup" &&
+                lesson.status !== "cancelled" &&
+                (lesson.id === req.confirmedLessonId || lesson.makeupRequestId === req.id)
+            );
+            const lesson = plans[0] ?? data.lessons.find((row) => row.id === req.confirmedLessonId);
+            const source = data.lessons.find((row) => row.id === req.sourceLessonId);
+            const lastChange = req.changeLog?.at(-1);
             return {
               id: req.id,
               studentName: student?.name ?? "—",
@@ -586,6 +625,16 @@ export default async function TelafiPage({
               decidedAt: req.decidedAt ?? "",
               decidedAtLabel: req.decidedAt ? formatDateTime(req.decidedAt) : "",
               actorName: actorLabel(req.decidedBy),
+              expiresAt: req.expiresAt,
+              hasActivePlan: plans.length > 0,
+              sourceClosedByExpiry: !!source && isMakeupPlanningExpiryClosure(source),
+              hasConductMark: plans.some((row) => lessonHasConductMark(row)),
+              teacherId: lesson?.teacherId ?? req.teacherId,
+              roomId: lesson?.roomId,
+              planStartAt: lesson?.startAt,
+              changeSummary: lastChange
+                ? `${lastChange.action} · ${lastChange.by} · ${formatDateTime(lastChange.at)}`
+                : undefined,
             };
           })}
         />

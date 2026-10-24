@@ -219,15 +219,15 @@ export function MebPanelTable({
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={2 + columns.length} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
-                    Bu filtrede MEB öğrencisi bulunamadı.
+                    Bu filtrede MEB branş kaydı bulunamadı.
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => (
-                  <tr key={r.id} className="border-b border-[var(--color-border)] align-top last:border-0">
+                  <tr key={`${r.id}:${r.enrollmentId ?? ""}`} className="border-b border-[var(--color-border)] align-top last:border-0">
                     <td className="p-0">
                       <Link
-                        href={`/panel/ogrenciler/${r.id}/bilgiler`}
+                        href={`/panel/ogrenciler/${r.id}/bilgiler${r.enrollmentId ? `?brans=${encodeURIComponent(r.enrollmentId)}` : ""}`}
                         className="block px-4 py-3 hover:bg-[var(--color-surface-muted)] focus-visible:bg-[var(--color-surface-muted)] focus-visible:outline-none"
                       >
                         <p className="font-medium text-[var(--color-text)]">{r.name}</p>

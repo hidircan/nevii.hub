@@ -53,6 +53,7 @@ describe("classifyDatabaseTarget", () => {
 
   it("geçiş sonrası: canlı proje ve gerçek veri taşıyan eski test projesi production sayılır", () => {
     const pooler = (ref: string) => `postgresql://postgres.${ref}:redacted@aws-1-eu-central-1.pooler.supabase.com:5432/postgres`;
+    expect(classifyDatabaseTarget(pooler("ddskhtirzywbuucxeovz")).classification).toBe("production");
     expect(classifyDatabaseTarget(pooler("wsbucznpujcfzhitzrbl")).classification).toBe("production");
     expect(classifyDatabaseTarget(pooler("vxzewyiwfshobjizzetw")).classification).toBe("production");
     expect(() => assertTestDatabaseTarget(pooler("vxzewyiwfshobjizzetw"))).toThrow(/PRODUCTION/);

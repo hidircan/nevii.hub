@@ -35,16 +35,16 @@ describe("yoklama hata + onay akışı", () => {
   });
 });
 
-describe("ders detayı yoklama + iptal", () => {
-  it("program/[lessonId]: 5 ops bayrağı + iptal + gerekçe akışı", async () => {
+describe("ders detayı yoklama (iptal üretimi kaldırıldı — 2026-10-16)", () => {
+  it("program/[lessonId]: 5 ops bayrağı + gerekçe akışı; iptal düğmesi/uç noktası YOK", async () => {
     const content = await admin("program/[lessonId].tsx");
     for (const flag of ["attended", "absent", "excused", "makeup", "processed"]) {
       expect(content, flag).toContain(`"${flag}"`);
     }
-    expect(content).toContain("/api/v1/lessons/${lessonId}/cancel");
+    expect(content).not.toContain("/cancel`");
+    expect(content).not.toMatch(/lesCancelConfirm|lesCancelTitle|confirmingCancel/);
     expect(content).toMatch(/reasonPrompt/);
     expect(content).toMatch(/lesReasonTitle/);
-    expect(content).toMatch(/lesCancelTitle/);
   });
 
   it("iptal edilmiş derste yoklama butonu YOK", async () => {

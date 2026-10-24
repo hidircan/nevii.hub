@@ -325,7 +325,9 @@ describe("login dönüş + hero marka satırı — görünüm sözleşmesi", () 
   it("login ekranında href='/' olan görünür 'Ana sayfaya dön' bağlantısı var (form dışı)", () => {
     const code = readFileSync(path.join(ROOT, "src/app/login/page.tsx"), "utf-8");
     expect(code).toContain('href="/"');
-    expect(code).toContain("Ana sayfaya dön");
+    // 05c172d (kurum dili): metin i18n sözlüğünden gelir — bağlantı metni + Türkçe karşılık ayrı doğrulanır.
+    expect(code).toContain("{copy.backHome}");
+    expect(readFileSync(path.join(ROOT, "src/lib/i18n/copy.ts"), "utf-8")).toContain('backHome: "Ana sayfaya dön"');
     // Bağlantı LoginForm'un DIŞINDA (submit ile karışmaz).
     expect(code.indexOf('href="/"')).toBeLessThan(code.indexOf("<LoginForm"));
   });

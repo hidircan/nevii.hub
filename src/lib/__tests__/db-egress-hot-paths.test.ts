@@ -25,7 +25,6 @@ import {
   createLessonTool,
   createPaymentTool,
   endLessonTool,
-  markTeacherAttendanceTool,
   setLessonOpsFlagTool,
   startLessonTool,
 } from "../services/tools";
@@ -163,14 +162,13 @@ describe("dar dilimle yazım — hedef dışında hiçbir satır değişmez/sili
     expect((await run(() => readData())).lessons.length).toBe(after.lessons.length);
   });
 
-  it("ders başlat → bitir, öğretmen katılımı, iptal: yalnız hedef ders değişir", async () => {
+  it("ders başlat → bitir, iptal: yalnız hedef ders değişir", async () => {
     const before = await run(() => seed());
     expect((await run(() => startLessonTool(ctx(), { lessonId: "hp_a" }))).ok).toBe(true);
     expect((await run(() => endLessonTool(ctx(), { lessonId: "hp_a" }))).ok).toBe(true);
-    expect((await run(() => markTeacherAttendanceTool(ctx(), { lessonId: "hp_a", status: "geldi" }))).ok).toBe(true);
     expect((await run(() => cancelLessonTool(ctx(), { lessonId: "hp_b" }))).ok).toBe(true);
     const after = await run(() => readData());
-    expect(after.lessons.find((l) => l.id === "hp_a")).toMatchObject({ status: "completed", teacherAttendanceStatus: "geldi" });
+    expect(after.lessons.find((l) => l.id === "hp_a")).toMatchObject({ status: "completed" });
     expect(after.lessons.find((l) => l.id === "hp_a")?.actualStartAt).toBeTruthy();
     expect(after.lessons.find((l) => l.id === "hp_b")?.status).toBe("cancelled");
     expectOnlyChanged(before, after, { lessons: ["hp_a", "hp_b"] });

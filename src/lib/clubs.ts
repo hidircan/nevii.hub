@@ -16,6 +16,7 @@ import { fail, ok, type ServiceResult } from "./services/result";
 import { requireRole, type ServiceContext } from "./services/context";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "./timezone";
 import type { Payment, Student } from "./types";
+import type { LessonWindowData } from "./reference-data";
 
 import { CLUB_AUDIENCE_LABEL, isClubAudience, type ClubAudience } from "./club-audience";
 // Yaş grubu tek kaynağı `club-audience.ts` (istemci bileşenleri de okur; 2026-10-07 "Genç" eklendi).
@@ -79,9 +80,10 @@ export type ClubLessonPatch = Partial<
     | "opsMakeupFlag"
     | "opsMakeupFlagAt"
     | "opsMakeupFlagBy"
-    | "teacherAttendanceStatus"
-    | "teacherAttendanceAt"
-    | "teacherAttendanceBy"
+    | "disruptionSource"
+    | "disruptionNote"
+    | "disruptionAt"
+    | "disruptionBy"
     | "notes"
     // 2026-10-07 — yanlış girilen oturumun tarih/saat/oda/öğretmen düzeltmesi (yoklamasız oturum).
     | "startAt"
@@ -747,9 +749,10 @@ export async function addClubMemberTool(
   const club = clubs.find((c) => c.id === v.clubId);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı; silinmiş olabilir. Sayfayı yenileyin.");
   if (!club.active) return fail("VALIDATION_ERROR", `${club.name} pasif; önce kulübü aktif yapın.`);
-  const { readData } = await import("./store");
-  const data = await readData();
-  const student: Student | undefined = data.students.find((s) => s.id === v.studentId);
+  // DB egress (2026-10-19): öğrenci referansı + yalnız kulüp ücretleri (tam kurum okuması değil).
+  const { readPaymentsPageData } = await import("./store");
+  const data = await readPaymentsPageData({ clubOnly: true });
+  const student = data.students.find((s) => s.id === v.studentId);
   if (!student || student.deletedAt) return fail("NOT_FOUND", "Öğrenci bulunamadı veya silinmiş. Öğrenci listesinden yeniden seçin.");
   if (!student.active) return fail("VALIDATION_ERROR", `${student.name} pasif; kulübe eklemek için önce öğrenciyi aktif yapın.`);
   const inserted = await withClubMembershipLock(ctx.tenantId, (tx) =>
@@ -798,7 +801,7 @@ export async function writeClubMemberStartFeeTool(ctx: ServiceContext, input: un
   if (m.monthlyFee <= 0) return fail("VALIDATION_ERROR", "Bu üyeliğin ücreti 0 TL (ücretsiz/dahil üyelik); borç yazılmaz.");
   const { readPaymentsPageData } = await import("./store");
   const month = m.startDate.slice(0, 7);
-  const fee = await ensureClubFeeRow(club, m, month, (await readPaymentsPageData()).payments);
+  const fee = await ensureClubFeeRow(club, m, month, (await readPaymentsPageData({ clubOnly: true })).payments);
   if (!fee.created) return fail("CONFLICT", `${clubPeriodLabel(month)} ücret satırı zaten var; Ödemeler ekranından görebilirsiniz.`);
   const { recordAuditLog } = await import("./audit/log");
   void recordAuditLog({
@@ -912,7 +915,7 @@ export async function updateClubMembershipTool(ctx: ServiceContext, input: unkno
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Üyelik tarihlerini kontrol edin.");
   const v = parsed.data;
   const [clubs, { readPaymentsPageData }] = await Promise.all([listClubs(ctx.tenantId), import("./store")]);
-  const payments = (await readPaymentsPageData()).payments;
+  const payments = (await readPaymentsPageData({ clubOnly: true })).payments;
   const t = today();
   const result = await withClubMembershipLock(ctx.tenantId, async (tx) => {
     const all = await listClubMemberships(ctx.tenantId, tx);
@@ -983,8 +986,41 @@ export type ClubMembershipDeleteResult = {
 
 /**
  * Saf: üyeliğin FİZİKSEL silinmesini engelleyen korunan kayıt (yoksa null). Korunanlar: tahsilat görmüş (kısmi dahil)
- * kulüp ücreti, yoklama/öğretmen yoklaması girilmiş oturum satırı. Ödenmemiş ücret satırı SİLİNMEZ, iptal edilir.
+ * kulüp ücreti, yoklama girilmiş oturum satırı. Ödenmemiş ücret satırı SİLİNMEZ, iptal edilir.
  */
+/**
+ * DB egress (2026-10-19) — silme/etki araçları için: referans veri + TÜM kulüp ücretleri + TÜM zamanların TÜM kulüp
+ * satırları (dahil solfej üyeliği başka kulübün satırlarına bakar). Tam `readData()` yerine (~%3 ders, ~%1 ödeme).
+ */
+async function readClubRows() {
+  const { readPaymentsPageData, readLessonWindow } = await import("./store");
+  const [pay, win] = await Promise.all([
+    readPaymentsPageData({ clubOnly: true }),
+    readLessonWindow("1970-01-01T00:00:00.000Z", "2100-01-01T00:00:00.000Z", { clubOnly: true }),
+  ]);
+  return { students: pay.students, payments: pay.payments, lessons: win.lessons };
+}
+
+/** DB egress (2026-10-19) — oturum araçları: referans veri + TÜM zamanların TÜM kulüp satırları (oturum bulma, mükerrer/seri). */
+async function readClubLessonData(): Promise<LessonWindowData> {
+  const { readLessonWindow } = await import("./store");
+  return readLessonWindow("1970-01-01T00:00:00.000Z", "2100-01-01T00:00:00.000Z", { clubOnly: true });
+}
+
+/**
+ * Çakışma denetimi için hedef başlangıçların [en erken − 1 gün, en geç + 1 gün] penceresindeki TÜM dersler eklenir.
+ * `findSlotConflict` yalnız saatle örtüşen derse bakar ve ders 1 günden kısadır: pencere dışındaki ders çakışamaz.
+ * ponytail: 52 haftalık planda pencere ~1 yıl olur (yine ödeme/yoklama/telafi okunmaz); gerekirse hafta başına pencere.
+ */
+async function withConflictWindow(base: LessonWindowData, starts: Date[]): Promise<LessonWindowData> {
+  if (!starts.length) return base;
+  const { readLessonWindow } = await import("./store");
+  const t = starts.map((d) => d.getTime());
+  const win = await readLessonWindow(new Date(Math.min(...t) - 86_400_000).toISOString(), new Date(Math.max(...t) + 86_400_000).toISOString());
+  const seen = new Set(win.lessons.map((l) => l.id));
+  return { ...base, lessons: [...win.lessons, ...base.lessons.filter((l) => !seen.has(l.id))] };
+}
+
 export function clubMembershipDeleteBlocker(
   m: ClubMembership,
   payments: Payment[],
@@ -997,7 +1033,7 @@ export function clubMembershipDeleteBlocker(
     const total = paid.reduce((s, p) => s + p.paidAmount, 0);
     return `Bu üyeliğe ait ${paid.length} kulüp ücretinde toplam ${total} TL tahsilat var; tahsilat kaydı korunduğu için üyelik silinemez. Yanlışlıkla eklendiyse önce Ödemeler ekranından tahsilatı geri alın; üye gerçekten kulübe katıldıysa silmek yerine "Üyeliği sonlandır"ı kullanın (geçmiş korunur).`;
   }
-  const touched = membershipLessonRows(m, lessons, memberships).filter((r) => rowTouched(r) || !!r.teacherAttendanceStatus);
+  const touched = membershipLessonRows(m, lessons, memberships).filter(rowTouched);
   if (touched.length) {
     return `Bu üyeliğin ${touched.length} oturumunda yoklama girilmiş; yoklama geçmişi korunduğu için üyelik silinemez. Yoklamaları geri alın ya da silmek yerine "Üyeliği sonlandır"ı kullanın.`;
   }
@@ -1048,8 +1084,8 @@ export async function deleteClubMembershipTool(ctx: ServiceContext, input: unkno
   if (!m) return ok({ membershipId: id, alreadyDeleted: true, voidedFeeRows: 0, cancelledSessionRows: 0, removedIncluded: [] });
   const clubs = await listClubs(ctx.tenantId);
   const club = clubs.find((c) => c.id === m.clubId);
-  const { readData, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { patchClubLessons } = await import("./store");
+  const data = await readClubRows();
   const blocker = clubMembershipDeleteBlocker(m, data.payments, data.lessons, memberships);
   if (blocker) return fail("CONFLICT", blocker);
   const t = today();
@@ -1254,7 +1290,7 @@ export function planClubFeeAccruals(input: {
 /** Tek kurum — ALS kurulmuş olmalı. Günlük tahakkuk işi (standalone-monthly-accrual ile aynı rota) çağırır. */
 export async function runClubFeeAccrual(tenantId: string, opts: { apply: boolean; month: string }): Promise<{ planned: number; created: number }> {
   const { readPaymentsPageData } = await import("./store");
-  const [clubs, memberships, data] = await Promise.all([listClubs(tenantId), listClubMemberships(tenantId), readPaymentsPageData()]);
+  const [clubs, memberships, data] = await Promise.all([listClubs(tenantId), listClubMemberships(tenantId), readPaymentsPageData({ clubOnly: true })]);
   const planned = planClubFeeAccruals({ clubs, memberships, students: data.students, payments: data.payments, month: opts.month });
   let created = 0;
   if (opts.apply) {
@@ -1361,8 +1397,8 @@ export async function applyClubRegistration(ctx: ServiceContext, studentId: stri
 // ── Oturumlar (2. aşama) ───────────────────────────────────────────────────
 // Oturum = aynı `clubSessionId`'yi taşıyan ders satırları (`type: "group"`, üye başına bir satır). Ayrı tablo yok:
 // ders programı, öğrenci yoklaması (mevcut Geldi/Gelmedi/Mazeretli/İşlendi/Telafi), yoklama takvimi ve çakışma
-// kuralı bu satırları olduğu gibi görür. Öğretmen yoklaması (`teacherAttendanceStatus`) tüm satırlara birlikte
-// yazılır; hakediş oturum başına bir kez ("geldi" ise, süresine göre — teacher-payout.ts).
+// kuralı bu satırları olduğu gibi görür. Ayrı öğretmen yoklaması yok (2026-10-21): hakediş, saati geçmiş ve
+// ertelenmemiş oturumu bir kez sayar (süresine göre — teacher-payout.ts).
 
 export type ClubSessionView = {
   sessionId: string;
@@ -1374,7 +1410,6 @@ export type ClubSessionView = {
   endAt: string;
   /** İptal edilmemiş üye satırları. */
   rows: import("./types").Lesson[];
-  teacherAttendanceStatus?: import("./types").Lesson["teacherAttendanceStatus"];
   /** Tüm satırlar Telafi (oturum ertelendi). */
   postponed: boolean;
   cancelled: boolean;
@@ -1400,7 +1435,6 @@ export function groupClubSessions(lessons: import("./types").Lesson[], clubId?: 
         startAt: first.startAt,
         endAt: first.endAt,
         rows: live,
-        teacherAttendanceStatus: live.find((l) => l.teacherAttendanceStatus)?.teacherAttendanceStatus,
         postponed: live.length > 0 && live.every((l) => l.opsMakeupFlag),
         cancelled: live.length === 0,
       };
@@ -1434,7 +1468,7 @@ type ScheduleCheck = { ok: true; rows: import("./types").Lesson[] } | { ok: fals
 async function buildSessionRows(
   ctx: ServiceContext,
   input: { club: Club; teacherId: string; roomId: string; startAt: Date; members: string[]; sessionId: string },
-  data: import("./types").AppData,
+  data: LessonWindowData,
   trials: Array<{ teacherId: string; startAt: string; endAt: string; status: string }>,
   extraLessons: import("./types").Lesson[] = []
 ): Promise<ScheduleCheck> {
@@ -1497,12 +1531,12 @@ function activeMemberIdsOn(memberships: ClubMembership[], clubId: string, dayYmd
     });
 }
 
-async function loadClubAndData(ctx: ServiceContext, clubId: string) {
-  const [{ readData }, { listTrialLessons }] = await Promise.all([import("./store"), import("./trial-lessons")]);
+async function loadClubAndData(ctx: ServiceContext, clubId: string, starts: Date[]) {
+  const { listTrialLessons } = await import("./trial-lessons");
   const [clubs, memberships, data, trials] = await Promise.all([
     listClubs(ctx.tenantId),
     listClubMemberships(ctx.tenantId),
-    readData(),
+    readClubLessonData().then((base) => withConflictWindow(base, starts)),
     listTrialLessons(ctx.tenantId),
   ]);
   return { club: clubs.find((c) => c.id === clubId), memberships, data, trials };
@@ -1519,7 +1553,15 @@ export async function scheduleClubSessionsTool(ctx: ServiceContext, input: unkno
 }
 
 async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof scheduleSchema>): Promise<ServiceResult<{ sessionIds: string[] }>> {
-  const { club, memberships, data, trials } = await loadClubAndData(ctx, v.clubId);
+  const { zonedWallTimeToUtc } = await import("./timezone");
+  const [ymd0, hm] = v.startLocal.split("T") as [string, string];
+  const weekYmd = (w: number) => {
+    const day = new Date(`${ymd0}T12:00:00Z`);
+    day.setUTCDate(day.getUTCDate() + 7 * w);
+    return day.toISOString().slice(0, 10);
+  };
+  const starts = Array.from({ length: v.weeks }, (_, w) => zonedWallTimeToUtc(weekYmd(w), hm));
+  const { club, memberships, data, trials } = await loadClubAndData(ctx, v.clubId, starts);
   if (!club) return fail("NOT_FOUND", "Kulüp bulunamadı. Sayfayı yenileyin.");
   if (!club.active) return fail("VALIDATION_ERROR", `${club.name} pasif; oturum planlamak için önce aktif yapın.`);
   if (!club.teacherIds.includes(v.teacherId) || !data.teachers.some((t) => t.id === v.teacherId && t.active)) {
@@ -1529,17 +1571,13 @@ async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof
   const room = data.rooms.find((r) => r.id === v.roomId);
   if (!room || !isRoomSchedulable(room)) return fail("VALIDATION_ERROR", "Seçilen oda bulunamadı veya pasif. Aktif bir oda seçin.");
   if (club.branchId && room.branchId !== club.branchId) return fail("VALIDATION_ERROR", "Oda kulübün şubesinde değil. Kulübün şubesindeki bir odayı seçin.");
-  const { zonedWallTimeToUtc } = await import("./timezone");
-  const [ymd0, hm] = v.startLocal.split("T") as [string, string];
   const rows: import("./types").Lesson[] = [];
   const sessionIds: string[] = [];
   const existing = groupClubSessions(data.lessons, club.id).filter((x) => !x.cancelled && !x.postponed);
   const { formatDateTime } = await import("./utils");
   for (let w = 0; w < v.weeks; w++) {
-    const day = new Date(`${ymd0}T12:00:00Z`);
-    day.setUTCDate(day.getUTCDate() + 7 * w);
-    const ymd = day.toISOString().slice(0, 10);
-    const startAt = zonedWallTimeToUtc(ymd, hm);
+    const ymd = weekYmd(w);
+    const startAt = starts[w]!;
     if (startAt.getTime() < Date.now() - 60 * 60_000) return fail("VALIDATION_ERROR", "Geçmiş bir zamana oturum planlanamaz. Bugün veya ileri bir tarih seçin.");
     // Aynı planı yeniden kaydetmek mükerrer oturum açmaz: bu kulübün aynı başlangıçlı oturumu varsa hiçbiri yazılmaz.
     const dup = existing.find((x) => Date.parse(x.startAt) === startAt.getTime());
@@ -1573,44 +1611,30 @@ async function scheduleClubSessionsLocked(ctx: ServiceContext, v: z.infer<typeof
   return ok({ sessionIds });
 }
 
+/** Oturumu kulüp satırlarından bulur; çakışma denetimi yapan araç `withConflictWindow` ile hedef saati ekler. */
 async function loadSession(ctx: ServiceContext, sessionId: string) {
-  const { readData } = await import("./store");
-  const data = await readData();
+  const data = await readClubLessonData();
   const session = groupClubSessions(data.lessons).find((s) => s.sessionId === sessionId);
   return { data, session };
 }
 
-/** Öğretmen yoklaması — oturumun tüm (iptal edilmemiş) satırlarına birlikte. Hakediş "geldi" oturumu bir kez sayar. */
-export async function markClubSessionTeacherTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ status: string }>> {
-  const auth = requireRole(ctx, ADMIN_ROLES);
-  if (!auth.ok) return fail("FORBIDDEN", "Kulüp oturumu öğretmen yoklamasını yalnız kurum yöneticileri girebilir.");
-  const parsed = z.object({ sessionId: z.string().min(1), status: z.enum(["geldi", "gelmedi", "mazeretli"]) }).safeParse(input);
-  if (!parsed.success) return fail("VALIDATION_ERROR", "Öğretmen yoklaması için Geldi / Gelmedi / Mazeretli seçin.");
-  const { session } = await loadSession(ctx, parsed.data.sessionId);
-  if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya iptal edilmiş. Sayfayı yenileyin.");
-  if (session.postponed && parsed.data.status === "geldi") {
-    return fail("VALIDATION_ERROR", "Bu oturum ertelendi (Telafi); yapılmadığı için öğretmen 'Geldi' işaretlenemez. Yeni tarihteki oturuma girin.");
+/**
+ * 2026-10-21 — yapılmış (saati geçmiş) oturum hakedişe kendiliğinden girer; kayıtlı bir hakediş dönemine düşen
+ * oturum ertelenir/iptal edilir/taşınırsa kayıtlı hakediş sessizce değişirdi. Bu yüzden engellenir.
+ */
+async function clubPayoutLock(sessions: ClubSessionView[]): Promise<string | null> {
+  const past = sessions.filter((x) => Date.parse(x.startAt) <= Date.now());
+  if (!past.length) return null;
+  const { readTeacherPayoutsForTeacher } = await import("./store");
+  const { findPayoutCoveringLesson } = await import("./teacher-payout");
+  const { formatDateTime } = await import("./utils");
+  for (const x of past) {
+    const payout = findPayoutCoveringLesson(await readTeacherPayoutsForTeacher(x.teacherId), x);
+    if (payout) {
+      return `${formatDateTime(x.startAt)} oturumu öğretmenin ${payout.periodStart.slice(0, 10)} – ${payout.periodEnd.slice(0, 10)} kayıtlı hakedişine dahil; değiştirilirse hakediş tutarı değişir. Önce Öğretmen › Hakediş ekranından bu hakediş kaydını iptal edin, sonra tekrar deneyin.`;
+    }
   }
-  if (Date.parse(session.startAt) > Date.now() && parsed.data.status === "geldi") {
-    return fail("VALIDATION_ERROR", "Oturum henüz başlamadı; öğretmen yoklaması oturum saatinden sonra girilir.");
-  }
-  const { patchClubLessons } = await import("./store");
-  await patchClubLessons(
-    session.rows.map((r) => r.id),
-    { teacherAttendanceStatus: parsed.data.status, teacherAttendanceAt: new Date().toISOString(), teacherAttendanceBy: ctx.userId }
-  );
-  const { recordAuditLog } = await import("./audit/log");
-  void recordAuditLog({
-    tenantId: ctx.tenantId,
-    actorUserId: ctx.userId,
-    actorRole: ctx.role,
-    action: "club.session_teacher_attendance",
-    entityType: "ClubSession",
-    entityId: session.sessionId,
-    outcome: "success",
-    meta: { status: parsed.data.status, teacherId: session.teacherId },
-  });
-  return ok({ status: parsed.data.status });
+  return null;
 }
 
 /**
@@ -1626,6 +1650,10 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
       startLocal: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "Yeni tarih ve saati seçin."),
       roomId: z.string().optional(),
       reason: z.string().trim().min(3, "Erteleme gerekçesini yazın (ör. öğretmen hastalandı).").max(300),
+      // Öğretmen performansının tek verisi: "teacher" seçilirse ertelenen oturum öğretmen kaynaklı aksama sayılır.
+      disruptionSource: z.enum(["teacher", "institution", "student", "other"], {
+        error: "Erteleme kaynağını seçin (Öğretmen / Kurum / Öğrenci / Diğer).",
+      }),
     })
     .safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Erteleme bilgilerini kontrol edin.");
@@ -1633,7 +1661,8 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
   const { session, data } = await loadSession(ctx, v.sessionId);
   if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya iptal edilmiş. Sayfayı yenileyin.");
   if (session.postponed) return fail("CONFLICT", "Bu oturum zaten ertelenmiş.");
-  if (session.teacherAttendanceStatus === "geldi") return fail("CONFLICT", "Öğretmen yoklaması 'Geldi' — yapılmış oturum ertelenemez. Önce öğretmen yoklamasını düzeltin.");
+  const postponeLock = await clubPayoutLock([session]);
+  if (postponeLock) return fail("CONFLICT", postponeLock);
   const marked = session.rows.filter((r) => r.studentAttended || r.lessonProcessed || r.status === "completed");
   if (marked.length) {
     return fail("CONFLICT", `${marked.length} üyenin yoklaması Geldi/İşlendi işaretli; ertelemeden önce bu işaretleri geri alın.`);
@@ -1655,17 +1684,24 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
     ctx,
     { club, teacherId: session.teacherId, roomId, startAt, members: session.rows.map((r) => r.studentId), sessionId: newSessionId },
     // Ertelenen oturumun kendi satırları yeni saatle çakışma saymasın (aynı üyeler/öğretmen).
-    { ...data, lessons: data.lessons.filter((l) => l.clubSessionId !== session.sessionId) },
+    await withConflictWindow(data, [startAt]).then((d) => ({ ...d, lessons: d.lessons.filter((l) => l.clubSessionId !== session.sessionId) })),
     await listTrialLessons(ctx.tenantId)
   );
   if (!built.ok) return fail("CONFLICT", built.message);
   const { addClubSessionLessons, patchClubLessons } = await import("./store");
   const { formatDateTime } = await import("./utils");
+  const { buildDisruptionPatch } = await import("./lesson-disruption");
   await addClubSessionLessons(built.rows.map((r) => ({ ...r, notes: `${club.name} — ${formatDateTime(session.startAt)} oturumunun telafisi` })));
   const now = new Date().toISOString();
   await patchClubLessons(
     session.rows.map((r) => r.id),
-    { opsMakeupFlag: true, opsMakeupFlagAt: now, opsMakeupFlagBy: ctx.userId, notes: `${club.name} — ertelendi → ${formatDateTime(startAt.toISOString())} (${v.reason})` }
+    {
+      opsMakeupFlag: true,
+      opsMakeupFlagAt: now,
+      opsMakeupFlagBy: ctx.userId,
+      ...buildDisruptionPatch({ source: v.disruptionSource, note: v.reason }, ctx.userId),
+      notes: `${club.name} — ertelendi → ${formatDateTime(startAt.toISOString())} (${v.reason})`,
+    }
   );
   const { recordAuditLog } = await import("./audit/log");
   void recordAuditLog({
@@ -1676,7 +1712,7 @@ export async function postponeClubSessionTool(ctx: ServiceContext, input: unknow
     entityType: "ClubSession",
     entityId: session.sessionId,
     outcome: "success",
-    meta: { newSessionId, rows: session.rows.length },
+    meta: { newSessionId, rows: session.rows.length, disruptionSource: v.disruptionSource },
   });
   return ok({ newSessionId });
 }
@@ -1690,7 +1726,9 @@ export async function cancelClubSessionTool(ctx: ServiceContext, input: unknown)
   const { session } = await loadSession(ctx, parsed.data.sessionId);
   if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya zaten iptal edilmiş.");
   const touched = session.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || r.opsMakeupFlag);
-  if (touched || session.teacherAttendanceStatus) {
+  const cancelLock = await clubPayoutLock([session]);
+  if (cancelLock) return fail("CONFLICT", cancelLock);
+  if (touched) {
     return fail("CONFLICT", "Bu oturuma yoklama girilmiş; iptal edilemez. Yapılmadıysa 'Oturumu ertele' kullanın ya da yoklamaları geri alın.");
   }
   const { patchClubLessons } = await import("./store");
@@ -1721,7 +1759,7 @@ const rescheduleSchema = z.object({
 
 /**
  * 2026-10-07 — YANLIŞ GİRİLEN oturumu düzeltir (erteleme DEĞİL; Telafi statüsü açılmaz): tarih/saat, oda,
- * öğretmen. Yalnız yoklaması/öğretmen yoklaması girilmemiş oturumlar. Tüm hedefler doğrulanmadan hiçbiri yazılmaz.
+ * öğretmen. Yalnız yoklaması girilmemiş oturumlar. Tüm hedefler doğrulanmadan hiçbiri yazılmaz.
  */
 export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<{ moved: number }>> {
   const auth = requireRole(ctx, ADMIN_ROLES);
@@ -1732,8 +1770,7 @@ export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unkn
   const { session, data } = await loadSession(ctx, v.sessionId);
   if (!session || session.cancelled) return fail("NOT_FOUND", "Oturum bulunamadı veya iptal edilmiş. Sayfayı yenileyin.");
   if (session.postponed) return fail("CONFLICT", "Bu oturum ertelenmiş (Telafi); yeni tarihteki oturumu düzenleyin.");
-  const touched = (x: ClubSessionView) => x.rows.some(rowTouched) || !!x.teacherAttendanceStatus;
-  if (touched(session)) {
+  if (session.rows.some(rowTouched)) {
     return fail("CONFLICT", "Bu oturuma yoklama girilmiş; tarihi düzeltilemez. Önce yoklamaları geri alın ya da yapılamadıysa 'Oturumu ertele' kullanın.");
   }
   const club = (await listClubs(ctx.tenantId)).find((c) => c.id === session.clubId);
@@ -1761,12 +1798,15 @@ export async function rescheduleClubSessionTool(ctx: ServiceContext, input: unkn
     const key = localKey(session.startAt);
     targets.push(
       ...groupClubSessions(data.lessons, club.id).filter(
-        (x) => x.sessionId !== session.sessionId && !x.cancelled && !x.postponed && x.startAt > session.startAt && localKey(x.startAt) === key && !touched(x)
+        (x) => x.sessionId !== session.sessionId && !x.cancelled && !x.postponed && x.startAt > session.startAt && localKey(x.startAt) === key && !x.rows.some(rowTouched)
       )
     );
   }
+  const moveLock = await clubPayoutLock(targets);
+  if (moveLock) return fail("CONFLICT", moveLock);
   const movingIds = new Set(targets.map((x) => x.sessionId));
-  const others = { ...data, lessons: data.lessons.filter((l) => !l.clubSessionId || !movingIds.has(l.clubSessionId)) };
+  const wide = await withConflictWindow(data, targets.map((x) => new Date(Date.parse(x.startAt) + delta)));
+  const others = { ...wide, lessons: wide.lessons.filter((l) => !l.clubSessionId || !movingIds.has(l.clubSessionId)) };
   const { listTrialLessons } = await import("./trial-lessons");
   const trials = await listTrialLessons(ctx.tenantId);
   const planned: import("./types").Lesson[] = [];
@@ -1811,10 +1851,14 @@ export async function syncFutureSessionsForMember(
   m: ClubMembership,
   mode: "join" | "leave"
 ): Promise<string[]> {
-  const { readData, addClubSessionLessons, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { readStudentScope, addClubSessionLessons, patchClubLessons } = await import("./store");
+  // DB egress (2026-10-19) — kulüp satırları + (katılımda) üyenin kendi dersleri; çakışma yalnız öğrenci kaynağında aranır.
+  const club0 = await readClubLessonData();
+  const own = mode === "join" ? (await readStudentScope(m.studentId)).lessons : [];
+  const seen = new Set(club0.lessons.map((l) => l.id));
+  const lessons = [...club0.lessons, ...own.filter((l) => !seen.has(l.id))];
   const now = Date.now();
-  const sessions = groupClubSessions(data.lessons, m.clubId).filter((s) => !s.cancelled && !s.postponed && Date.parse(s.startAt) > now);
+  const sessions = groupClubSessions(lessons, m.clubId).filter((s) => !s.cancelled && !s.postponed && Date.parse(s.startAt) > now);
   if (mode === "leave") {
     // Bitişten sonraki ve (başlangıç düzeltildiyse) başlangıçtan önceki gelecek satırlar; yoklama girilmiş satıra dokunulmaz.
     const outside = (ymd: string) => !membershipCoversDay(m, ymd);
@@ -1834,7 +1878,7 @@ export async function syncFutureSessionsForMember(
     if (s.rows.some((r) => r.studentId === m.studentId)) continue;
     const ymd = toZonedYmd(new Date(s.startAt), DEFAULT_APP_TIMEZONE);
     if (!membershipCoversDay(m, ymd)) continue;
-    const clash = findSlotConflict(data.lessons, {
+    const clash = findSlotConflict(lessons, {
       teacherId: "__club_none__",
       roomId: "__club_none__",
       studentId: m.studentId,
@@ -1892,17 +1936,15 @@ export type ClubDeleteImpact = {
 };
 
 async function clubDeleteImpact(tenantId: string, club: Club): Promise<ClubDeleteImpact> {
-  const { readData } = await import("./store");
-  const [data, memberships] = await Promise.all([readData(), listClubMemberships(tenantId)]);
+  const [data, memberships] = await Promise.all([readClubRows(), listClubMemberships(tenantId)]);
   const mine = memberships.filter((m) => m.clubId === club.id);
   const ids = new Set(mine.map((m) => m.id));
   const fees = data.payments.filter((p) => p.source === "club" && p.clubMembershipId && ids.has(p.clubMembershipId) && p.status !== "voided");
   const paid = fees.filter((p) => p.paidAmount > 0);
   const sessions = groupClubSessions(data.lessons, club.id).filter((s) => !s.cancelled);
-  // Yoklama = öğretmen yoklaması veya öğrenci statüsü. Toptan erteleme (tüm satırlar Telafi) planlama işlemidir, sayılmaz.
+  // Yoklama = öğrenci statüsü. Toptan erteleme (tüm satırlar Telafi) planlama işlemidir, sayılmaz.
   const touched = sessions.filter(
     (s) =>
-      s.teacherAttendanceStatus ||
       s.rows.some((r) => r.studentAttended || r.lessonProcessed || r.studentAbsent || r.studentExcused || (r.opsMakeupFlag && !s.postponed))
   );
   const open = fees.filter((p) => p.paidAmount === 0);
@@ -1947,8 +1989,8 @@ export async function deleteClubTool(ctx: ServiceContext, input: unknown): Promi
   const impact = await clubDeleteImpact(ctx.tenantId, club);
   if (impact.blocker) return fail("CONFLICT", impact.blocker);
 
-  const { readData, patchClubLessons } = await import("./store");
-  const data = await readData();
+  const { patchClubLessons } = await import("./store");
+  const data = await readClubRows();
   const memberships = (await listClubMemberships(ctx.tenantId)).filter((m) => m.clubId === club.id);
   const ids = new Set(memberships.map((m) => m.id));
   const { collectPayment } = await import("./payments/collect");
@@ -2002,15 +2044,20 @@ export async function deleteClubTool(ctx: ServiceContext, input: unknown): Promi
  * satırları birlikte yönetilir. db'de tek alanlık dar sorgu (tam veri okunmaz).
  */
 export async function clubRowGuard(tenantId: string, lessonId: string): Promise<ServiceResult<never> | null> {
-  let type: string | undefined;
+  let row: { type?: string; groupLessonId?: string | null } | undefined;
   if (isDbMode) {
     const { prisma } = await import("./db");
-    type = (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId }, select: { type: true } }))?.type;
+    row = (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId }, select: { type: true, groupLessonId: true } })) ?? undefined;
   } else {
     const { readData } = await import("./store");
-    type = (await readData()).lessons.find((l) => l.id === lessonId)?.type;
+    row = (await readData()).lessons.find((l) => l.id === lessonId);
   }
-  return type === "group"
-    ? fail("VALIDATION_ERROR", "Bu bir kulüp oturumu satırı. Saat, oda, öğretmen, iptal ve erteleme işlemlerini Kulüpler → ilgili kulüp → oturum ekranından yapın.")
-    : null;
+  if (row?.type === "group") {
+    return fail("VALIDATION_ERROR", "Bu bir kulüp oturumu satırı. Saat, oda, öğretmen, iptal ve erteleme işlemlerini Kulüpler → ilgili kulüp → oturum ekranından yapın.");
+  }
+  // 2026-10-23 — grup dersi katılımcı satırı tek başına taşınmaz/silinmez (oturumdan kopar); yoklama serbesttir.
+  if (row?.groupLessonId) {
+    return fail("VALIDATION_ERROR", "Bu ders bir grup dersi oturumunun parçası. Saat, oda, öğretmen ve iptal işlemlerini Grup Dersleri → ilgili grup ekranından yapın; öğrenciyi gruptan çıkarmak için branş kaydını sonlandırın.");
+  }
+  return null;
 }

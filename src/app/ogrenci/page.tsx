@@ -19,9 +19,10 @@ import { requireSessionContext } from "@/lib/auth/session";
 import { readStudentScope } from "@/lib/store";
 import { listTerminalContractIds } from "@/lib/contracts";
 import { effectiveEnrollments, enrollmentLabel } from "@/lib/student-enrollments";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
 import { splitStudentDebt } from "@/lib/payment-profile";
 import { listAnnouncementsForUserTool, listCurriculumForStudentTool } from "@/lib/services";
-import { listNotificationsForUser } from "@/lib/notifications";
+import { listNotificationsPageForUser } from "@/lib/notifications";
 import { listClosedDays } from "@/lib/closed-day-overrides";
 import { NotificationList } from "@/components/notification-list";
 import { AnnouncementAttachments } from "@/components/announcement-attachments";
@@ -164,11 +165,11 @@ export default async function OgrenciPortalPage({
     .sort((a, b) => b.startAt.localeCompare(a.startAt))
     .slice(0, 5);
 
-  const notifications = await listNotificationsForUser({
-    tenantId: data.settings.tenantId,
-    userId: session.userId,
-    studentId: student.id,
-  });
+  // DB egress (2026-10-18): öğrencinin tüm bildirimleri yerine en yeni 50'si.
+  const { notifications } = await listNotificationsPageForUser(
+    { tenantId: data.settings.tenantId, userId: session.userId, studentId: student.id },
+    { limit: 50 }
+  );
 
   const announcementsResult = await listAnnouncementsForUserTool(session);
   const announcements = announcementsResult.ok ? announcementsResult.data.announcements : [];
@@ -367,6 +368,7 @@ export default async function OgrenciPortalPage({
                   <p className="mt-2 text-base font-semibold text-[var(--color-text)]">{formatDateTime(lesson.startAt)}</p>
                   <p className="text-sm text-[var(--color-text-muted)]">
                     {formatTime(lesson.startAt)}–{formatTime(lesson.endAt)} · {lesson.instrument}
+                    {lesson.groupLessonId ? " · Grup dersi" : ""}
                   </p>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">
                     {makeupTeacher?.name} · {makeupBranch?.shortName}
@@ -486,6 +488,7 @@ export default async function OgrenciPortalPage({
                             >
                               <p className="font-semibold text-[var(--color-text)]">
                                 {formatTime(l.startAt)}–{formatTime(l.endAt)} · {l.instrument}
+                                {l.groupLessonId ? " · Grup dersi" : ""}
                               </p>
                               <p className="text-[var(--color-text-muted)]">{lessonTeacher?.name ?? "—"}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -570,7 +573,7 @@ export default async function OgrenciPortalPage({
                       <div>
                         <p className="text-sm font-medium text-[var(--color-text)]">
                           {portalBranchOf(p) ? `${portalBranchOf(p)} · ` : ""}
-                          {p.description}
+                          {contractInstallmentProgressDescription(p)}
                         </p>
                         <p className="text-xs text-[var(--color-text-muted)]">
                           {p.status === "partial"

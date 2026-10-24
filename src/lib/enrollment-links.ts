@@ -6,7 +6,7 @@
  * öğrencide bağsız kayıt TAHMİNLE bağlanmaz; "Branş belirtilmemiş" kalır ve "Branşa bağla" ile açıkça bağlanır.
  */
 import { createHash } from "crypto";
-import type { Student, StudentEnrollment, Teacher } from "./types";
+import type { StudentEnrollment, StudentRef, Teacher } from "./types";
 import { effectiveEnrollments, primaryFieldsFromEnrollments } from "./student-enrollments";
 
 /** Türetilmiş (eski) eğitimin kalıcı kimliği — öğrenci + enstrümandan DETERMİNİSTİK (tekrar çalıştırmada aynı). */
@@ -41,7 +41,7 @@ export async function linkStudentHistoryToEnrollment(
  */
 export async function ensurePersistedEnrollments(
   tenantId: string,
-  student: Student,
+  student: StudentRef,
   teachers: Pick<Teacher, "id" | "instruments">[]
 ): Promise<StudentEnrollment[]> {
   if (student.enrollments && student.enrollments.length > 0) return student.enrollments;

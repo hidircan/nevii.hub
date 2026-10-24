@@ -10,7 +10,7 @@ import { getCollectionRoi, getCollectionsDashboard, listFollowUpCases, mergeColl
 import { isSmsTestMode, isSmsProviderConfigured } from "@/lib/sms";
 import { buildTahsilatQueue } from "@/lib/tahsilat/queue";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedPaymentsListData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { CollectionsIntakeScan } from "@/components/collections-intake-scan";
 
@@ -38,7 +38,8 @@ export default async function TahsilatAgentPage({
   const backLabel = fromPayments ? "Ödemelere dön" : "AI Özet'e dön";
   const kurum = await getInstitutionContext(session);
   const tenantIds = kurum.scope.mode === "all" ? kurum.scope.tenantIds : [kurum.scope.tenantId];
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-19) — kuyruk yalnız ödemeleri ve öğrenci adını/velisini okur (eskiden tam kurum okuması).
+  const data = await readScopedPaymentsListData(kurum.scope);
   const roi = mergeCollectionRoi(await Promise.all(tenantIds.map((tid) => getCollectionRoi(tid))));
   const dashboards = await Promise.all(tenantIds.map((tid) => getCollectionsDashboard(tid)));
   const dashboard = dashboards[0];

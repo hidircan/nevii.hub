@@ -352,6 +352,46 @@ export async function listNotificationsForUser(
     .map(toPublicNotification);
 }
 
+/**
+ * Tekilleştirme ön kontrolü (`notifyUserIfEnabled`): kullanıcının `since` sonrasında, aynı `kind`'da,
+ * gövdesinde `bodyIncludes` geçen bildirimi var mı?
+ *
+ * DB egress (2026-10-16): eskiden kullanıcının TÜM bildirimleri okunup bellekte aranıyordu; bildirim
+ * taraması bunu bekleyen ödeme × yönetici kez yaptığı için okunan satır, biriken bildirimle karesel
+ * büyüyordu. Aynı kural artık SQL'de; en fazla 1 satırın kimliği döner.
+ */
+export async function hasRecentNotification(input: {
+  tenantId: string;
+  userId: string;
+  kind: string;
+  bodyIncludes: string;
+  since: Date;
+}): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await db();
+    const row = await prisma.notification.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        targetUserId: input.userId,
+        kind: input.kind,
+        createdAt: { gte: input.since },
+        ...(input.bodyIncludes ? { body: { contains: input.bodyIncludes } } : {}),
+      },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+  const sinceMs = input.since.getTime();
+  return (await loadAll()).some(
+    (n) =>
+      n.tenantId === input.tenantId &&
+      n.targetUserId === input.userId &&
+      n.kind === input.kind &&
+      n.body.includes(input.bodyIncludes) &&
+      new Date(n.createdAt).getTime() >= sinceMs
+  );
+}
+
 /** cursor := base64(JSON {createdAt,id}) of the last item seen on the previous page. */
 function encodeCursor(n: Notification): string {
   return Buffer.from(JSON.stringify({ createdAt: n.createdAt, id: n.id })).toString("base64");

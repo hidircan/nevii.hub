@@ -124,10 +124,14 @@ export async function refreshMobilePolicy(tenantId: string, userId: string): Pro
   return null;
 }
 
-/** Kapı ekranı metinleri — persona'ya göre kapanma nedeni. */
+/**
+ * Kapı ekranı metinleri. Başlık her nedende aynıdır ("Mobil erişim kapalı") —
+ * gerçek neden (paket hakkı, kurum ayarı, portal…) gövdedeki sunucu
+ * nedenlerindedir; başlık bu nedenle asla çelişmez.
+ */
 export function blockedCopyFor(persona: MobilePersona | null, reasons: string[]): { title: string; body: string } {
   const detail = reasons.length > 0 ? reasons.join(" ") : "Bu kurumda mobil erişim kapalı.";
-  if (persona === "teacher") return { title: "Öğretmen mobil portalı kapalı", body: `${detail} Web panelini kullanabilirsiniz.` };
-  if (persona === "admin") return { title: "Yönetici mobil portalı kapalı", body: `${detail} Web panelini kullanabilirsiniz.` };
-  return { title: "Mobil erişim kapalı", body: `${detail} Kurumunuzla iletişime geçin.` };
+  const title = "Mobil erişim kapalı";
+  if (persona === "teacher" || persona === "admin") return { title, body: `${detail} Bu sırada web panelini kullanabilirsiniz.` };
+  return { title, body: `${detail} Kurumunuzla iletişime geçin.` };
 }

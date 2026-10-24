@@ -15,6 +15,7 @@ import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function OgretmenPortalPage() {
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const students = data.students.filter((s) => s.teacherId === teacher.id && s.active);
+  const students = data.students.filter((s) => isOwnStudent(s, teacher.id) && s.active);
 
   const today = new Date().toISOString().slice(0, 10);
   const todayLessons = data.lessons
@@ -114,7 +115,7 @@ export default async function OgretmenPortalPage() {
                           {formatTime(lesson.startAt)} · {student?.name}
                         </p>
                         <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                          {lesson.instrument} · {lessonBranch?.shortName ?? "—"} · {room?.name}
+                          {lesson.instrument}{lesson.groupLessonId ? " · Grup dersi" : ""} · {lessonBranch?.shortName ?? "—"} · {room?.name}
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
@@ -269,7 +270,7 @@ export default async function OgretmenPortalPage() {
                     <div>
                       <p className="font-medium text-[var(--color-text)] dark:text-slate-200">{formatDateTime(l.startAt)}</p>
                       <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {student?.name} · {l.instrument}
+                        {student?.name} · {l.instrument}{l.groupLessonId ? " · Grup dersi" : ""}
                       </p>
                     </div>
                     {l.type === "makeup" ? <Badge status="makeup" /> : null}

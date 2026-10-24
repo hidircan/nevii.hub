@@ -1,4 +1,5 @@
 import { canRunCriticalActions } from "@/lib/critical-action-password";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
@@ -7,6 +8,9 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { StudentArchiveToggle } from "@/components/student-archive-toggle";
 import { StudentDeleteDialog, StudentDeletedBanner } from "@/components/student-delete-dialog";
 import { StudentDetailTabs } from "@/components/student-detail-tabs";
+import { StudentBranchSwitcher } from "@/components/student-branch-switcher";
+import { Suspense } from "react";
+import { effectiveEnrollments, enrollmentDisplayName, enrollmentTerms } from "@/lib/student-enrollments";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { effectiveStudentTypes } from "@/lib/student-types";
@@ -57,6 +61,12 @@ export default async function StudentDetailLayout({
 
   const teacher = data.teachers.find((t) => t.id === student.teacherId);
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
+  // 2026-10-10 — çok branşlı öğrencide başlıkta TEK öğretmen/paket/tür gösterilmez (öğrenci satırı yalnız uyumluluk aynasıdır);
+  // her branş kendi öğretmeni ve türüyle listelenir.
+  const branchList = effectiveEnrollments(student, data.teachers);
+  const multiBranch = branchList.length > 1;
+  const branchRows = branchList.map((e) => ({ enrollment: e, terms: enrollmentTerms(student, e, data.teachers), label: enrollmentDisplayName(e, branchList, data.teachers) }));
+  const activeBranchRows = branchRows.filter((r) => r.enrollment.active);
   const convertedBy = student.convertedByUserId
     ? await resolveActorLabel({ tenantId: session.tenantId, userId: student.convertedByUserId, teachers: data.teachers })
     : null;
@@ -79,7 +89,7 @@ export default async function StudentDetailLayout({
       <PageHeader
         title={student.name}
         description={`${student.displayId ? `${student.displayId} · ` : ""}${branch?.shortName ?? "—"} · ${
-          student.packageName.split("—")[0]?.trim() ?? student.packageName
+          multiBranch ? `${activeBranchRows.length} aktif branş` : (student.packageName.split("—")[0]?.trim() ?? student.packageName)
         }`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -96,11 +106,19 @@ export default async function StudentDetailLayout({
             {isOwner && !student.deletedAt && kurum.scope.mode === "single" ? (
               <StudentDeleteDialog studentId={student.id} studentName={student.name} />
             ) : null}
+            {isOwner && student.deletedAt && !student.purgedAt && kurum.scope.mode === "single" ? (
+              <PersonPurgeDialog kind="student" id={student.id} name={student.name} />
+            ) : null}
           </div>
         }
       />
 
-      {student.deletedAt ? (
+      {student.purgedAt ? (
+        <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-muted)]">
+          Bu kayıt kalıcı silindi. Kişisel bilgiler silindi; korunan ödeme, sözleşme ve ders geçmişi için anonim olarak tutuluyor.
+          Geri alınamaz.
+        </p>
+      ) : student.deletedAt ? (
         <StudentDeletedBanner
           studentId={student.id}
           deletedAtLabel={formatDateTime(student.deletedAt)}
@@ -113,12 +131,19 @@ export default async function StudentDetailLayout({
       <Card className="mb-4 !p-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <Badge status={student.active ? "confirmed" : "cancelled"}>{student.active ? "Aktif" : "Pasif"}</Badge>
-          {effectiveStudentTypes(student).map((t) => (
-            <Badge key={t}>{t}</Badge>
-          ))}
+          {multiBranch
+            ? activeBranchRows.map((r) => (
+                <span key={r.enrollment.id} className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-xs">
+                  <span className="font-medium text-[var(--color-text)]">{r.label}</span>
+                  {r.terms.studentTypes.map((t) => (
+                    <Badge key={t}>{t}</Badge>
+                  ))}
+                </span>
+              ))
+            : effectiveStudentTypes(student).map((t) => <Badge key={t}>{t}</Badge>)}
           {student.educationMethod ? <Badge>{student.educationMethod}</Badge> : null}
           <span className="text-[var(--color-text-muted)]">
-            Öğretmen: {teacher?.name ?? "—"} · Kayıt:{" "}
+            {multiBranch ? "" : `Öğretmen: ${teacher?.name ?? "—"} · `}Kayıt:{" "}
             {student.enrollmentStartDate ? formatDate(student.enrollmentStartDate) : formatDate(student.createdAt)}
             {` · Kaydı oluşturan: ${createdBy ?? "Bilinmiyor (eski kayıt)"}`}
           </span>
@@ -137,20 +162,28 @@ export default async function StudentDetailLayout({
           kayıt zamanında geçerli olan atamanın artık geçersiz hâle geldiğini
           açık Türkçe uyarıyla göstererek sessiz veri kaybını önlüyoruz.
         */}
-        {teacher && (!teacher.active || !student.instruments.some((i) => teacher.instruments.includes(i))) ? (
-          <p
-            className="mt-2 rounded-md px-3 py-2 text-xs font-medium"
-            style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)" }}
-          >
-            {!teacher.active
-              ? `Uyarı: atanmış öğretmen "${teacher.name}" artık pasif.`
-              : `Uyarı: atanmış öğretmen "${teacher.name}" artık "${student.instruments.join(", ")}" enstrümanını öğretmiyor.`}{" "}
-            Devam etmeden önce Öğretmenler ekranından uygunluğu kontrol edin.
-          </p>
-        ) : null}
+        {(multiBranch ? activeBranchRows.map((r) => ({ label: r.label, t: data.teachers.find((x) => x.id === r.terms.teacherId), instruments: [r.enrollment.instrument] })) : teacher ? [{ label: "", t: teacher, instruments: student.instruments as string[] }] : [])
+          .filter((x) => x.t && (!x.t.active || !x.instruments.some((i) => x.t!.instruments.includes(i as never))))
+          .map((x) => (
+            <p key={x.label + x.t!.id} className="mt-2 rounded-md px-3 py-2 text-xs font-medium" style={{ background: "var(--color-warning-soft)", color: "var(--color-warning)" }}>
+              {x.label ? `${x.label}: ` : ""}
+              {!x.t!.active
+                ? `Uyarı: atanmış öğretmen "${x.t!.name}" artık pasif.`
+                : `Uyarı: atanmış öğretmen "${x.t!.name}" artık "${x.instruments.join(", ")}" enstrümanını öğretmiyor.`}{" "}
+              Devam etmeden önce Öğretmenler ekranından uygunluğu kontrol edin.
+            </p>
+          ))}
       </Card>
 
-      <StudentDetailTabs studentId={student.id} />
+      <Suspense fallback={null}>
+        <StudentBranchSwitcher
+          items={branchRows.map((r) => ({ id: r.enrollment.id, label: r.label, active: r.enrollment.active }))}
+        />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <StudentDetailTabs studentId={student.id} />
+      </Suspense>
 
       {children}
     </div>

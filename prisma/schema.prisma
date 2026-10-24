@@ -57,8 +57,10 @@ model Tenant {
   accountDeletionRequests     AccountDeletionRequest[]
   announcements               Announcement[]
   panelNotes                  PanelNote[]
+  feedbackInvites             FeedbackInvite[]
   trialApplications           TrialApplication[]
   clubs                       Club[]
+  groupLessons                GroupLesson[]
   clubMemberships             ClubMembership[]
   clubApplications            ClubApplication[]
   lessonAssessments           LessonAssessment[]
@@ -114,6 +116,7 @@ model User {
   passwordHash String
   role         String
   teacherId    String?
+  invitationPending Boolean @default(false)
   /// DEPRECATED — Karma Öğrenci Portalı öncesi tekil öğrenci bağlantısı.
   /// Geriye dönük uyumluluk/migration kaynağı olarak korunuyor; yeni
   /// authorization kodu bunu OKUMAZ (bkz. StudentPortalAccess).
@@ -446,6 +449,7 @@ model PasswordResetToken {
   tenantId  String
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
+  purpose   String    @default("password_reset")
   tokenHash String
   expiresAt DateTime
   /// NeviiOS — yönetici başlatmalı sıfırlamada başlatan kullanıcı; kendi talebinde (şifremi unuttum) null.
@@ -591,6 +595,8 @@ model Teacher {
   deletedAt             DateTime?
   deletedByUserId       String?
   deletionReason        String?
+  /// 2026-10-15 — kalıcı silindi, geçmiş için anonimleştirilerek tutuldu (bkz. Student.purgedAt).
+  purgedAt              DateTime?
   /// ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
   /// TS tipinde (Teacher) zaten vardı ama hiçbir zaman DB'de karşılığı yoktu
   /// (db modunda hep sessizce kayboluyordu) — CSV'nin `lise/universite/
@@ -797,6 +803,9 @@ model Student {
   deletedAt                DateTime?
   deletedByUserId          String?
   deletionReason           String?
+  /// 2026-10-15 — kalıcı silindi; korunan finans/hakediş geçmişi için satır anonimleştirilerek tutuldu.
+  /// Doluysa kişi hiçbir listede (Silinenler dahil) görünmez, geri alınamaz. Bkz. src/lib/person-purge.ts.
+  purgedAt                 DateTime?
   /// ÖNCELİK 4 — "guz" (Eylül-Haziran) | "yaz" (Temmuz-Ağustos). Boşsa "guz"
   /// varsayılır (mevcut kayıtların çoğu normal dönem öğrencisi).
   termType                 String?
@@ -889,7 +898,14 @@ model Lesson {
   /// `clubSessionId` ile bağlı (birbirleriyle çakışma saymaz; başka derslerle sayar). Hakediş oturum başına bir kez.
   clubId                  String?
   clubSessionId           String?
+  /// 2026-10-23 — GRUP DERSİ katılımcı satırı (`type` normal ders tipidir, ör. "regular"): öğrenci başına bir satır;
+  /// aynı oturumun satırları `groupSessionId` ile bağlı (birbirleriyle çakışma saymaz). Hakediş oturum başına bir kez.
+  groupLessonId           String?
+  groupSessionId          String?
   notes                   String?
+  /// Geldi yoklamasının isteğe bağlı notu. Boş/null serbest; statü değişimi silmez.
+  /// Hakediş ve ücret hesabı bu alanı okumaz.
+  studentAttendanceNote   String?
   /// Dersi planlayan kullanıcı (User.id). Eski kayıtlarda null.
   createdByUserId         String?
   /// EPIC 8 — öğretmenin "Dersi başlat"/"Dersi bitir" ile damgaladığı GERÇEK
@@ -941,14 +957,8 @@ model Lesson {
   /// override edilemez — bu iki alan yalnızca bu TEK durum için dolar.
   availabilityOverrideBy  String?
   availabilityOverrideAt  DateTime?
-  /// Faz 2 — öğretmenin KENDİ derse gelip gelmediği, öğrenci yoklamasından
-  /// bağımsız. "geldi" | "gelmedi" | "mazeretli"; NULL = Bekliyor.
-  teacherAttendanceStatus String?
-  teacherAttendanceAt     DateTime?
-  teacherAttendanceBy     String?
-  teacherAttendanceNote   String?       @db.Text
-  /// 9. tur — İptal/Telafi kararının KAYNAĞI, öğretmen katılımından ve ders
-  /// statüsünden AYRI alan: "teacher" | "institution" | "student" | "other".
+  /// 9. tur — İptal/Telafi kararının KAYNAĞI, ders statüsünden AYRI alan
+  /// ("teacher" = öğretmen performansının tek verisi; ayrı öğretmen yoklaması yok): "teacher" | "institution" | "student" | "other".
   /// NULL = belirtilmemiş (eski kayıtlar sessizce öğretmene/kuruma atanmaz).
   /// teacher/institution kaynaklı telafi öğrencinin kişisel telafi hakkından düşmez.
   disruptionSource        String?
@@ -963,6 +973,8 @@ model Lesson {
   @@index([tenantId, term, academicYearStart])
 
   @@index([tenantId, clubSessionId])
+  @@index([tenantId, groupSessionId])
+  @@index([tenantId, groupLessonId])
 }
 
 /// Haftalık tekrarlayan ders serisi — dönem boyunca üretilen Lesson
@@ -1198,9 +1210,12 @@ model MakeupRequest {
   decidedAt          DateTime?
   slaDeadline        DateTime?
   slaEscalationLevel Int        @default(0)
+  /// Telafi süre uzatma / revizyon / plan silme / hak iptali izi (kim, ne zaman, eski/yeni).
+  changeLog          Json       @default("[]")
 
   @@index([tenantId])
   @@index([sourceLessonId])
+  @@index([tenantId, status, expiresAt])
 }
 
 model Payment {
@@ -1515,6 +1530,23 @@ model Announcement {
 
 /// 2026-10-05 — Günlük Özet "Notlar": personelin sonraki vardiyaya bıraktığı serbest not. Yalnız eklenir;
 /// kim (userId + yazıldığı andaki ad) ve ne zaman kalıcıdır.
+/// 2026-10-14 — Rapor portalı: öğrenciye/veliye yöneticinin gönderdiği kişiye özel, 14 gün geçerli değerlendirme
+/// bağlantısı. Kod düz metin SAKLANMAZ (yalnız sha256). Her uygun öğretmen bir kez değerlendirilir; hepsi bitince kapanır.
+model FeedbackInvite {
+  id                  String    @id
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  studentId           String
+  tokenHash           String    @unique
+  createdBy           String
+  createdAt           DateTime  @default(now())
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  completedTeacherIds Json      @default("[]")
+
+  @@index([tenantId, studentId])
+}
+
 model PanelNote {
   id              String   @id
   tenantId        String
@@ -3229,4 +3261,41 @@ model PlatformDeployment {
   createdAt   DateTime @default(now())
 
   @@index([product, environment, createdAt])
+}
+
+/// 2026-10-23 — GRUP DERSİ tanımı (kulüpten AYRI domain). Katılım = öğrencinin branş kaydı
+/// (`Student.enrollments[].groupLessonId`); ücret/sözleşme/tahakkuk o kaydın normal koşullarından yürür.
+/// Oturumlar ayrı tablo değildir: plan (tekrar düzeni + ek/iptal oturumlar) burada, gerçekleşen ders satırları
+/// `Lesson.groupLessonId` + `groupSessionId` ile kanonik ders tablosundadır. Silinmez; `status` ile biter.
+model GroupLesson {
+  id               String   @id
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  teacherId        String
+  instrument       String
+  branchId         String
+  roomId           String
+  capacity         Int
+  durationMinutes  Int
+  /// Grup öğrencisi başına aylık ücret (TL) — yeni katılan öğrencinin branş kaydına önerilir; mevcut kayıtları değiştirmez.
+  monthlyFee       Int
+  /// "weekly" | "once"
+  recurrence       String
+  /// 0=Pazar … 6=Cumartesi (LessonSeries ile aynı kural); "once" için startsOn'un günü.
+  weekday          Int
+  /// "HH:mm" kurum saati.
+  startTime        String
+  /// YYYY-MM-DD
+  startsOn         String
+  endsOn           String
+  /// { extra: ISO[], cancelled: oturumAnahtarı[] }
+  sessionOverrides Json?
+  /// "active" | "ended"
+  status           String   @default("active")
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, status])
 }

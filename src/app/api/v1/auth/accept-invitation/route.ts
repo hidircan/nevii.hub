@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail } from "@/lib/api/http";
-import { consumePasswordResetToken, hashPassword, updatePasswordHash, auditLog, isRateLimited } from "@/lib/auth";
+import {
+  consumePasswordResetToken,
+  hashPassword,
+  updatePasswordHash,
+  auditLog,
+  isRateLimited,
+  setTeacherInvitationPending,
+} from "@/lib/auth";
 import { activatePendingPortalAccessForUser } from "@/lib/auth/invitation";
 import { buildPasswordSetupSessionResponse } from "@/lib/auth/password-setup-session";
 
@@ -43,6 +50,7 @@ export const POST = withApiHandler(
     const newHash = await hashPassword(parsed.data.newPassword);
     const updated = await updatePasswordHash(consumed.userId, newHash);
     if (!updated) return jsonFail("NOT_FOUND", "Kullanıcı bulunamadı.");
+    await setTeacherInvitationPending(consumed.tenantId, consumed.userId, false);
 
     const activatedAccessCount = await activatePendingPortalAccessForUser(consumed.tenantId, consumed.userId);
 

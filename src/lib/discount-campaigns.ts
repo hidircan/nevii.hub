@@ -7,7 +7,8 @@
  * kullanılır. Bu bilinçli bir basitleştirme — gerçek bir aile/kardeş
  * modeli (ör. `familyId`) eklenmesi ayrı bir karardır.
  */
-import type { AppData, BranchId, CampaignStackingRule, DiscountCampaign, Student } from "./types";
+import { enrollmentTermsList } from "./student-enrollments";
+import type { AppData, BranchId, CampaignStackingRule, DiscountCampaign, Student, StudentRef } from "./types";
 import { uid } from "./utils";
 
 /** Aynı veli telefonuna kayıtlı AKTİF öğrenci sayısı (kendisi dahil). */
@@ -388,7 +389,7 @@ export type CampaignReportFilter = {
  * listelenmez (sessizce atlanır, raporu bozmaz).
  */
 export function buildCampaignReport(
-  students: Student[],
+  students: StudentRef[],
   campaigns: DiscountCampaign[],
   packages: AppData["packages"],
   branchNameOf: (branchId: string) => string,
@@ -407,30 +408,53 @@ export function buildCampaignReport(
     return entry;
   };
 
+  // 2026-10-10 — kampanya BRANŞ kaydına uygulanır: branşlı öğrencide her branşın kendi kampanya kimlikleri, paketi ve nihai
+  // ücreti raporlanır (öğrenci satırı yalnız bir aynadır). Branş kaydı olmayan eski öğrenci tek satırdır.
   for (const s of students) {
-    for (const cid of s.appliedCampaignIds ?? []) {
-      if (filter.campaignId && cid !== filter.campaignId) continue;
-      if (filter.branchId && s.branchId !== filter.branchId) continue;
-      const appliedAt = s.createdAt.slice(0, 10);
-      if (filter.fromDate && appliedAt < filter.fromDate) continue;
-      if (filter.toDate && appliedAt > filter.toDate) continue;
-      const entry = ensure(cid);
-      if (!entry) continue;
-      const pkg = (packages ?? []).find((p) => p.id === s.packageId);
-      const base = s.packageBaseMonthlyFee;
-      entry.beneficiaries.push({
-        studentId: s.id,
-        studentDisplayId: s.displayId,
-        studentName: s.name,
-        branchId: s.branchId,
-        branchName: branchNameOf(s.branchId),
-        packageTitle: pkg?.title ?? (s.packageName || undefined),
-        baseMonthlyFee: base,
-        discountPercent: entry.campaign.discountPercent,
-        finalMonthlyFee: s.monthlyFee,
-        appliedAt: s.createdAt,
-      });
-      if (base != null) entry.totalDiscountAmount += Math.max(0, base - s.monthlyFee);
+    const rows: { appliedCampaignIds: string[]; packageId?: string; packageName?: string; packageBaseMonthlyFee?: number; monthlyFee: number; label?: string }[] =
+      s.enrollments?.length
+        ? enrollmentTermsList(s).map(({ enrollment, terms }) => ({
+            appliedCampaignIds: terms.appliedCampaignIds ?? [],
+            packageId: terms.packageId,
+            packageName: terms.packageName,
+            packageBaseMonthlyFee: terms.packageBaseMonthlyFee,
+            monthlyFee: terms.monthlyFee,
+            label: enrollment.instrument,
+          }))
+        : [
+            {
+              appliedCampaignIds: s.appliedCampaignIds ?? [],
+              packageId: s.packageId,
+              packageName: s.packageName,
+              packageBaseMonthlyFee: s.packageBaseMonthlyFee,
+              monthlyFee: s.monthlyFee,
+            },
+          ];
+    for (const row of rows) {
+      for (const cid of row.appliedCampaignIds) {
+        if (filter.campaignId && cid !== filter.campaignId) continue;
+        if (filter.branchId && s.branchId !== filter.branchId) continue;
+        const appliedAt = s.createdAt.slice(0, 10);
+        if (filter.fromDate && appliedAt < filter.fromDate) continue;
+        if (filter.toDate && appliedAt > filter.toDate) continue;
+        const entry = ensure(cid);
+        if (!entry) continue;
+        const pkg = (packages ?? []).find((p) => p.id === row.packageId);
+        const base = row.packageBaseMonthlyFee;
+        entry.beneficiaries.push({
+          studentId: s.id,
+          studentDisplayId: s.displayId,
+          studentName: row.label ? `${s.name} (${row.label})` : s.name,
+          branchId: s.branchId,
+          branchName: branchNameOf(s.branchId),
+          packageTitle: pkg?.title ?? (row.packageName || undefined),
+          baseMonthlyFee: base,
+          discountPercent: entry.campaign.discountPercent,
+          finalMonthlyFee: row.monthlyFee,
+          appliedAt: s.createdAt,
+        });
+        if (base != null) entry.totalDiscountAmount += Math.max(0, base - row.monthlyFee);
+      }
     }
   }
 

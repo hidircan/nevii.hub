@@ -15,6 +15,7 @@
 import { parseISO, differenceInMinutes } from "date-fns";
 import type { AppData, BranchId, Lesson, LessonSeriesStatus } from "./types";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
+import type { ConflictWindow } from "./lesson-scope";
 
 export type LessonReassignmentScope = "single" | "fromHereOnward" | "entireSeries";
 
@@ -141,5 +142,17 @@ export function reassignLessonTeacherOrBranch(
       newBranchId,
       newRoomId,
     },
+  };
+}
+
+/** DB egress (2026-10-18) — değişimin çakışma penceresi: yeni öğretmen/oda × serinin (veya tek dersin) günleri. */
+export function reassignConflictWindow(data: AppData, input: ReassignLessonInput): ConflictWindow | undefined {
+  const lesson = data.lessons.find((l) => l.id === input.lessonId);
+  if (!lesson) return undefined;
+  const targets = input.scope !== "single" && lesson.seriesId ? data.lessons.filter((l) => l.seriesId === lesson.seriesId) : [lesson];
+  return {
+    teacherIds: [input.newTeacherId ?? lesson.teacherId],
+    roomIds: [input.newRoomId ?? lesson.roomId],
+    days: targets.map((l) => parseISO(l.startAt)),
   };
 }

@@ -76,7 +76,6 @@ export const SETTING_CATALOG: SettingDefinition[] = [
   }),
   s("lessons.closedDays", "lessons", "string_list", [], "Haftalık kapalı günler (0=Pazar … 6=Cumartesi)"),
 
-  s("attendance.requireTeacher", "attendance", "boolean", true, "Öğretmen yoklaması zorunlu"),
   s("attendance.requireStudent", "attendance", "boolean", true, "Öğrenci yoklaması zorunlu"),
 
   s("homework.enabledDefaults", "homework", "boolean", true, "Ödev verebilme varsayılanı"),

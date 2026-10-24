@@ -18,7 +18,7 @@ import { lessonEnrollmentId } from "./student-enrollments";
  * Kaynak dersin branşı `lessonEnrollmentId` ile çözülür (açık bağ → tek branş → enstrümanla tek eşleşme); tek
  * branşlı öğrencide tüm dersler aynı anahtara düşer (eski davranışla birebir aynı).
  */
-export function makeupEnrollmentKey(data: Pick<AppData, "lessons" | "students" | "teachers">, lessonId: string): string {
+export function makeupEnrollmentKey(data: import("./types").WithStudentRefs<Pick<AppData, "lessons" | "students" | "teachers">>, lessonId: string): string {
   const lesson = data.lessons.find((l) => l.id === lessonId);
   const student = lesson ? data.students.find((s) => s.id === lesson.studentId) : undefined;
   return (lesson && student ? lessonEnrollmentId(student, lesson, data.teachers) : undefined) ?? "__unassigned__";

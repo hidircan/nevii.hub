@@ -44,6 +44,8 @@ export type NotificationCategory =
   | "student_contract_expiring"
   | "portal_request"
   | "teacher_feedback_submitted"
+  | "lesson_assessment_submitted"
+  | "periodic_assessment_submitted"
   | "student_feedback_submitted"
   | "teacher_feedback_shared"
   | "announcement_published";
@@ -353,6 +355,24 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Portal talebi",
     description: "Veli/öğrenci portalından gelen bir talep oluştuğunda.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_assessment_submitted",
+    group: "students",
+    label: "Ders gelişim raporu",
+    description: "Bir öğretmen öğrencisi için ders gelişim raporu gönderdiğinde yöneticilere bildirim gönderilir.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "periodic_assessment_submitted",
+    group: "students",
+    label: "4 haftalık gelişim raporu",
+    description: "Bir öğretmen 4 haftalık genel değerlendirme gönderdiğinde yöneticilere bildirim gönderilir.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

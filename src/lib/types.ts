@@ -111,6 +111,8 @@ export interface Teacher {
   deletedAt?: string;
   deletedByUserId?: string;
   deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan geçmiş için anonimleştirilerek tutuluyor (bkz. person-purge.ts). Geri alınamaz. */
+  purgedAt?: string;
   /** Package D — özlük alanları. Hepsi opsiyonel; legacy kayıtlar kırılmaz. */
   employmentType?: TeacherEmploymentType;
   /** ISO tarih — işe giriş. */
@@ -233,6 +235,32 @@ export interface StudentEnrollment {
   /** Sonlandırma izi (kayıt silinmez; `active:false` + `endDate`). */
   endReason?: string;
   endedByUserId?: string;
+  /**
+   * 2026-10-10 — SÜRÜM 2: bu kayıt KENDİ koşullarının tek sahibidir (öğrenci türü, ücret, ödeme, tarih, program, seviye
+   * ve MEB bilgileri). Öğrenci satırındaki aynı adlı alanlar yalnız UYUMLULUK AYNASIDIR (bkz. student-enrollments.ts
+   * `mirrorPatchFromEnrollments`) ve hiçbir branşın koşulunun kaynağı değildir. Alan yoksa kayıt eski (v1/legacy)
+   * düzendedir: ana kaydın koşulları öğrenci satırında durur ve okuma tek kapıdan (`enrollmentTerms`) yapılır.
+   */
+  termsVersion?: 2;
+  /** Ödeme günü aralıkları (v2) — tekil `paymentDueDay` geriye uyum için korunur. */
+  paymentDueRanges?: PaymentDueRange[];
+  /** Kayıtta uygulanan kampanya kimlikleri (kampanya raporu branş başına sayar). */
+  appliedCampaignIds?: string[];
+  /** Seviye: MEB branşında 1–8, diğerlerinde serbest metin. Branşa özgüdür (aynı kişi Piyano 3., Keman 1. seviyede olabilir). */
+  level?: string;
+  targetExam?: string;
+  /** MEB dönem/sınav bilgileri — BRANŞA özgüdür; kişi düzeyindeki kimlik/belgelerle karıştırılmaz. */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  /**
+   * 2026-10-23 — bu branş kaydı bir GRUP DERSİNE katılımdır (GroupLesson.id). Enstrüman/öğretmen/süre/gün-saat gruptan
+   * gelir; ücret, ödeme, sözleşme ve tahakkuk bu kaydın normal koşullarıdır. Kayıt aktifken öğrenci grubun üyesidir.
+   */
+  groupLessonId?: string;
+  /** Yeni öğrenci kaydını oluşturan gönderimin kimliği — çift tık/yeniden deneme koruması (bkz. store.registerStudent). */
+  registrationId?: string;
 }
 
 export interface Student {
@@ -418,6 +446,8 @@ export interface Student {
   deletedAt?: string;
   deletedByUserId?: string;
   deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan finans/hakediş geçmişi için anonimleştirilerek tutuluyor. Geri alınamaz. */
+  purgedAt?: string;
   /** ÖNCELİK 4 — Yoklama Takvimi dönemi. Boşsa "guz" varsayılır. */
   termType?: StudentTermType;
   /**
@@ -438,6 +468,24 @@ export interface Student {
   paymentPauseReason?: string;
   paymentPausedBy?: string;
 }
+
+/**
+ * DB egress (2026-10-18) — çok-öğrencili dilimlerin (referans/ders penceresi/telafi/panel özeti) öğrenci satırı:
+ * yalnız tek-öğrenci ekranlarının (detay, sözleşme, düzenleme) okuduğu kolonlar SQL'de okunmaz (prod'da satırın
+ * ~%25'i). `notes` zorunlu alan olduğu için `StudentRef` → `Student` ATANAMAZ (tam öğrenci bekleyen yardımcı derlenmez).
+ * AMA `Pick<Student, …>` gibi opsiyonel alan kabul eden parametreler bunu YAKALAMAZ (eksik opsiyonel alan geçerlidir):
+ * listeye kolon eklemeden önce `StudentRef`'i geçici olarak `& { readonly [P in Omitted]-?: { __omitted: true } }` ile
+ * değiştirip `tsc` çalıştırın; dilim üreticileri dışındaki her hata gerçek bir okumadır (2026-10-18: TermsStudent
+ * indirim/MEB alanlarını okuduğu için onlar listede DEĞİL). Bu alanlardan birine ihtiyaç varsa tek satır okuyun.
+ */
+export const REFERENCE_STUDENT_OMIT = [
+  "notes", "address", "nationalIdCipher", "nationalIdLast2", "motherName", "fatherName", "referralSource",
+  "referralSourceDetail", "specialNotes", "deletedByUserId", "deletionReason", "birthPlace", "schoolOrOccupation",
+  "paymentPauseReason", "paymentPausedBy", "paymentPausedAt",
+] as const satisfies readonly (keyof Student)[];
+export type StudentRef = Omit<Student, (typeof REFERENCE_STUDENT_OMIT)[number]>;
+/** `students` alanı `StudentRef[]` olan veri şekli — dar dilimleri kabul eden yardımcıların parametresi. */
+export type WithStudentRefs<T extends { students?: unknown }> = Omit<T, "students"> & { students: StudentRef[] };
 
 /** null = reactivate (tüm alanlar temizlenir). */
 export type StudentPaymentPauseState = { reason: string; pausedBy: string; pausedAt: string } | null;
@@ -565,10 +613,17 @@ export type StudentProfilePatch = Partial<
     | "packageName"
     | "weeklyLessonCount"
     | "derivedPerLessonAmount"
+    /** 2026-10-10 — uyumluluk aynası (bkz. student-enrollments.ts mirrorPatchFromEnrollments) yazar. */
+    | "appliedCampaignIds"
   >
 > & {
   /** 2026-10-09 — açıkça TEMİZLENECEK alanlar (db: NULL, json/memory: anahtar silinir); `undefined` "dokunma" demektir. */
   clearFields?: StudentClearableField[];
+  /**
+   * 2026-10-10 — YALNIZ girdi: branşa özgü bir alan (tür, ücret, tarih, MEB…) hangi BRANŞ kaydına yazılacak.
+   * Satıra YAZILMAZ (store facade ayıklar). Çok branşlı öğrencide verilmezse yazım reddedilir (tahmin yok).
+   */
+  enrollmentId?: string;
 };
 
 export type StudentClearableField =
@@ -577,7 +632,25 @@ export type StudentClearableField =
   | "discountType"
   | "discountValue"
   | "monthlyFeeOverrideReason"
-  | "lessonScheduleText";
+  | "lessonScheduleText"
+  // 2026-10-10 — uyumluluk aynası: kaynak branşta olmayan değer, önceki kaynaktan kalmasın.
+  | "studentType"
+  | "studentTypes"
+  | "level"
+  | "targetExam"
+  | "mebLevelStartDate"
+  | "mebLevelEndDate"
+  | "mebExamDate"
+  | "mebExamAttended"
+  | "paymentMethod"
+  | "paymentDueDay"
+  | "paymentDueRanges"
+  | "lessonStartDate"
+  | "intendedDurationMonths"
+  | "enrollmentEndDate"
+  | "derivedPerLessonAmount"
+  | "appliedCampaignIds"
+  | "lessonDurationMinutes";
 
 /**
  * EPIC 1 (IMPLEMENTATION_PLAN.md) — okulun gecikmiş tahsilat otomasyon
@@ -621,6 +694,17 @@ export interface CollectionsSettings {
    * number olarak TEKRARLANMAZ.
    */
   firstCollectionMergeThresholdLessons?: number;
+  /**
+   * Ödeme hatırlatmaları (2026-10-20) — yönetici uygulama içi "Bekleyen ödeme" bildirimi. Kural ve varsayılanlar
+   * TEK yerde: src/lib/payment-reminder-policy.ts (`shouldCreatePaymentReminder`). undefined → varsayılan.
+   */
+  paymentReminderEnabled?: boolean;
+  /** Vadeden kaç gün önce haber verilsin (0 = gelecek vadeli taksit için bildirim yok). */
+  paymentReminderDaysBefore?: number;
+  /** Vade geçtikten sonra kaç günde bir tekrar hatırlatılsın (0 = tekrar yok). */
+  paymentReminderRepeatDays?: number;
+  /** En fazla kaç tekrar. */
+  paymentReminderMaxRepeats?: number;
 }
 
 export const DEFAULT_COLLECTIONS_SETTINGS: CollectionsSettings = {
@@ -782,8 +866,24 @@ export interface LessonAssessment extends AssessmentScores {
   updatedAt: string;
 }
 
+export interface PeriodicLessonSummaryItem {
+  lessonId: string;
+  startAt: string;
+  instrument?: string;
+  status?: string;
+  assessed: boolean;
+  overallScore?: number;
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
+  strengthNote?: string;
+  improvementNote?: string;
+  nextStepsNote?: string;
+}
+
 /**
- * Faz 3B — dört haftalık genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
+ * Faz 3B — dört haftalık / 4 derslik genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
  * gönderilmiş (submitted) kayıtlar bulunur — "bekliyor" durumu her zaman
  * TAZE hesaplanır (bkz. src/lib/periodic-assessment/index.ts
  * computePendingPeriodicAssessmentPeriods), ayrı bir "pending" satırı YOK.
@@ -801,6 +901,15 @@ export interface PeriodicAssessment {
   strengthsNote?: string;
   areasForImprovementNote?: string;
   recommendationNote?: string;
+  /** 4 derslik dönemin 1–5 arası 10 kriter puanı (4 ders ortalaması + öğretmen onayı). */
+  scores?: AssessmentScores;
+  /** 10 kriterin ortalaması (1.0 – 5.0). */
+  overallScore?: number;
+  /** Dönem içindeki 4 dersin özet satırları (tarih, branş, konular, puan). */
+  lessonSummaries?: PeriodicLessonSummaryItem[];
+  /** Öğretmenin onay imzası ve onay zamanı. */
+  teacherSignedName?: string;
+  approvedAt?: string;
   submittedBy: string;
   submittedAt: string;
   createdAt: string;
@@ -827,6 +936,9 @@ export interface Lesson {
   /** 2026-10-06 — kulüp oturumu satırı (`type: "group"`); aynı oturumun satırları `clubSessionId` ile bağlı. */
   clubId?: string;
   clubSessionId?: string;
+  /** 2026-10-23 — grup dersi katılımcı satırı (normal ders tipi); aynı oturumun satırları `groupSessionId` ile bağlı. */
+  groupLessonId?: string;
+  groupSessionId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -851,6 +963,11 @@ export interface Lesson {
   endCorrectedBy?: string;
   endCorrectionNote?: string;
   notes?: string;
+  /**
+   * Geldi yoklamasının isteğe bağlı notu. Boş bırakılabilir; statü değişince
+   * silinmez. Hakediş/ücret hesabına girmez. Planlama notu (`notes`) değildir.
+   */
+  studentAttendanceNote?: string | null;
   /** Dersi planlayan kullanıcı. Eski derslerde yok. */
   createdByUserId?: string;
   /**
@@ -916,19 +1033,9 @@ export interface Lesson {
     at: string;
   };
   /**
-   * Faz 2 — öğretmenin KENDİ derse gelip gelmediği. Öğrenci yoklamasından
-   * (studentAttended/studentAbsent/studentExcused) TAMAMEN BAĞIMSIZ bir alan
-   * kümesi — öğretmen performans skoru YALNIZCA buna bakar, öğrenci
-   * yoklamasına asla bakmaz (bkz. src/lib/teacher-performance.ts). undefined
-   * = "Bekliyor" (henüz işaretlenmedi); ayrı bir enum değeri gerekmez.
-   */
-  teacherAttendanceStatus?: "geldi" | "gelmedi" | "mazeretli";
-  teacherAttendanceAt?: string;
-  teacherAttendanceBy?: string;
-  teacherAttendanceNote?: string;
-  /**
    * 9. tur — İptal/Telafi kararının kaynağı (bkz. src/lib/lesson-disruption.ts).
-   * Öğretmen katılımından ve `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş.
+   * `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş. "teacher" = öğretmen
+   * performansının TEK verisi (ayrı öğretmen yoklaması 2026-10-21'de kaldırıldı).
    */
   disruptionSource?: import("./lesson-disruption").DisruptionSource;
   disruptionNote?: string;
@@ -1034,6 +1141,8 @@ export interface MakeupRequest {
   slaDeadline?: string;
   /** 0=yok 1=15gün 2=7gün 3=3gün 4=1gün 5=aşıldı */
   slaEscalationLevel?: number;
+  /** Süre uzatma, revizyon, plan silme ve hak iptali — kim, ne zaman, eski/yeni. */
+  changeLog?: import("./makeup-deadline").MakeupChangeEntry[];
 }
 
 export interface MakeupSlot {

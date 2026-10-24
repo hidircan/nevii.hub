@@ -29,6 +29,20 @@ kontrol" bölümü.
   gösterilir — sağlayıcının HAM hata metni (`reason`) ServiceResult'a hiç
   DAHIL edilmez, admin'e asla sızdırılmaz.
 
+## Öğretmen iletişim ve portal giriş adresi (2026-10-14)
+- `Teacher.email` iletişim adresidir; bağlı `User.email` portal giriş adresidir.
+  Hesap eşleştirmesi yalnızca tenant ve `teacherId` ilişkisiyle yapılır; ad
+  benzerliği kullanılmaz. Profil düzenlemesi aktif hesabın giriş adresini
+  değiştirmez ve Portal Erişimi kartı iki adresi ayrı etiketlerle gösterir.
+- Bekleyen davetin iletişim adresi değişirse kullanılmamış davet token'ı
+  iptal edilir; yeni davet otomatik gönderilmez. Yönetici açıkça “Davet gönder”
+  dediğinde bekleyen hesabın adresi güncel iletişim adresine alınır ve davet
+  gerçek alıcı parametresine bu adres verilir. Kabul edilmiş hesaplar bu yolla
+  devredilmez; giriş adresi öğretmenin doğrulama akışıyla değiştirilir.
+- Davet token'ları `purpose: invitation` ile parola sıfırlama token'larından
+  ayrılır. Şema/migration değişiklikleri için migration uygulanmadan DB
+  modundaki yeni kodu çalıştırmayın; ortam migration'ı ayrıca onaylanmalıdır.
+
 ## Zorunlu kontrol listesi (kök proje talimatından)
 Token: tahmin edilemez / süreli / tek kullanımlık / tenant+kullanıcı bağlı /
 mümkünse hashlenmiş. Link domaini doğru (localhost sızıntısı yok). Parola

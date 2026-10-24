@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -24,10 +24,20 @@ beforeEach(async () => {
 const row = (p: Partial<Payment> & Pick<Payment, "id" | "amount" | "status">): Payment => ({
   studentId: "s",
   paidAmount: 0,
-  dueDate: "2026-10-05",
+  dueDate: p.status === "overdue" ? "2026-09-05" : "2026-10-05",
   description: "x",
   ...p,
 });
+
+// 2026-10-20 — "gecikmiş" artık vade gününden türetilir (payments/status.ts); sabit fixture tarihleri için saat sabit.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-20T09:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 
 describe("summarizeStudentDebt — sözleşmesiz öğrenci dışlanmaz, iptal/yenilenmiş sayılmaz (2026-10-04)", () => {
   it("bağımsız borçlar sayılır; voided ve iptal edilmiş sözleşmenin kalanı sayılmaz; çift sayım yok", () => {
@@ -118,6 +128,28 @@ describe("sözleşme dışı borcun sözleşmeye taşınması (çift borç yok, 
     expect(res.error.message).toContain("taşınamaz");
     const { listContractsForStudent } = await import("../contracts");
     expect(await listContractsForStudent(DEFAULT_TENANT_ID, "s1")).toHaveLength(0);
+  });
+
+  it("taşı seçilmeden sözleşme, aynı ayın tahsilatsız aylık planını iptal eder; başka ay durur", async () => {
+    const { monthlyPlanId, paidSeedId } = await seed();
+    const { upsertMonthlyPlanPayment, readData } = await import("../store-json");
+    const later = await upsertMonthlyPlanPayment({ studentId: "s1", month: "2027-01", amount: 3000 });
+    const res = await createStudentContractTool(adminCtx(), input({}));
+    expect(res.ok).toBe(true);
+    const payments = (await readData()).payments.filter((p) => p.studentId === "s1");
+    const moved = payments.find((p) => p.id === monthlyPlanId)!;
+    expect(moved.status).toBe("voided");
+    expect(moved.amount).toBe(3000);
+    expect(moved.paymentNote ?? moved.adjustmentReason).toMatch(/taşındı|kapsıyor/);
+    expect(payments.find((p) => p.id === later.paymentId)!.status).not.toBe("voided");
+    expect(payments.find((p) => p.id === paidSeedId)!.status).toBe("paid");
+    const open = summarizeStudentDebt(payments, new Set()).openTotal;
+    const expected = payments
+      .filter((p) => p.id !== monthlyPlanId && p.status !== "paid" && p.status !== "voided")
+      .reduce((sum, p) => sum + Math.max(p.amount - p.paidAmount, 0), 0);
+    expect(open).toBe(expected);
+    expect(open).toBeGreaterThan(0);
+    expect(payments.some((p) => p.contractId && p.source === "contract")).toBe(true);
   });
 
   it("2026-10-04 Ela vakası: aktif sözleşmesi olan öğrenciye ikinci ilk sözleşme açılamaz (çift borç yok)", async () => {

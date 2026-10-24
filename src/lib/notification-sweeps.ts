@@ -1,13 +1,15 @@
-import { differenceInCalendarDays, parseISO } from "date-fns";
-import { listTenants, readData } from "./store";
-import { runWithTenantAsync } from "./tenant-context";
+import { readPaymentsPageData } from "./store";
+import { isDbMode } from "./config";
+import { listTerminalContractIds } from "./contracts";
+import { PAYMENT_REMINDER_SELECT, resolvePaymentReminderSettings, shouldCreatePaymentReminder } from "./payment-reminder-policy";
+import { supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
+import type { CollectionsSettings, Payment } from "./types";
 import { notifyAdmins } from "./manager-notifications";
 import { listLeave } from "./leave";
-import { sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
-import { formatMoney } from "./utils";
-import { logger } from "./logger";
-
-const PENDING_DAYS = 7;
+import { forEachSchoolTenant, sweepLessonReminders, sweepUpcomingLessons } from "./lesson-notifications";
+import { formatDate, formatMoney } from "./utils";
+import { paymentTargetHref } from "./notification-href";
+import { safeErrorFields } from "./logger";
 
 export type NotificationSweepSummary = {
   upcoming: Awaited<ReturnType<typeof sweepUpcomingLessons>>;
@@ -18,95 +20,208 @@ export type NotificationSweepSummary = {
   paymentTenantErrors: number;
   leaveTenantErrors: number;
   contractExpiring: number;
+  contractTenantErrors: number;
+  /** Tüm aşamalarda hata veren kurum sayısı toplamı; > 0 ise tick 200 DÖNMEZ (bkz. tick route). */
+  tenantErrors: number;
 };
 
 /** Öğrenci sözleşmesi bitiş uyarısı — tüm kurumlar (bkz. student-contract-expiry.ts). */
-export async function sweepStudentContractExpiry(now = new Date()): Promise<number> {
+export async function sweepStudentContractExpiry(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
   const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
   let created = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    await runWithTenantAsync(t.tenantId, async () => {
-      created += (await runStudentContractExpiryCheck(t.tenantId, now)).created;
+  const tenantErrors = await forEachSchoolTenant("contractExpiry", async (tenantId) => {
+    created += (await runStudentContractExpiryCheck(tenantId, now)).created;
+  });
+  return { created, tenantErrors };
+}
+
+type ReminderCandidate = Omit<PlanLinkRow, "status"> &
+  Pick<Payment, "status" | "description" | "installmentPeriodLabel">;
+
+function reminderRow(r: {
+  id: string;
+  studentId: string;
+  status: string;
+  contractId: string | null;
+  dueDate: Date;
+  amount: number;
+  paidAmount: number;
+  description: string;
+  installmentPeriodLabel: string | null;
+  source: string;
+  enrollmentId: string | null;
+  firstCollectionIncludesNextMonth: boolean | null;
+  installmentBreakdown?: unknown;
+}): ReminderCandidate {
+  const breakdown = Array.isArray(r.installmentBreakdown)
+    ? r.installmentBreakdown.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const periodLabel = (item as { periodLabel?: unknown }).periodLabel;
+        const amount = (item as { amount?: unknown }).amount;
+        return typeof periodLabel === "string" && typeof amount === "number" ? [{ periodLabel, amount }] : [];
+      })
+    : undefined;
+  return {
+    id: r.id,
+    studentId: r.studentId,
+    status: r.status as Payment["status"],
+    amount: r.amount,
+    paidAmount: r.paidAmount,
+    dueDate: r.dueDate.toISOString(),
+    description: r.description,
+    contractId: r.contractId ?? undefined,
+    installmentPeriodLabel: r.installmentPeriodLabel ?? undefined,
+    source: r.source,
+    enrollmentId: r.enrollmentId ?? undefined,
+    firstCollectionIncludesNextMonth: r.firstCollectionIncludesNextMonth ?? undefined,
+    installmentBreakdown: breakdown && breakdown.length > 0 ? breakdown : undefined,
+  };
+}
+
+/**
+ * Kurumun hatırlatma ayarı + YALNIZ aday ödemeler (canlı borç, vadesi `today + daysBefore`'a kadar) ve onların öğrenci
+ * adları. DB egress (2026-10-20): eskiden tüm ödemeler × ~31 kolon + referans veri okunuyordu; artık aday satır.
+ * `cover` ikinci borcu ayırt etmek için: aday ufkunun dışındaki ödenmiş sözleşme taksitini de taşır.
+ */
+async function readReminderCandidates(tenantId: string, now: Date) {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const school = await prisma.school.findFirst({ where: { tenantId }, select: { collectionsSettings: true } });
+    const settings = resolvePaymentReminderSettings(school?.collectionsSettings as CollectionsSettings | null);
+    if (!settings.enabled) {
+      return { settings, payments: [] as ReminderCandidate[], cover: [] as ReminderCandidate[], names: new Map<string, string>() };
+    }
+    const horizon = new Date(`${now.toISOString().slice(0, 10)}T23:59:59.999Z`);
+    horizon.setUTCDate(horizon.getUTCDate() + settings.daysBefore);
+    const rows = await prisma.payment.findMany({
+      where: { tenantId, status: { notIn: ["paid", "voided"] }, dueDate: { lte: horizon } },
+      select: PAYMENT_REMINDER_SELECT,
     });
+    const payments = rows.map((r) => reminderRow(r));
+    const monthlyStudentIds = [...new Set(payments.filter((p) => p.source === "monthly_plan" && !p.contractId).map((p) => p.studentId))];
+    const extra = monthlyStudentIds.length
+      ? await prisma.payment.findMany({
+          where: { tenantId, studentId: { in: monthlyStudentIds }, contractId: { not: null }, status: { not: "voided" } },
+          select: { ...PAYMENT_REMINDER_SELECT, installmentBreakdown: true },
+        })
+      : [];
+    const ids = [...new Set(payments.map((p) => p.studentId))];
+    const students = ids.length
+      ? await prisma.student.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    return {
+      settings,
+      payments,
+      cover: [...payments, ...extra.map((r) => reminderRow(r))],
+      names: new Map(students.map((st) => [st.id, st.name])),
+    };
   }
-  return created;
+  const data = await readPaymentsPageData();
+  const payments = data.payments as ReminderCandidate[];
+  return {
+    settings: resolvePaymentReminderSettings(data.settings.collectionsSettings),
+    payments,
+    cover: payments,
+    names: new Map(data.students.map((st) => [st.id, st.name])),
+  };
 }
 
 export async function sweepPaymentFailedOrPending(now = new Date()): Promise<{ created: number; tenantErrors: number }> {
+  // Acil fren: yalnız bu kategori (diğer bildirimler sürer). Vercel'de env değişikliği yeniden deploy ister.
+  if (process.env.NEVII_PAYMENT_REMINDERS === "0") return { created: 0, tenantErrors: 0 };
+  const startedAt = Date.now();
   let created = 0;
-  let tenantErrors = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    try {
-      await runWithTenantAsync(t.tenantId, async () => {
-        const data = await readData();
-        for (const p of data.payments) {
-          if (p.status !== "pending") continue;
-          const anchor = p.createdAt || p.dueDate;
-          if (!anchor) continue;
-          const age = differenceInCalendarDays(now, parseISO(anchor));
-          if (age < PENDING_DAYS) continue;
-          const remaining = Math.max(p.amount - p.paidAmount, 0);
-          await notifyAdmins(
-            t.tenantId,
-            "payment_failed_or_pending",
-            {
-              title: "Bekleyen ödeme",
-              body: `Ödeme ${p.id} ${age} gündür beklemede (${formatMoney(remaining)}). Detay: /panel/odemeler`,
-            },
-            { dedupeKey: p.id }
-          );
-          created++;
-        }
-      });
-    } catch (err) {
-      // Tek tenant'ın bozuk verisi/hatası diğer 199 tenant'ı engellemez;
-      // neden sunucu log'unda (PII: yalnız tenantId + hata mesajı).
-      tenantErrors++;
-      logger.error(`notification-sweep payment tenant hatası [${t.tenantId}]`, err);
+  let candidates = 0;
+  let suppressed = 0;
+  const tenantErrors = await forEachSchoolTenant("paymentPending", async (tenantId) => {
+    const { settings, payments, cover, names } = await readReminderCandidates(tenantId, now);
+    if (payments.length === 0) return;
+    const terminal = await listTerminalContractIds(tenantId);
+    const duplicatedPlan = supersededUncollectedMonthlyPlanIds(cover, terminal);
+    for (const p of payments) {
+      if (duplicatedPlan.has(p.id)) continue;
+      const decision = shouldCreatePaymentReminder(p, settings, terminal, now);
+      if (!decision) continue;
+      candidates++;
+      const { daysUntilDue: d, remaining } = decision;
+      // 2026-10-15 — kimden/ne için/ne kadar/vade; teknik kimlik yalnız "Detay:" hedefinde (ekranda gizlenir,
+      // tekilleştirme `body.includes(p.id)` ile aynen çalışır). Push yok — yalnız yönetici uygulama içi bildirimi.
+      const who = names.get(p.studentId) ?? "Öğrenci kaydı bulunamadı";
+      const what = p.installmentPeriodLabel ?? p.description ?? "Ödeme";
+      const when = d > 0 ? `vadeye ${d} gün var` : d === 0 ? "vadesi bugün" : `vade ${formatDate(p.dueDate)}, ${-d} gün gecikti`;
+      const outcomes = await notifyAdmins(
+        tenantId,
+        "payment_failed_or_pending",
+        {
+          title: d > 0 ? "Yaklaşan ödeme" : "Bekleyen ödeme",
+          body: `${who} — ${what}: ${formatMoney(remaining)} ödeme bekliyor (${when}). Detay: ${paymentTargetHref(p.studentId, p.id)}`,
+        },
+        // Pencere = aşama başından bugüne: aynı aşamada ikinci bildirim yok (bkz. payment-reminder-policy.ts).
+        { dedupeKey: p.id, windowMs: Math.max(Date.now() - decision.since.getTime(), 0) }
+      );
+      // Yalnız gerçekten yazılan bildirim sayılır (eskiden yinelenen/atlanan da "created" sayılıyordu).
+      if (outcomes.includes("created")) created++;
+      else suppressed++;
     }
-  }
+  });
+  // Tek satır özet; ad/tutar/not gibi kişi verisi yok.
+  console.info("[notifications.payment.sweep]", { candidates, created, suppressed, tenantErrors, durationMs: Date.now() - startedAt });
   return { created, tenantErrors };
 }
 
 export async function sweepLeavePendingApproval(): Promise<{ created: number; tenantErrors: number }> {
   let created = 0;
-  let tenantErrors = 0;
-  const tenants = await listTenants();
-  for (const t of tenants.slice(0, 200)) {
-    try {
-      await runWithTenantAsync(t.tenantId, async () => {
-        const leaves = await listLeave(t.tenantId);
-        for (const leave of leaves) {
-          if (leave.status !== "pending_approval") continue;
-          await notifyAdmins(
-            t.tenantId,
-            "leave_pending_approval",
-            {
-              title: "Bekleyen izin onayı",
-              body: `Onay bekleyen izin talebi var. Detay: /panel/personel/izinler`,
-            },
-            { dedupeKey: leave.id, roles: ["SUPER_ADMIN"] }
-          );
-          created++;
-        }
-      });
-    } catch (err) {
-      tenantErrors++;
-      logger.error(`notification-sweep leave tenant hatası [${t.tenantId}]`, err);
+  const tenantErrors = await forEachSchoolTenant("leavePending", async (tenantId) => {
+    const leaves = await listLeave(tenantId);
+    for (const leave of leaves) {
+      if (leave.status !== "pending_approval") continue;
+      await notifyAdmins(
+        tenantId,
+        "leave_pending_approval",
+        {
+          title: "Bekleyen izin onayı",
+          body: `Onay bekleyen izin talebi var. Detay: /panel/personel/izinler`,
+        },
+        { dedupeKey: leave.id, roles: ["SUPER_ADMIN"] }
+      );
+      created++;
     }
-  }
+  });
   return { created, tenantErrors };
 }
 
-export async function runNotificationSweeps(now = new Date()): Promise<NotificationSweepSummary> {
-  const upcoming = await sweepUpcomingLessons(now);
-  // Per-offset hatırlatmalar (1g/1s/15dk): in-app + push, idempotent.
-  const reminders = await sweepLessonReminders(now);
-  const payment = await sweepPaymentFailedOrPending(now);
-  const leave = await sweepLeavePendingApproval();
-  const contractExpiring = await sweepStudentContractExpiry(now);
+/**
+ * Tüm süpürmeler sırayla. Kurum hatası aşama içinde sayılır (diğer kurumlar/aşamalar sürer);
+ * aşamanın KENDİSİ çökerse (ör. kurum listesi okunamadı) hata yukarı fırlar → tick 500.
+ *
+ * `stages: "lessons"` (DB egress, 2026-10-16): her 10 dk'lık tur yalnız ders hatırlatmalarını çalıştırır (dakika
+ * hassasiyeti gerekir). Ödeme/izin/sözleşme süpürmeleri 24 saatlik tekilleştirmeli olduğu için günde bir kez (tam tur)
+ * yeterlidir; her turda çalışmaları yeni bildirim üretmeden tüm ödemeleri okumak demekti.
+ */
+export async function runNotificationSweeps(
+  now = new Date(),
+  options: { stages?: "all" | "lessons" } = {}
+): Promise<NotificationSweepSummary> {
+  async function runStage<T>(
+    stage: string,
+    task: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await task();
+    } catch (error: unknown) {
+      console.error("[notifications.sweep.stage.failed]", { stage, ...safeErrorFields(error) });
+      throw error;
+    }
+  }
+
+  const upcoming = await runStage("upcomingLessons", () => sweepUpcomingLessons(now));
+  const reminders = await runStage("lessonReminders", () => sweepLessonReminders(now));
+  const daily = options.stages !== "lessons";
+  const none = { created: 0, tenantErrors: 0 };
+  const payment = daily ? await runStage("paymentPending", () => sweepPaymentFailedOrPending(now)) : none;
+  const leave = daily ? await runStage("leavePending", () => sweepLeavePendingApproval()) : none;
+  const contract = daily ? await runStage("contractExpiry", () => sweepStudentContractExpiry(now)) : none;
+
   return {
     upcoming,
     reminders,
@@ -114,6 +229,9 @@ export async function runNotificationSweeps(now = new Date()): Promise<Notificat
     leavePending: leave.created,
     paymentTenantErrors: payment.tenantErrors,
     leaveTenantErrors: leave.tenantErrors,
-    contractExpiring,
+    contractExpiring: contract.created,
+    contractTenantErrors: contract.tenantErrors,
+    tenantErrors:
+      upcoming.tenantErrors + reminders.tenantErrors + payment.tenantErrors + leave.tenantErrors + contract.tenantErrors,
   };
 }

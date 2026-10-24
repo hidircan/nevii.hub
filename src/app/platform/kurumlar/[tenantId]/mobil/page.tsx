@@ -5,6 +5,9 @@ import { MobileControlMatrix } from "@/components/platform/mobile-control-matrix
 import { TenantSettingsSection } from "../settings-section";
 import { buildConfigSnapshot } from "@/lib/platform/config-snapshot";
 import { listPolicyVersions } from "@/lib/platform/store-ext";
+import { resolveSetting } from "@/lib/platform/resolve";
+import { getPlatformTenant } from "@/lib/platform/store";
+import { MobileEntitlementBanner } from "@/components/platform/mobile-entitlement-banner";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +21,16 @@ const ROLES = [
 export default async function TenantMobilePage({ params }: { params: Promise<{ tenantId: string }> }) {
   await requireHyperAdminPage("/platform/kurumlar");
   const { tenantId } = await params;
-  const [snapshot, mobileVersions, matrix] = await Promise.all([
+  const [snapshot, mobileVersions, matrix, entOverrides, tenant] = await Promise.all([
     buildConfigSnapshot(tenantId, null),
     listPolicyVersions(tenantId).then((vs) => vs.filter((x) => x.key.startsWith("mobile.") && x.status !== "draft").slice(0, 8)),
     getMobileControlMatrix(tenantId),
+    resolveSetting({ tenantId }, "subscription.entitlementOverrides"),
+    getPlatformTenant(tenantId),
   ]);
+  const notEntitled = matrix.ok && matrix.data.rows.some((r) => r.key === "app" && !r.entitled);
+  const ov = entOverrides?.effectiveValue;
+  const currentOverrides = (ov && typeof ov === "object" && !Array.isArray(ov) ? ov : {}) as Record<string, boolean>;
   const previews = await Promise.all(
     ROLES.map(async ([role, label]) => {
       const r = await getMobilePolicy({ role, userId: "preview", tenantId, channel: "mobile" }, { platform: "ios" });
@@ -31,6 +39,13 @@ export default async function TenantMobilePage({ params }: { params: Promise<{ t
   );
   return (
     <div className="space-y-4">
+      {notEntitled ? (
+        <MobileEntitlementBanner
+          tenantId={tenantId}
+          targetLabel={`${tenant?.name ?? tenantId} (${tenantId})`}
+          currentOverrides={currentOverrides}
+        />
+      ) : null}
       {matrix.ok ? <MobileControlMatrix rows={matrix.data.rows} /> : null}
       <Card>
         <h2 className="text-sm font-semibold">Efektif mobil erişim (iOS önizleme)</h2>

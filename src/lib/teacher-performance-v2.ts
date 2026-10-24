@@ -21,8 +21,9 @@ import { computeTeacherFeedbackSummary, type TeacherFeedbackSummary } from "./te
 import { listTasks } from "./tasks";
 import { listHomeworkForTeacher, listAllHomeworkSubmissions } from "./homework";
 import { effectiveLessonOpsStatus } from "./lesson-ops";
+import { teacherReliability } from "./lesson-disruption";
 
-export const TEACHER_PERFORMANCE_V2_SCORE_VERSION = "teacher-performance-v2";
+export const TEACHER_PERFORMANCE_V2_SCORE_VERSION = "teacher-performance-v2.1";
 
 export const TEACHER_PERFORMANCE_V2_WEIGHTS = {
   attendance: 0.3,
@@ -43,6 +44,7 @@ export type PerformanceComponentV2 = {
   contribution: number | null;
 };
 
+/** Öğretmen kaynaklı aksama satırı (iptal/telafide "Öğretmen kaynaklı" seçilen ders). */
 export type AttendanceDetailRow = {
   lessonId: string;
   startAt: string;
@@ -50,9 +52,8 @@ export type AttendanceDetailRow = {
   studentId: string;
   studentName: string;
   instrument: string;
-  status: "geldi" | "gelmedi" | "mazeretli" | "bekliyor";
+  kind: "İptal" | "Telafi";
   markedAt?: string;
-  markedBy?: string;
   note?: string;
 };
 
@@ -89,11 +90,9 @@ export type TeacherPerformanceReportV2 = {
   score: number | null;
   components: {
     attendance: PerformanceComponentV2 & {
+      /** Güvenilirlik tabanı: gerçekleşmiş dersler + öğretmen kaynaklı aksamalar. */
       plannedLessonCount: number;
-      attendedCount: number;
-      absentCount: number;
-      excusedCount: number;
-      pendingCount: number;
+      teacherCausedCount: number;
       rows: AttendanceDetailRow[];
     };
     feedback: PerformanceComponentV2 & {
@@ -131,7 +130,7 @@ function inRange(iso: string, start: number, end: number): boolean {
 }
 
 /** Rapor yalnız dönemin dersleri + öğrenci listesi + kurum ayarını okur (DB egress: ders penceresi yeterli). */
-type PerformanceData = Pick<AppData, "lessons" | "students" | "settings">;
+type PerformanceData = Pick<AppData, "lessons" | "settings"> & { students: import("./types").StudentRef[] };
 
 function computeAttendanceComponent(
   data: PerformanceData,
@@ -139,35 +138,22 @@ function computeAttendanceComponent(
   rangeStart: number,
   rangeEnd: number
 ): TeacherPerformanceReportV2["components"]["attendance"] {
-  const lessons = data.lessons.filter(
-    (l) => l.teacherId === teacherId && l.status !== "cancelled" && inRange(l.startAt, rangeStart, rangeEnd)
-  );
+  const { counted, teacherCaused, rate: attendanceRate } = teacherReliability(data.lessons, teacherId, rangeStart, rangeEnd);
 
-  const attendedCount = lessons.filter((l) => l.teacherAttendanceStatus === "geldi").length;
-  const absentCount = lessons.filter((l) => l.teacherAttendanceStatus === "gelmedi").length;
-  const excusedCount = lessons.filter((l) => l.teacherAttendanceStatus === "mazeretli").length;
-  const markedCount = attendedCount + absentCount + excusedCount;
-  const pendingCount = lessons.length - markedCount;
-  const attendanceRate = markedCount > 0 ? attendedCount / markedCount : null;
-
-  const rows: AttendanceDetailRow[] = lessons
+  const rows: AttendanceDetailRow[] = teacherCaused
     .slice()
     .sort((a, b) => a.startAt.localeCompare(b.startAt))
-    .map((l) => {
-      const student = data.students.find((s) => s.id === l.studentId);
-      return {
-        lessonId: l.id,
-        startAt: l.startAt,
-        endAt: l.endAt,
-        studentId: l.studentId,
-        studentName: student?.name ?? "—",
-        instrument: l.instrument,
-        status: l.teacherAttendanceStatus ?? "bekliyor",
-        markedAt: l.teacherAttendanceAt,
-        markedBy: l.teacherAttendanceBy,
-        note: l.teacherAttendanceNote,
-      };
-    });
+    .map((l) => ({
+      lessonId: l.id,
+      startAt: l.startAt,
+      endAt: l.endAt,
+      studentId: l.studentId,
+      studentName: data.students.find((s) => s.id === l.studentId)?.name ?? "—",
+      instrument: l.instrument,
+      kind: l.status === "cancelled" ? "İptal" : "Telafi",
+      markedAt: l.disruptionAt,
+      note: l.disruptionNote,
+    }));
 
   const normalizedValue = attendanceRate !== null ? attendanceRate * 100 : null;
   return {
@@ -176,11 +162,8 @@ function computeAttendanceComponent(
     rawValue: attendanceRate,
     normalizedValue,
     contribution: null, // combineComponents() doldurur
-    plannedLessonCount: lessons.length,
-    attendedCount,
-    absentCount,
-    excusedCount,
-    pendingCount,
+    plannedLessonCount: counted.length,
+    teacherCausedCount: teacherCaused.length,
     rows,
   };
 }
@@ -273,12 +256,11 @@ async function computeTasksComponent(
   };
 }
 
-/** Ödev bileşeni için "uygun ders" — iptal edilmemiş, geçmişte kalmış, geldi/işlendi kabul edilmiş. */
+/** Ödev bileşeni için "uygun ders" — iptal edilmemiş, geçmişte kalmış, İşlendi. */
 function isEligibleLessonForHomework(lesson: Lesson, nowMs: number): boolean {
   if (lesson.status === "cancelled") return false;
   if (new Date(lesson.startAt).getTime() >= nowMs) return false;
-  const processed = effectiveLessonOpsStatus(lesson) === "processed";
-  return lesson.teacherAttendanceStatus === "geldi" || processed;
+  return effectiveLessonOpsStatus(lesson) === "processed";
 }
 
 async function computeHomeworkComponent(

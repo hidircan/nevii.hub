@@ -4,25 +4,33 @@ import type { ServiceContext } from "../services/context";
 import {
   readData,
   readDashboardData,
+  readPaymentsListData,
   readLessonWindow,
+  readMakeupCenterData,
   readPaymentsPageData,
   readPayoutWindow,
   readReferenceData,
   readStudentListData,
   readStudentScope,
+  readTeacherPayoutsForTeacher,
+  readLessonsForTeacher,
   listTenants,
 } from "../store";
 import {
   narrowToDashboard,
   narrowToLessonWindow,
+  narrowToMakeupCenter,
+  type MakeupCenterData,
   narrowToPaymentsPage,
+  narrowToPaymentsList,
   narrowToPayoutWindow,
   narrowToStudentScope,
-  toPaymentStatusRow,
+  toPaymentStatusRows,
   toReferenceData,
   type DashboardData,
   type LessonWindowData,
   type PaymentsPageData,
+  type PaymentsListData,
   type PayoutWindowData,
   type ReferenceData,
   type StudentListData,
@@ -108,7 +116,12 @@ export const getInstitutionContext = cache(async function getInstitutionContext(
  * nesnesini kurar, nesne kimliğine göre memoize etmek hiç isabet etmezdi.
  */
 function scopeCacheKey(scope: InstitutionScope): string {
-  return scope.mode === "single" ? `single:${scope.tenantId}` : `all:${[...scope.tenantIds].sort().join(",")}`;
+  if (scope.mode === "single") return `single:${scope.tenantId}`;
+  // DB egress (2026-10-16): tek kurumlu "Tüm kurumlar" görünümü o kurumun verisinin AYNISIDIR (`mergeAppData` tek
+  // seti aynen döner) — okuma dar dilim yoluna gider. Canlıda tek okul varken bu görünüm program/ödeme/öğrenci
+  // dahil her sayfayı tam okumaya düşürüyordu. Yazma kapısı `scope.mode`'a bakar; bu yalnız OKUMA anahtarıdır.
+  if (scope.tenantIds.length === 1) return `single:${scope.tenantIds[0]}`;
+  return `all:${[...scope.tenantIds].sort().join(",")}`;
 }
 
 const readScopedDataByKey = cache(async (key: string): Promise<AppData> => {
@@ -166,6 +179,42 @@ const readScopedLessonWindowByKey = cache(async (key: string, fromIso: string, t
   return narrowToLessonWindow(await readScopedDataByKey(key), new Date(fromIso), new Date(toIso));
 });
 
+const readScopedMakeupCenterDataByKey = cache(async (key: string): Promise<MakeupCenterData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readMakeupCenterData({ lessons: "planning" }));
+  }
+  return narrowToMakeupCenter(await readScopedDataByKey(key), { lessons: "planning" });
+});
+
+const readScopedTeacherPayoutsByKey = cache(async (key: string, teacherId: string): Promise<AppData["teacherPayouts"]> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readTeacherPayoutsForTeacher(teacherId));
+  }
+  return (await readScopedDataByKey(key)).teacherPayouts.filter((p) => p.teacherId === teacherId);
+});
+
+const readScopedTeacherLessonsByKey = cache(async (key: string, teacherId: string): Promise<AppData["lessons"]> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readLessonsForTeacher(teacherId));
+  }
+  return (await readScopedDataByKey(key)).lessons.filter((l) => l.teacherId === teacherId);
+});
+
+/** DB egress (2026-10-18) — bir öğretmenin tüm dersleri (öğretmen detayı Özet / Program / Yoklama). */
+export async function readScopedTeacherLessons(scope: InstitutionScope, teacherId: string): Promise<AppData["lessons"]> {
+  return readScopedTeacherLessonsByKey(scopeCacheKey(scope), teacherId);
+}
+
+/** DB egress (2026-10-17) — bir öğretmenin kayıtlı hakedişleri (öğretmen detayı Hakediş / Ödeme Geçmişi). */
+export async function readScopedTeacherPayouts(scope: InstitutionScope, teacherId: string): Promise<AppData["teacherPayouts"]> {
+  return readScopedTeacherPayoutsByKey(scopeCacheKey(scope), teacherId);
+}
+
+/** DB egress (2026-10-16) — Telafi Merkezi (bkz. reference-data.ts `MakeupCenterData`); 2026-10-18: `"planning"` dersleri. */
+export async function readScopedMakeupCenterData(scope: InstitutionScope): Promise<MakeupCenterData> {
+  return readScopedMakeupCenterDataByKey(scopeCacheKey(scope));
+}
+
 /** DB egress (2026-09-30) — Ders Programı haftası (bkz. reference-data.ts `LessonWindowData`). */
 export async function readScopedLessonWindow(scope: InstitutionScope, from: Date, to: Date): Promise<LessonWindowData> {
   return readScopedLessonWindowByKey(scopeCacheKey(scope), from.toISOString(), to.toISOString());
@@ -176,7 +225,15 @@ const readScopedStudentListDataByKey = cache(async (key: string): Promise<Studen
     return runWithTenantAsync(key.slice("single:".length), () => readStudentListData());
   }
   const full = await readScopedDataByKey(key);
-  return { ...toReferenceData(full), payments: full.payments.map(toPaymentStatusRow) };
+  const tenantIds = key.slice("all:".length).split(",").filter(Boolean);
+  const { listTerminalContractIdsForScope } = await import("../contracts");
+  const { supersededUncollectedMonthlyPlanIds } = await import("../superseded-monthly-plan");
+  const drop = supersededUncollectedMonthlyPlanIds(
+    full.payments,
+    await listTerminalContractIdsForScope({ mode: "all", tenantIds })
+  );
+  const payments = drop.size === 0 ? full.payments : full.payments.filter((p) => !drop.has(p.id));
+  return { ...toReferenceData(full), payments: toPaymentStatusRows(payments) };
 });
 
 /** DB egress (2026-09-30) — Öğrenciler listesi (bkz. reference-data.ts `StudentListData`). */
@@ -194,6 +251,18 @@ const readScopedPaymentsPageDataByKey = cache(async (key: string): Promise<Payme
 /** DB egress (2026-09-30) — Ödemeler (bkz. reference-data.ts `PaymentsPageData`). */
 export async function readScopedPaymentsPageData(scope: InstitutionScope): Promise<PaymentsPageData> {
   return readScopedPaymentsPageDataByKey(scopeCacheKey(scope));
+}
+
+const readScopedPaymentsListDataByKey = cache(async (key: string): Promise<PaymentsListData> => {
+  if (key.startsWith("single:")) {
+    return runWithTenantAsync(key.slice("single:".length), () => readPaymentsListData());
+  }
+  return narrowToPaymentsList(await readScopedDataByKey(key));
+});
+
+/** DB egress (2026-10-19) — Ödemeler listesi / Tahsilat (bkz. reference-data.ts `PaymentsListData`). */
+export async function readScopedPaymentsListData(scope: InstitutionScope): Promise<PaymentsListData> {
+  return readScopedPaymentsListDataByKey(scopeCacheKey(scope));
 }
 
 const readScopedPayoutWindowByKey = cache(async (key: string, fromIso: string, toIso: string): Promise<PayoutWindowData> => {

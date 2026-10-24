@@ -67,6 +67,12 @@ export function LessonCard({ lesson, personName, onPress, showStatus = true, sho
                 <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{lesson.branchName}</AppText>
               </View>
             ) : null}
+            {lesson.groupLessonId ? (
+              <View style={styles.metaItem}>
+                <Icon name="people-outline" size={13} color={t.colors.textMuted} />
+                <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>Grup dersi</AppText>
+              </View>
+            ) : null}
             {lesson.roomName ? (
               <View style={styles.metaItem}>
                 <Icon name="location-outline" size={13} color={t.colors.textMuted} />

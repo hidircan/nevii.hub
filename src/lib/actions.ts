@@ -27,13 +27,19 @@ import {
 import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
 import { isFormalContractDuration } from "./contracts";
+import { parseEnrollmentDraftsJson } from "./enrollment-form";
 import { formatDate, formatTime, uid } from "./utils";
 import {
   cancelMakeupLessonTool,
+  extendMakeupDeadlineTool,
+  reviseMakeupPlanTool,
+  deleteMakeupPlanTool,
+  cancelMakeupRightTool,
   confirmMakeupLessonTool,
   createPaymentTool,
   updatePaymentTool,
   createStudentTool,
+  registerStudentWithEnrollmentsTool,
   updateStudentProfileTool,
   pauseStudentLessonScheduleTool,
   reactivateStudentLessonScheduleTool,
@@ -45,6 +51,7 @@ import {
   reactivateStudentPortalAccessTool,
   sendStudentPortalPasswordResetTool,
   getTeacherAccountStatusTool,
+  changeTeacherPortalEmailTool,
   setTeacherAccountActiveTool,
   sendTeacherPasswordResetTool,
   getStaffAccountStatusTool,
@@ -80,11 +87,8 @@ import {
   suggestLessonSlotsTool,
   teacherDayAvailabilityTool,
   updateLessonScheduleTool,
-  cancelLessonTool,
   previewLessonSeriesTool,
   createLessonSeriesTool,
-  cancelSeriesFromLessonTool,
-  cancelEntireSeriesTool,
   changeLessonTeacherOrBranchTool,
   createPaymentRecordTool,
   createFeeRuleTool,
@@ -100,6 +104,10 @@ import {
   getStudentDeletionImpactTool,
   getTeacherDeletionImpactTool,
   deleteTeacherTool,
+  getPersonPurgePreviewTool,
+  purgePersonTool,
+  getBulkStudentPurgePreviewTool,
+  bulkPurgeStudentsTool,
   restoreDeletedTeacherTool,
   getPaymentDeletionPlanTool,
   deletePaymentTool,
@@ -134,6 +142,10 @@ import {
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
   type TeacherDeletionImpact,
+  type PersonPurgePreview,
+  type PersonPurgeResult,
+  type BulkPurgePreview,
+  type BulkPurgeItemResult,
   type PaymentDeletionPlan,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
@@ -225,7 +237,7 @@ import { getSessionAppearancePolicy } from "./platform/access";
 import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
 import { readData, readReferenceData } from "./store";
-import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
+import { withEgressLabel } from "./egress-label";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
 import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
@@ -240,6 +252,7 @@ import type { HistoricalContractImportRow } from "./import/historical-contracts"
 import type { LessonImportRow } from "./import/lessons";
 import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
+import type { AppRole } from "./auth/types";
 import type { ServiceResult } from "./services/result";
 
 function revalidateAll() {
@@ -333,7 +346,7 @@ async function withAuthContext<T>(
   }
 
   try {
-    const result = await runWithTenantAsync(writeScope.tenantId, () => fn(ctx));
+    const result = await runWithTenantAsync(writeScope.tenantId, () => withEgressLabel(actionName, () => fn(ctx)));
     auditLog({
       action: actionName,
       requestId,
@@ -721,6 +734,78 @@ export async function actionCancelMakeup(_prevState: SimpleActionFormState, form
   return null;
 }
 
+function lifecycleForm(formData: FormData) {
+  const acknowledge = String(formData.get("acknowledgeCorrection") || "") === "1";
+  const correctionNote = String(formData.get("correctionNote") || "");
+  const paidPayoutConfirm = String(formData.get("paidPayoutConfirm") || "") === "1";
+  return {
+    requestId: String(formData.get("requestId") || ""),
+    acknowledgeCorrection: acknowledge,
+    correctionNote,
+    paidPayoutConfirm,
+    payoutReason: String(formData.get("payoutReason") || ""),
+    criticalPassword: String(formData.get("criticalPassword") || ""),
+  };
+}
+
+async function runLifecycleAction(
+  label: string,
+  formData: FormData,
+  run: (
+    ctx: import("./services/context").ServiceContext
+  ) => Promise<{ ok: true } | { ok: false; error: { code: string; message: string; details?: unknown } }>
+): Promise<SimpleActionFormState> {
+  try {
+    await withAuthContext(label, async (ctx) => {
+      const result = await run(ctx);
+      if (!result.ok) throw new ToolValidationFailure(result.error);
+    });
+    revalidateAll();
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) return { ok: false, message: error.serviceError.message };
+    logger.error(`${label} failed`, error);
+    return { ok: false, message: "Telafi kaydı güncellenemedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+  return null;
+}
+
+export async function actionExtendMakeupDeadline(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionExtendMakeupDeadline", formData, (ctx) =>
+    extendMakeupDeadlineTool(ctx, { ...common, lastDayYmd: String(formData.get("lastDayYmd") || "") })
+  );
+}
+
+export async function actionReviseMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionReviseMakeupPlan", formData, (ctx) =>
+    reviseMakeupPlanTool(ctx, {
+      ...common,
+      teacherId: String(formData.get("teacherId") || ""),
+      roomId: String(formData.get("roomId") || ""),
+      startAt: String(formData.get("startAt") || ""),
+      allowAvailabilityOverride: String(formData.get("allowAvailabilityOverride") || "") === "1",
+    })
+  );
+}
+
+export async function actionDeleteMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  return runLifecycleAction("actionDeleteMakeupPlan", formData, (ctx) => deleteMakeupPlanTool(ctx, lifecycleForm(formData)));
+}
+
+export async function actionCancelMakeupRight(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionCancelMakeupRight", formData, (ctx) =>
+    cancelMakeupRightTool(ctx, {
+      ...common,
+      decisionNote: String(formData.get("decisionNote") || ""),
+      alsoCancelPlan: String(formData.get("alsoCancelPlan") || "") === "1",
+    })
+  );
+}
+
 
 export type MarkPaymentPaidDetailedInput = {
   paymentId: string;
@@ -826,6 +911,8 @@ export type NewStudentFormState = {
   formError?: string;
   fieldErrors?: Record<string, string>;
   values?: Record<string, string>;
+  /** 2026-10-10 — branş taslağı anahtarı → alan → Türkçe hata. Hangi branşın hangi alanı hatalı olduğunu forma taşır. */
+  enrollmentErrors?: Record<string, Record<string, string>>;
 } | null;
 
 /**
@@ -916,6 +1003,9 @@ const STUDENT_FORM_VALUE_KEYS = [
   "mebExamStatus",
   "notes",
   "kvkkConsent",
+  // 2026-10-10 — çoklu branş: tüm branş taslakları (JSON) + yeniden gönderim kimliği. Hata sonrası form branşları buradan kurar.
+  "enrollments",
+  "registrationId",
   // 2026-10-07 — grup dersi başvurusundan kayıt: hata sonrası form başvuru modunda kalsın.
   "registrationKind",
   "clubApplicationId",
@@ -949,6 +1039,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   // 2026-10-07 — grup dersi başvurusundan kayıt: üyelik/ücret burada AÇILMAZ; kayıttan sonra başvuruya dönülür.
   const clubApplicationId = String(formData.get("clubApplicationId") || "").trim() || undefined;
   let clubApplicationLinked = false;
+  let draftRedirectResult: { durationMonths: number; enrollmentId?: string } | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
       // P0-C (2026-09-02) — ilk ödeme alanları istemcinin `required`'ına GÜVENMEDEN,
@@ -958,6 +1049,9 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // 2026-10-05 — Kulüp: "course" | "course_club" | "club_only". Kulüp seçimi ÖĞRENCİ OLUŞMADAN doğrulanır.
       const registrationKind = String(formData.get("registrationKind") || "course");
       const clubOnly = registrationKind === "club_only";
+      // 2026-10-10 — yeni kayıt formu tüm branşları gizli `enrollments` JSON'unda gönderir (eşit branş kartları); ilk tahsilat,
+      // ders günü ve MEB doğrulaması BRANŞ BAŞINA ortak doğrulama modülünden geçer. Düz alanlar yalnız "sadece kulüp" kaydında kalır.
+      const draftMode = !clubOnly && formData.has("enrollments");
       let clubPlan: import("./clubs").ClubRegistrationPlan | null = null;
       if (registrationKind !== "course") {
         const { parseClubRegistration } = await import("./clubs");
@@ -969,7 +1063,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       }
       const { parseRegistrationFirstPaymentForm } = await import("./first-payment-adjustment");
       // Sadece kulüp: kurs tahsilatı yok (0) — kulüp ücreti ayrı kutudan.
-      const firstPaymentParsed = clubOnly
+      const firstPaymentParsed = clubOnly || draftMode
         ? ({ ok: true, value: { amount: 0 } } as const)
         : parseRegistrationFirstPaymentForm({
         method: String(formData.get("firstPaymentMethod") || ""),
@@ -994,7 +1088,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // kesin zorunlu kılınır.
       const lessonDaysRaw = formData.getAll("lessonDays").map(Number).filter((n) => Number.isInteger(n));
       const weeklyLessonCountRaw = Number(formData.get("weeklyLessonCount") || 1);
-      if (!clubOnly && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
+      if (!clubOnly && !draftMode && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
         const msg = `Haftalık ${weeklyLessonCountRaw} ders için ${weeklyLessonCountRaw} farklı ders günü seçmelisiniz.`;
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
@@ -1161,7 +1255,34 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         const msg = `${firstClub?.name ?? "Kulüp"} için "${firstClub?.instrument ?? ""}" branşında aktif öğretmen yok. Kulüpler ekranından öğretmen seçimini düzeltin.`;
         throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: msg, details: { fieldErrors: { clubs: [msg] } } });
       }
-      const createdResult = await createStudentTool(
+      const createdResult = draftMode
+        ? await (async () => {
+            const parsedDrafts = parseEnrollmentDraftsJson(String(formData.get("enrollments") ?? ""));
+            if (!parsedDrafts.ok) {
+              throw new ToolValidationFailure({
+                code: "VALIDATION_ERROR",
+                message: parsedDrafts.message,
+                details: { fieldErrors: { enrollments: [parsedDrafts.message] } },
+              });
+            }
+            const registrationId = String(formData.get("registrationId") || "").trim() || undefined;
+            const reg = await registerStudentWithEnrollmentsTool(ctx, {
+              ...studentPayload,
+              enrollmentDrafts: parsedDrafts.drafts,
+              registrationId,
+            });
+            if (reg.ok) {
+              const formalIdx = parsedDrafts.drafts.findIndex((d) => isFormalContractDuration(Number(d.intendedDurationMonths)));
+              const pickIdx = formalIdx >= 0 ? formalIdx : 0;
+              draftRedirectResult = {
+                durationMonths: Number(parsedDrafts.drafts[pickIdx]?.intendedDurationMonths) || 3,
+                enrollmentId: formalIdx >= 0 ? reg.data.enrollmentIds[formalIdx] : undefined,
+              };
+              if (reg.data.warnings?.length) inviteWarning = [inviteWarning, ...reg.data.warnings].filter(Boolean).join(" ");
+            }
+            return reg;
+          })()
+        : await createStudentTool(
         ctx,
         clubOnly && firstClub && clubOnlyTeacher
           ? {
@@ -1208,7 +1329,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
 
       // 2026-10-04 — kayıtta seçilen EK eğitimler (enstrüman + öğretmen + süre birlikte). Birincil eğitim
       // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
-      const extraRaw = String(formData.get("extraEnrollments") || "");
+      const extraRaw = draftMode ? "" : String(formData.get("extraEnrollments") || "");
       if (extraRaw) {
         let extras: ({ instrument: string; teacherId: string; lessonDurationMinutes: number } & Record<string, unknown>)[] = [];
         try {
@@ -1334,6 +1455,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         message: error.serviceError.message,
       });
       const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      const enrollmentErrors = (error.serviceError.details as { enrollmentErrors?: Record<string, Record<string, string>> } | undefined)
+        ?.enrollmentErrors;
       return {
         ok: false,
         formError:
@@ -1341,6 +1464,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
             : error.serviceError.message,
         fieldErrors,
+        ...(enrollmentErrors ? { enrollmentErrors } : {}),
         values: captureStudentFormValues(formData),
       };
     }
@@ -1366,7 +1490,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // İŞLENMEZ (yeni bir kolon/migration YOK); yalnızca başarı banner'ının
     // trial/formal sınıflandırmasını ve sözleşme formunun süre ön-doldurmasını
     // belirlemek için redirect query'sinde taşınır.
-    const rawDuration = Number(formData.get("intendedDurationMonths") || 3);
+    const rawDuration = draftRedirectResult?.durationMonths ?? Number(formData.get("intendedDurationMonths") || 3);
     const intendedDurationMonths = Number.isInteger(rawDuration) && rawDuration >= 1 && rawDuration <= 12 ? rawDuration : 3;
     // FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — formal kayıt (3-12 ay) doğrudan
     // Bağımsız Sözleşme Merkezi'ne (bkz. [studentId]/sozlesmeler) yönlendirilir;
@@ -1376,13 +1500,14 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // Sözleşme Merkezi'ne yönlendirilmez; öğrenci detayında "Sözleşme bekliyor" görünür.
     // Sadece kulüp kaydında sözleşme yoktur (kulüp sözleşmeye girmez) → öğrenci detayı.
     const studentOnly = formData.get("afterSave") === "student" || formData.get("registrationKind") === "club_only";
+    const branchQuery = draftRedirectResult?.enrollmentId ? `?brans=${encodeURIComponent(draftRedirectResult.enrollmentId)}` : "";
     const destination = !studentOnly && isFormalContractDuration(intendedDurationMonths)
-      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
+      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler${branchQuery}`
       : `/panel/ogrenciler/${newStudentId}`;
     const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";
     // UAT 2026-09-24 (D) — replace: kaydedilmiş formun geçmiş girdisi silinir; tarayıcı Geri
     // boş/eski "Yeni öğrenci" formuna dönüp aynı öğrenciyi İKİNCİ kez oluşturamaz.
-    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
+    redirect(`${destination}${destination.includes("?") ? "&" : "?"}yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
   }
   return null;
 }
@@ -1393,6 +1518,8 @@ export type UpdateStudentProfileActionResult =
 
 export async function actionUpdateMebStudent(input: {
   studentId: string;
+  /** 2026-10-10 — MEB bilgisi branşa özgüdür; çok branşlı öğrencide düzenlenen satırın branşı. */
+  enrollmentId?: string;
   level?: string;
   mebLevelStartDate?: string;
   mebLevelEndDate?: string;
@@ -1424,6 +1551,7 @@ export async function actionUpdateMebStudent(input: {
 
 export async function actionGetMebStudentEditImpact(input: {
   studentId: string;
+  enrollmentId?: string;
   branchId?: string;
 }): Promise<{ ok: true; impact: MebEditImpact } | { ok: false; message: string }> {
   try {
@@ -1470,12 +1598,22 @@ export async function actionUpsertStudentEnrollment(input: {
   studentId: string;
   /** 2026-10-09 — branş kaydı alanları (bkz. tools.ts enrollmentInputSchema; doğrulama sunucuda). */
   enrollment: Record<string, unknown> & { instrument: string; teacherId: string; lessonDurationMinutes: number };
-}): Promise<{ ok: true; warnings?: string[] } | { ok: false; message: string }> {
+}): Promise<{ ok: true; warnings?: string[]; enrollmentId?: string } | { ok: false; message: string; fieldErrors?: Record<string, string> }> {
   try {
     const result = await withAuthContext("actionUpsertStudentEnrollment", (ctx) => upsertStudentEnrollmentTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
+    if (!result.ok) {
+      const d = (result.error.details ?? {}) as { field?: string; fieldErrors?: Record<string, string[]> };
+      const fieldErrors: Record<string, string> = {};
+      for (const [k, msgs] of Object.entries(d.fieldErrors ?? {})) if (msgs?.[0]) fieldErrors[k] = msgs[0];
+      if (d.field && !fieldErrors[d.field]) fieldErrors[d.field] = result.error.message;
+      return { ok: false, message: result.error.message, ...(Object.keys(fieldErrors).length ? { fieldErrors } : {}) };
+    }
     revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
-    return { ok: true, ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}) };
+    return {
+      ok: true,
+      enrollmentId: result.data.enrollmentId,
+      ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}),
+    };
   } catch (e) {
     logger.error("actionUpsertStudentEnrollment failed", e);
     return { ok: false, message: "Branş kaydı kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
@@ -1507,6 +1645,8 @@ export async function actionAssignRecordEnrollment(input: {
 
 export async function actionUpdateStudentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — branş koşullarını (tür, seviye, MEB, süre, ödeme…) değiştirirken hedef branş. Çok branşlıda zorunlu. */
+  enrollmentId?: string;
   studentType?: string;
   /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
   studentTypes?: StudentType[];
@@ -1843,15 +1983,32 @@ export async function actionInviteTeacherAccount(input: { teacherId: string }): 
 /* Portal erişim yönetimi kartı — öğrenci/öğretmen detay ekranı         */
 /* ------------------------------------------------------------------ */
 
+/** Kartta gösterilen efektif MOBİL erişim — tek kaynak getMobilePolicy (salt-okur). */
+export type MobileAccessSummary = { allowed: boolean; reasons: string[] } | null;
+
+/**
+ * Kişinin rolü için bu kurumdaki mobil kararı. Tenant yalnız oturumdan gelir;
+ * yönetici ctx'i yayılmaz (loginRole sızmasın), yeni ctx kurulur.
+ */
+async function mobileAccessFor(ctx: ServiceContext, role: string | null): Promise<MobileAccessSummary> {
+  if (!role) return null;
+  const { getMobilePolicy } = await import("./platform/mobile-policy");
+  const r = await getMobilePolicy({ role: role as AppRole, userId: "portal_access_card", tenantId: ctx.tenantId, channel: "mobile" });
+  return r.ok ? { allowed: r.data.allowed, reasons: r.data.reasons } : null;
+}
+
 export type StudentPortalAccessListResult =
-  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[] }
+  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[]; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStudentPortalAccess(input: { studentId: string }): Promise<StudentPortalAccessListResult> {
   try {
-    const result = await withAuthContext("actionGetStudentPortalAccess", (ctx) => getStudentPortalAccessTool(ctx, input));
+    const result = await withAuthContext("actionGetStudentPortalAccess", async (ctx) => {
+      const r = await getStudentPortalAccessTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "STUDENT") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, accounts: result.data.accounts };
+    return { ok: true, accounts: result.data.accounts, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -1901,14 +2058,35 @@ export async function actionSendStudentPortalPasswordReset(input: { studentId: s
 }
 
 export type TeacherAccountStatusResult =
-  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
+
+/** 2026-10-14 — öğretmen portal giriş e-postası (yalnız kurum sahibi; yetki tool'da). */
+export async function actionChangeTeacherPortalEmail(input: {
+  teacherId: string;
+  newEmail: string;
+  confirm: true;
+}): Promise<{ ok: true; mode: "pending_invitation_updated" | "verification_sent"; newEmail: string; delivered: boolean } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionChangeTeacherPortalEmail", (ctx) => changeTeacherPortalEmailTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, mode: result.data.mode, newEmail: result.data.newEmail, delivered: result.data.delivered };
+  } catch (error) {
+    logger.error("actionChangeTeacherPortalEmail failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal e-postası değiştirilirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
 
 export async function actionGetTeacherAccountStatus(input: { teacherId: string }): Promise<TeacherAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetTeacherAccountStatus", (ctx) => getTeacherAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetTeacherAccountStatus", async (ctx) => {
+      const r = await getTeacherAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "TEACHER") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetTeacherAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -1948,14 +2126,17 @@ export async function actionSendTeacherPasswordReset(input: { teacherId: string 
 /* ------------------------------------------------------------------ */
 
 export type StaffAccountStatusResult =
-  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStaffAccountStatus(input: { staffId: string }): Promise<StaffAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetStaffAccountStatus", (ctx) => getStaffAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetStaffAccountStatus", async (ctx) => {
+      const r = await getStaffAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, r.data.exists ? r.data.role : null) } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStaffAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -2013,6 +2194,8 @@ export type UpdateStudentPaymentProfileActionResult =
  */
 export async function actionUpdateStudentPaymentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — ödeme profili BRANŞA özgüdür; çok branşlıda hedef branş zorunlu. */
+  enrollmentId?: string;
   packageId?: string;
   lessonDurationMinutes?: number;
   discountType?: "percent" | "amount";
@@ -2678,6 +2861,10 @@ export async function actionUpdateCollectionsSettings(input: {
   autoSendEnabled: boolean;
   vakifbankIban?: string;
   halkbankIban?: string;
+  paymentReminderEnabled?: boolean;
+  paymentReminderDaysBefore?: number;
+  paymentReminderRepeatDays?: number;
+  paymentReminderMaxRepeats?: number;
 }): Promise<UpdateCollectionsSettingsActionResult> {
   try {
     const result = await withAuthContext("actionUpdateCollectionsSettings", (ctx) =>
@@ -3463,14 +3650,13 @@ export async function actionAddRoom(_prevState: AddRoomFormState, formData: Form
 }
 
 export type LessonActionResult =
-  | { ok: true; lessonId: string; communication: LessonCommunicationDraft | null }
+  | { ok: true; lessonId: string }
   | { ok: false; message: string; overridable?: boolean };
 
 /**
  * Hata durumunda fırlatmaz — Program Stüdyosu client bileşeni sonucu
  * doğrudan gösterip forma bağlamında Türkçe bir hata göstersin diye
- * `{ ok: false, message }` döner. Başarıda, ders için otomatik gönderim
- * yapılmayan veli/öğretmen iletişim taslağını da birlikte döndürür.
+ * `{ ok: false, message }` döner. Ders planlama mesaj taslağı ÜRETMEZ (sahip kararı 2026-10-18).
  */
 export async function actionAddLesson(formData: FormData): Promise<LessonActionResult> {
   try {
@@ -3498,23 +3684,7 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         return { ok: false as const, message: created.error.message, overridable: details?.overridable };
       }
 
-      const data = await readData();
-      const lesson = data.lessons.find((l) => l.id === created.data.lessonId);
-      const student = data.students.find((s) => s.id === lesson?.studentId);
-      const teacher = data.teachers.find((t) => t.id === lesson?.teacherId);
-      const branch = data.settings.branches.find((b) => b.id === lesson?.branchId);
-      const communication =
-        lesson && student && teacher
-          ? buildLessonCommunicationDraft(
-              data.settings.name,
-              student,
-              teacher,
-              lesson,
-              branch?.shortName ?? ""
-            )
-          : null;
-
-      return { ok: true as const, lessonId: created.data.lessonId, communication };
+      return { ok: true as const, lessonId: created.data.lessonId };
     });
     if (result.ok) revalidateAll();
     return result;
@@ -3601,27 +3771,9 @@ export async function actionUpdateLessonSchedule(input: {
   }
 }
 
-export type CancelLessonActionResult = { ok: true } | { ok: false; message: string };
-
-export async function actionCancelLesson(input: {
-  lessonId: string;
-  /** 9. tur — iptal kaynağı; öğretmen katılımı yalnız öğretmen kaynaklıysa ve açıkça seçildiyse. */
-  disruptionSource?: "teacher" | "institution" | "student" | "other";
-  disruptionNote?: string;
-  teacherAttendance?: "gelmedi" | "mazeretli";
-}): Promise<CancelLessonActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelLesson", (ctx) => cancelLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateLessonSurfaces();
-    return { ok: true };
-  } catch (error) {
-    logger.error("actionCancelLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Ders iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
+// 2026-10-15 — web Ders Programı'ndan "iptal et" eylemi kaldırıldı (iş birimi silmek isterken iptale basıyordu).
+// Geçmiş iptal kayıtları korunur; yayımlanmış mobil admin uygulaması için POST /api/v1/lessons/:id/cancel ve
+// cancelLessonTool kalır (mobil arayüzden kaldırma ayrı sürüm işi).
 
 export type LessonSeriesParamsInput = {
   studentId: string;
@@ -3695,36 +3847,6 @@ export async function actionCreateLessonSeries(
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Seri oluşturulurken beklenmeyen bir hata oluştu." };
-  }
-}
-
-export type SeriesCancelActionResult = { ok: true; cancelledLessonIds: string[] } | { ok: false; message: string };
-
-export async function actionCancelSeriesFromLesson(input: { lessonId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelSeriesFromLesson", (ctx) => cancelSeriesFromLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelSeriesFromLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
-
-export async function actionCancelEntireSeries(input: { seriesId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelEntireSeries", (ctx) => cancelEntireSeriesTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelEntireSeries failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
   }
 }
 
@@ -4350,6 +4472,68 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
     "actionRestoreDeletedStudent",
     (ctx) => restoreDeletedStudentTool(ctx, { studentId }),
     "Öğrenci geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-15 — öğrenci/öğretmen kalıcı silme; önizleme ve silme aynı planı kullanır (`purgePersonTool`). */
+export async function actionGetPersonPurgePreview(
+  kind: "student" | "teacher",
+  id: string,
+  mode: "standard" | "wipe" = "standard",
+  opts: { lessonAction?: "delete" | "reassign"; targetTeacherId?: string } = {}
+): Promise<SimpleActionResult<PersonPurgePreview>> {
+  return runSimpleAction(
+    "actionGetPersonPurgePreview",
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode, ...opts }),
+    "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+/** 2026-10-17 — Silinen öğrenciler: toplu kalıcı silme (önizleme + yürütme; çekirdek tekli silmeyle aynı). */
+export async function actionGetBulkStudentPurgePreview(studentIds: string[]): Promise<SimpleActionResult<BulkPurgePreview>> {
+  return runSimpleAction(
+    "actionGetBulkStudentPurgePreview",
+    (ctx) => getBulkStudentPurgePreviewTool(ctx, { studentIds }),
+    "Toplu kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionBulkPurgeStudents(input: {
+  studentIds: string[];
+  fingerprints: Record<string, string>;
+  confirmationCount: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ results: BulkPurgeItemResult[] }>> {
+  const res = await runSimpleAction(
+    "actionBulkPurgeStudents",
+    (ctx) => bulkPurgeStudentsTool(ctx, input),
+    "Toplu kalıcı silme tamamlanamadı. Silinen öğrenciler listesini yenileyip sonucu kontrol edin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionPurgePerson(input: {
+  kind: "student" | "teacher";
+  id: string;
+  expectedFingerprint: string;
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+  /** "wipe": yanlış oluşturulmuş kayıt — finans dahil her şey silinir (yalnız kurum sahibi). */
+  mode?: "standard" | "wipe";
+  financialAcknowledged?: boolean;
+  scopeAll?: boolean;
+  lessonAction?: "delete" | "reassign";
+  targetTeacherId?: string;
+}): Promise<SimpleActionResult<PersonPurgeResult>> {
+  const res = await runSimpleAction(
+    "actionPurgePerson",
+    (ctx) => purgePersonTool(ctx, input),
+    "Kalıcı silme tamamlanamadı; hiçbir kayıt silinmedi. Tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;

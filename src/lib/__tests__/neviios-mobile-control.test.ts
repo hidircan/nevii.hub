@@ -77,9 +77,45 @@ describe("kontrol matrisi — hak yoksa düğme yetki vermez", () => {
     expect(revoke.ok).toBe(true);
     const closed = await getMobilePolicy(ctx("TEACHER", TENANT_A), { platform: "ios" });
     expect(closed.ok && closed.data.allowed).toBe(false);
-    expect(closed.ok && closed.data.reasons.join(" ")).toContain("Paket");
+    // neden + düzeltme yeri (owner kuralı)
+    expect(closed.ok && closed.data.reasons).toContain(
+      "Kurum paketinde mobil uygulama hakkı yok. Platform yöneticisi NeviiOS › Kurum › Mobil ekranındaki «Mobil uygulama hakkını ver» düğmesiyle (veya Paket & Limit sekmesinden) hakkı vermeli."
+    );
     const matrix = await getMobileControlMatrix(TENANT_A);
     expect(matrix.ok && matrix.data.rows.every((r) => r.effective === false)).toBe(true);
+  });
+
+  it("standard paket (mobileApp yok): entitlementOverrides {mobileApp:true} + mobile.appEnabled → öğretmen ve öğrenci izinli (Android)", async () => {
+    await upsertPlatformTenant({ tenantId: TENANT_A, name: "Mobil A", planKey: "standard" }, "seed");
+    await updateTenantSetting(hyper(), TENANT_A, { key: "mobile.appEnabled", value: true, confirm: true });
+    const before = await getMobilePolicy(ctx("TEACHER", TENANT_A), { platform: "android" });
+    expect(before.ok && before.data.allowed).toBe(false);
+    const grant = await updateTenantSetting(hyper(), TENANT_A, {
+      key: "subscription.entitlementOverrides",
+      value: { mobileApp: true },
+      confirm: true,
+      reason: "test",
+    });
+    expect(grant.ok).toBe(true);
+    for (const role of ["TEACHER", "STUDENT"] as const) {
+      const p = await getMobilePolicy(ctx(role, TENANT_A), { platform: "android" });
+      expect(p.ok && p.data.reasons).toEqual([]);
+      expect(p.ok && p.data.allowed).toBe(true);
+    }
+  });
+
+  it("şube müdürü (doğrudan ya da unified ön ayarda SCHOOL_ADMIN olarak) her durumda kapalı + web paneli nedeni", async () => {
+    await grantMobile(TENANT_A);
+    await updateTenantSetting(hyper(), TENANT_A, { key: "mobile.adminPortalEnabled", value: true, confirm: true });
+    const reason = "Şube müdürü hesapları mobil uygulamayı kullanmaz; web panelini (/panel) kullanın.";
+    const direct = await getMobilePolicy(ctx("BRANCH_MANAGER", TENANT_A), { platform: "android" });
+    const unified = await getMobilePolicy({ ...ctx("SCHOOL_ADMIN", TENANT_A), loginRole: "BRANCH_MANAGER" }, { platform: "android" });
+    const admin = await getMobilePolicy(ctx("SCHOOL_ADMIN", TENANT_A), { platform: "android" });
+    for (const p of [direct, unified]) {
+      expect(p.ok && p.data.allowed).toBe(false);
+      expect(p.ok && p.data.reasons).toEqual([reason]);
+    }
+    expect(admin.ok && admin.data.allowed).toBe(true);
   });
 
   it("bakım mesajı doluyken bakım efektifi + açık uyarı; boşalınca güvenli varsayılan", async () => {

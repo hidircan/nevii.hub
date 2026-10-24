@@ -5,9 +5,10 @@ name: notification-tick
 # Gerekli repository secrets: APP_BASE_URL (örn. https://app.neviihub.com),
 # NOTIFICATION_CRON_SECRET (sunucudakiyle AYNI değer).
 
+# 2026-10-16: zamanlama Vercel Cron'a taşındı (vercel.json, her 10 dk, GET + CRON_SECRET). GitHub `schedule`'ı
+# yükte çoğu koşuyu düşürüyordu (~günde 5) ve her koşu Actions dakikası yakıyordu. Bu iş yalnız elle (geri dönüş /
+# acil tetikleme) çalışır; iki zamanlayıcı aynı anda AÇILMAZ. Geri dönüş: vercel.json'dan cron'u kaldır + schedule'ı geri ekle.
 on:
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 jobs:

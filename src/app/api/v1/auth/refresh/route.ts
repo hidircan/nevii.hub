@@ -17,11 +17,14 @@ import {
   parseCookieHeader,
 } from "@/lib/auth/cookies";
 import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
+import { IDLE_LOGOUT_MESSAGE, isIdleExpired, nowSec } from "@/lib/session-policy";
 
 export const dynamic = "force-dynamic";
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1).optional(),
+  /** Tarayıcı: gerçek kullanıcı etkileşiminden sonra seyrek çağrı — `act` şimdiye çekilir. */
+  activity: z.boolean().optional(),
 });
 
 /**
@@ -56,6 +59,12 @@ export const POST = withApiHandler(
 
     try {
       const claims = await verifyRefreshToken(token);
+      // Web hareketsizlik: act token'a gömülüdür (yalnız tarayıcı girişinde) — taşıma yolundan bağımsız uygulanır.
+      const browser = !parsed.data.refreshToken;
+      if (isIdleExpired(claims.act)) {
+        auditLog({ action: "auth.refresh_idle_expired", requestId: ctx.requestId || "unknown", userId: claims.sub, outcome: "denied" });
+        return jsonFail("UNAUTHORIZED", IDLE_LOGOUT_MESSAGE);
+      }
       if (!(await isSessionClaimValid(claims, { ignoreRole: true }))) {
         return jsonFail("UNAUTHORIZED", "User no longer valid");
       }
@@ -81,6 +90,9 @@ export const POST = withApiHandler(
         teacherId: claims.teacherId ?? user.teacherId,
         studentId: claims.studentId ?? user.studentId,
         sid: claims.sid,
+        // Yenileme etkinlik sayılmaz: `act` korunur; yalnız tarayıcının açık etkinlik isteği ilerletir.
+        // act'siz eski tarayıcı token'ında saat şimdi başlar; mobil (gövde) token'ı act'siz kalır.
+        act: claims.act === undefined ? (browser ? nowSec() : undefined) : parsed.data.activity ? nowSec() : claims.act,
       });
 
       auditLog({

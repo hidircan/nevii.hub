@@ -12,11 +12,11 @@ import {
   formatMoney,
   formatPaymentCollectionSummary,
   paymentMethodLabelTr,
-  paymentSourceLabel,
 } from "@/lib/utils";
+import { paymentSourceLabel } from "@/lib/payment-source-label";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
-import type { Payment, PaymentSource } from "@/lib/types";
+import type { Payment } from "@/lib/types";
 
 /**
  * Öğrenci "Ödeme geçmişi" tablosu — gerçekleşmiş hareketler.
@@ -61,7 +61,7 @@ export function StudentPaymentHistoryTable({
             </thead>
             <tbody>
               {pageItems.map((p) => {
-                const sourceLabel = paymentSourceLabel(p.source as PaymentSource | undefined, Boolean(p.lessonId));
+                const sourceLabel = paymentSourceLabel(p);
                 return (
                   <tr key={p.id} className="border-b border-[var(--color-border)]">
                     <td className="px-4 py-3 font-medium text-[var(--color-text)]">
@@ -174,7 +174,6 @@ export function StudentPaymentHistoryTable({
           paymentId={modalPayment.id}
           studentName={modalPayment.studentName || studentName}
           defaultAmount={modalPayment.paidAmount || modalPayment.amount}
-          mode="edit"
           initialMethod={isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined}
           initialNote={modalPayment.paymentNote}
           initialPaidAt={modalPayment.paidAt}

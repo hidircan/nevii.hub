@@ -25,6 +25,7 @@ description: NeviiHub'da her görevin başlangıç yönlendiricisi — "şu hata
 | Hata düzeltme süreci | `bug-fix` + `testing-regression` | — |
 | Yeni özellik süreci | `feature-delivery` | — |
 | Deploy/env/cron/Vercel | `production-readiness` | `vercel.json`, `docs/operations/*` |
+| Performans, Supabase egress/kota, yavaş sorgu, Vercel CPU, oturum gecikmesi | `performance-db-egress` | `src/lib/store-db.ts`, `reference-data.ts`, `scripts/bench/*` |
 | Oturum sonu | `session-handoff` | — |
 
 ## 2. Değişiklik nereye yapılır
@@ -40,7 +41,7 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - "Ödenmesi gereken" ile "tahsil edilen" ayrı alan ve ayrı başlık.
 
 ## 4. Ortam sınırı (2026-10-01'den beri local-first — `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`)
-- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `wsbucznpujcfzhitzrbl`. Sürekli açık test ortamı YOK:
+- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `ddskhtirzywbuucxeovz` (2026-10-18; önceki `wsbucznpujcfzhitzrbl` donmuş geri dönüş kaynağı). Sürekli açık test ortamı YOK:
   `test.neviihub.com` geçici olarak canlıya yönlenir; eski test DB'si (`vxzewyiwfshobjizzetw`) gerçek veri taşıyan
   salt-okunur geri dönüş kaynağıdır, test hedefi DEĞİL.
 - Düşük riskli, migration'sız iş: yerel doğrulama → `main`. Migration/finans/silme/auth/tenant/toplu veri/dış mesaj:
@@ -63,3 +64,20 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 ## 6. Oturum sonu (kısa tut)
 - `PROJECT_STATE.md`: yalnız "Güncel snapshot" bölümünü ÜZERİNE yaz (commit, ortam, açık iş, riskler — ~40 satır). Ayrıntı → `docs/testing/UAT_*.md` / `docs/operations/*`; eski snapshot → `docs/agent-memory/archive/`.
 - `LESSONS_LEARNED.md`: yalnız bu oturumda KANITLANIP düzeltilen yeni hata için 3–5 satır; var olan maddeyi tekrar etme.
+
+## 7. Supabase egress kuralı (2026-10-16, zorunlu)
+- Yeni `readData()`/`readScopedData(` = `egress-full-read-ratchet.test.ts` kırmızı. Dar dilim kullan
+  (`reference-data.ts`, `readScoped*`, `read*ById`, `readLessonsStartingBetween`, `readMakeupCenterData`).
+- Döngü/satır başına "hepsini listele + JS'te süz" yasak → SQL `where`/`select`/`take`.
+- Cron/tick: tur başına okuma × günlük tur sayısını PR'a yaz; 10 dk'lık iş yalnız penceresini okur.
+- Büyük kolon (logo, sözleşme snapshot'ı, dosya/HTML) yalnız onu gösteren tekil ekranda seçilir.
+- Mobil/API ucu ekliyorsan: tek öğrenci → `readStudentScope`, tarih aralığı → `readLessonWindow`, liste → `readReferenceData`;
+  `readData()` önüne önbellek koyma (instance'lar arası bayat finans verisi). Ölçüm/yöntem: `performance-db-egress` skill.
+- Yazım sonrası tüm veriyi yeniden okuma (`data: await readData()`); ders düzenleme → `readLessonEditScope`, e-posta logosu
+  → `readSchoolBranding`, sayaç → `count` sorgusu. Kalan yollar: son `docs/performance/DB_EGRESS_*.md` "Kalan" bölümü.
+- Yazım sonrası kanca (mesaj taslağı/bildirim) ve cron döngüsündeki store yazımı da tam okuma yapmaz; doğrulama
+  `scripts/bench/bench-flow-full-reads.ts` ile akış başına (bkz. performance-db-egress kural 17–18).
+- Önce ÜRETİMİ ölç: `scripts/ops/egress-top-queries.sql` (canlı `pg_stat_statements`, salt okuma) — "tüm dersler/tüm
+  bildirimler" okuyan dilimler log satırı basmaz, yalnız burada görünür (kural 19–21). Vercel CPU rota başına: `vercel metrics`.
+- Kota sıfırlamak için yeni Vercel team/hesap açma (Hobby ticari kullanım yasak; bkz. performance-db-egress §5).
+- Ayrıntı: CLAUDE.md "Egress rules — enforced".

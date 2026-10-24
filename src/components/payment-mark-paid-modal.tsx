@@ -2,15 +2,15 @@
 
 import { useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { actionMarkPaymentPaidDetailed, actionUpdatePayment } from "@/lib/actions";
+import { actionUpdatePayment } from "@/lib/actions";
 import {
   formatDate,
   formatDateTime,
   formatMoney,
   formatPaymentCollectionSummary,
   paymentMethodLabelTr,
-  paymentSourceLabel,
 } from "@/lib/utils";
+import { paymentSourceLabel } from "@/lib/payment-source-label";
 
 type PaymentMethod = "credit_card" | "cash" | "transfer";
 
@@ -43,11 +43,15 @@ function datetimeLocalToIso(value: string): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+/**
+ * Mevcut tahsilat kaydının düzeltilmesi — Ödemeler ekranlarında YENİ tahsilat
+ * açılmaz (tahsilat yalnız Yoklama Takvimi üzerinden yapılır). Bu modal yalnız
+ * "edit" kipindedir: önce kayıt özeti, sonra düzeltme formu ve onay.
+ */
 export function PaymentMarkPaidModal({
   paymentId,
   studentName,
   defaultAmount,
-  mode,
   initialMethod,
   initialNote,
   initialPaidAt,
@@ -63,8 +67,6 @@ export function PaymentMarkPaidModal({
   paymentId: string;
   studentName: string;
   defaultAmount: number;
-  /** "create" — henüz ödenmemiş; "edit" — tamamlanmış kaydı düzenler (önce özet). */
-  mode: "create" | "edit";
   initialMethod?: PaymentMethod;
   initialNote?: string;
   initialPaidAt?: string;
@@ -81,7 +83,7 @@ export function PaymentMarkPaidModal({
 }) {
   const router = useRouter();
   const titleId = useId();
-  const [step, setStep] = useState<"summary" | "form" | "confirm">(mode === "edit" ? "summary" : "form");
+  const [step, setStep] = useState<"summary" | "form" | "confirm">("summary");
   const [method, setMethod] = useState<PaymentMethod>(initialMethod ?? "transfer");
   const [amount, setAmount] = useState(String(defaultAmount));
   const [paidAtLocal, setPaidAtLocal] = useState(toDatetimeLocal(initialPaidAt));
@@ -99,7 +101,7 @@ export function PaymentMarkPaidModal({
 
   const parsedAmount = Number(amount);
   const amountValid = Number.isFinite(parsedAmount) && parsedAmount > 0;
-  const sourceLabel = paymentSourceLabel(source, Boolean(lessonId));
+  const sourceLabel = paymentSourceLabel({ source, lessonId });
   const methodLabel = paymentMethodLabelTr(method);
   const collectionSummary = formatPaymentCollectionSummary({
     paidAt: initialPaidAt,
@@ -125,22 +127,13 @@ export function PaymentMarkPaidModal({
     setSubmitting(true);
     setError(null);
     const paidAtIso = datetimeLocalToIso(paidAtLocal);
-    const result =
-      mode === "create"
-        ? await actionMarkPaymentPaidDetailed({
-            paymentId,
-            method,
-            amount: parsedAmount,
-            paidAt: paidAtIso,
-            paymentNote: note.trim() || undefined,
-          })
-        : await actionUpdatePayment({
-            paymentId,
-            method,
-            amount: parsedAmount,
-            paymentNote: note.trim() || undefined,
-            paidAt: paidAtIso,
-          });
+    const result = await actionUpdatePayment({
+      paymentId,
+      method,
+      amount: parsedAmount,
+      paymentNote: note.trim() || undefined,
+      paidAt: paidAtIso,
+    });
     setSubmitting(false);
     if (!result.ok) {
       setError(result.message);
@@ -260,7 +253,7 @@ export function PaymentMarkPaidModal({
         {step === "form" ? (
           <>
             <h2 id={titleId} className="text-base font-semibold text-[var(--color-text)]">
-              {mode === "create" ? "Ödendi işaretle" : "Ödemeyi düzenle"}
+              Ödemeyi düzenle
             </h2>
             <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{studentName}</p>
             {sourceLabel ? (
@@ -337,7 +330,7 @@ export function PaymentMarkPaidModal({
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => (mode === "edit" ? setStep("summary") : onClose())}
+                onClick={() => setStep("summary")}
                 className="rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
               >
                 Vazgeç

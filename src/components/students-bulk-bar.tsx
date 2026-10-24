@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { ArrowRightLeft, Archive, RotateCcw, Trash2, UserCheck, X } from "lucide-react";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { actionBulkStudentAction } from "@/lib/actions";
+import { StudentsBulkPurgeDialog } from "@/components/students-bulk-purge-dialog";
+
+/** Sunucudaki `BULK_PURGE_MAX` ile aynı (tools.ts). */
+const BULK_PURGE_MAX = 25;
 
 export type BulkAction = "branch" | "teacher" | "instrument" | "package" | "deactivate" | "activate" | "soft_delete" | "restore";
 
@@ -56,7 +60,7 @@ const IMPACT: Record<BulkAction, { effect: string; undo: string; danger?: boolea
     undo: "Geri alınabilir: Pasife al.",
   },
   soft_delete: {
-    effect: "Öğrenciler pasife alınır ve Silinenler'e taşınır. Sözleşme, ödeme, evrak ve denetim kayıtları KORUNUR. Kalıcı silme toplu yapılamaz.",
+    effect: "Öğrenciler pasife alınır ve Silinenler'e taşınır. Sözleşme, ödeme, evrak ve denetim kayıtları KORUNUR. Kalıcı silme yalnız Silinen öğrenciler listesinden yapılır.",
     undo: "Geri alınabilir: Öğrenciler → Silinen öğrenciler → seç → Geri al.",
     danger: true,
   },
@@ -83,6 +87,8 @@ export function StudentsBulkBar({
   const [reason, setReason] = useState("");
   const [password, setPassword] = useState("");
   const [transferLessons, setTransferLessons] = useState(false);
+  // Kalıcı silme diyaloğu: açılış anındaki seçim dondurulur (silinenler listeden düşünce seçim değişir).
+  const [purgeIds, setPurgeIds] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
@@ -92,7 +98,8 @@ export function StudentsBulkBar({
     lessonIssues?: { name: string; message: string }[];
   } | null>(null);
 
-  if (selected.length === 0 && !result) return null;
+  // Kalıcı silme sonucu ekranda kalsın: silinen öğrenciler listeden düşünce seçim boşalır.
+  if (selected.length === 0 && !result && !purgeIds) return null;
 
   const hasInactive = selected.some((s) => !s.active);
   const hasActive = selected.some((s) => s.active);
@@ -194,9 +201,20 @@ export function StudentsBulkBar({
           <>
             <span className="mr-1 text-xs font-semibold text-[var(--color-text)]">{selected.length} öğrenci seçildi</span>
             {deletedView ? (
-              <button type="button" className={btn} onClick={() => open("restore")}>
-                <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Geri al
-              </button>
+              <>
+                <button type="button" className={btn} onClick={() => open("restore")}>
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Geri al
+                </button>
+                <button
+                  type="button"
+                  className={btn}
+                  style={{ color: "var(--color-danger)", borderColor: "var(--color-danger)" }}
+                  onClick={() => setPurgeIds(selected.map((s) => s.id))}
+                  title={selected.length > BULK_PURGE_MAX ? `Tek seferde en fazla ${BULK_PURGE_MAX} öğrenci kalıcı silinebilir.` : undefined}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden /> Kalıcı olarak sil
+                </button>
+              </>
             ) : (
               <>
                 <button type="button" className={btn} onClick={() => open("branch")}>
@@ -237,6 +255,16 @@ export function StudentsBulkBar({
           </>
         )}
       </div>
+
+      {purgeIds ? (
+        <StudentsBulkPurgeDialog
+          key={purgeIds.join(",")}
+          studentIds={purgeIds}
+          max={BULK_PURGE_MAX}
+          onClose={() => setPurgeIds(null)}
+          onDone={onClear}
+        />
+      ) : null}
 
       <ModalShell
         open={!!action}

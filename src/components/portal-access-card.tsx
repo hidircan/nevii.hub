@@ -23,10 +23,12 @@ import {
   actionSetTeacherAccountActive,
   actionSendTeacherPasswordReset,
   actionInviteTeacherAccount,
+  actionChangeTeacherPortalEmail,
   actionGetStaffAccountStatus,
   actionSetStaffAccountActive,
   actionSendStaffPasswordReset,
   actionInviteStaffAccount,
+  type MobileAccessSummary,
 } from "@/lib/actions";
 import type {
   StudentPortalAccessSummaryRow,
@@ -55,16 +57,27 @@ function StatusBadge({ tone, children }: { tone: "green" | "amber" | "gray" | "r
   return <span className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>{children}</span>;
 }
 
+/** Efektif MOBİL erişim satırı — sunucudaki getMobilePolicy kararı (giriş hesabından ayrı). */
+function MobileAccessLine({ mobile }: { mobile: MobileAccessSummary }) {
+  if (!mobile) return null;
+  return mobile.allowed ? (
+    <p className="text-xs font-medium text-emerald-700">Mobil uygulama: izinli</p>
+  ) : (
+    <p className="text-xs font-medium text-rose-700">Mobil uygulama: kapalı — {mobile.reasons.join(" ")}</p>
+  );
+}
+
 function inviteStatusLabel(status: "invited" | "active" | "revoked"): { label: string; tone: "green" | "amber" | "gray" | "red" } {
-  if (status === "active") return { label: "Kabul edildi / Aktif", tone: "green" };
+  if (status === "active") return { label: "Giriş hesabı açık", tone: "green" };
   if (status === "invited") return { label: "Gönderildi (kabul bekleniyor)", tone: "amber" };
-  return { label: "Erişim kapalı", tone: "red" };
+  return { label: "Giriş hesabı kapalı", tone: "red" };
 }
 
 /* --------------------------- Öğrenci --------------------------- */
 
 export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId: string; defaultEmail?: string }) {
   const [accounts, setAccounts] = useState<StudentPortalAccessSummaryRow[] | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [rowMessage, setRowMessage] = useState<Record<string, { tone: "ok" | "error"; text: string }>>({});
@@ -86,6 +99,7 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
     }
     setLoadError(null);
     setAccounts(result.accounts);
+    setMobile(result.mobile);
   }, [studentId]);
 
   useEffect(() => {
@@ -198,6 +212,12 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
       ) : null}
 
       {accounts && accounts.length > 0 ? (
+        <div className="mb-2">
+          <MobileAccessLine mobile={mobile} />
+        </div>
+      ) : null}
+
+      {accounts && accounts.length > 0 ? (
         <ul className="mb-3 space-y-3">
           {accounts.map((a) => {
             const st = inviteStatusLabel(a.status);
@@ -304,8 +324,21 @@ export function StudentPortalAccessCard({ studentId, defaultEmail }: { studentId
 
 /* --------------------------- Öğretmen --------------------------- */
 
-export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId: string; defaultEmail?: string }) {
+export function TeacherPortalAccessCard({
+  teacherId,
+  defaultEmail,
+  canChangePortalEmail = false,
+}: {
+  teacherId: string;
+  defaultEmail?: string;
+  /** 2026-10-14 — yalnız kurum sahibi (sunucu da ayrıca doğrular). */
+  canChangePortalEmail?: boolean;
+}) {
   const [status, setStatus] = useState<TeacherAccountStatusSummary | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
+  const [emailChangeOpen, setEmailChangeOpen] = useState(false);
+  const [newPortalEmail, setNewPortalEmail] = useState("");
+  const [emailChangeConfirmed, setEmailChangeConfirmed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -318,6 +351,7 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
     }
     setLoadError(null);
     setStatus(result.status);
+    setMobile(result.mobile);
   }, [teacherId]);
 
   useEffect(() => {
@@ -326,7 +360,7 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
     // set-state-in-effect kuralı async fetch-on-mount deseninde yanlış pozitif verir.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-  }, [load]);
+  }, [load, defaultEmail]);
 
   async function onToggle(active: boolean) {
     setPending(true);
@@ -349,6 +383,29 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
     } else {
       setMessage({ tone: "error", text: "Davet kaydı oluşturuldu ama e-posta GÖNDERİLEMEDİ — bu ortamda e-posta sağlayıcısı yapılandırılmamış." });
     }
+    await load();
+  }
+
+  async function onChangePortalEmail() {
+    if (!emailChangeConfirmed) return;
+    setPending(true);
+    setMessage(null);
+    const result = await actionChangeTeacherPortalEmail({ teacherId, newEmail: newPortalEmail.trim(), confirm: true });
+    setPending(false);
+    if (!result.ok) {
+      setMessage({ tone: "error", text: result.message });
+      return;
+    }
+    setEmailChangeOpen(false);
+    setNewPortalEmail("");
+    setEmailChangeConfirmed(false);
+    setMessage(
+      result.mode === "pending_invitation_updated"
+        ? { tone: "ok", text: `Bekleyen davetin adresi ${result.newEmail} oldu; eski davet bağlantısı geçersiz. Yeni daveti "Davet gönder" ile iletin.` }
+        : result.delivered
+          ? { tone: "ok", text: `Doğrulama bağlantısı ${result.newEmail} adresine gönderildi. Öğretmen bağlantıyı açana kadar giriş adresi DEĞİŞMEZ.` }
+          : { tone: "error", text: `Değişiklik isteği kaydedildi ama doğrulama e-postası ${result.newEmail} adresine GÖNDERİLEMEDİ — e-posta sağlayıcısını kontrol edip isteği yeniden gönderin. Giriş adresi değişmedi.` }
+    );
     await load();
   }
 
@@ -376,6 +433,9 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
 
       {status && !status.exists ? (
         <div className="space-y-2">
+          <p className="text-sm text-[var(--color-text)]">
+            İletişim e-postası: <span className="font-medium">{defaultEmail || "Eklenmemiş"}</span>
+          </p>
           <p className="text-sm text-[var(--color-text-muted)]">
             Bu öğretmen için henüz portal erişimi oluşturulmadı{defaultEmail ? "" : " — önce bir e-posta adresi ekleyin"}.
           </p>
@@ -388,14 +448,47 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
 
       {status && status.exists ? (
         <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-[var(--color-text)]">{status.email}</span>
-            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
-          </div>
+          <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">İletişim e-postası</dt>
+              <dd className="font-medium text-[var(--color-text)]">{defaultEmail || "Eklenmemiş"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-[var(--color-text-muted)]">Portal giriş e-postası</dt>
+              <dd className="flex flex-wrap items-center gap-2 font-medium text-[var(--color-text)]">
+                {status.email || "Bilinmiyor"}
+                <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Giriş hesabı açık" : "Giriş hesabı kapalı"}</StatusBadge>
+              </dd>
+            </div>
+          </dl>
+          <MobileAccessLine mobile={mobile} />
+          {status.pendingEmailChange ? (
+            <p className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900" role="status">
+              Bekleyen yeni giriş adresi: {status.pendingEmailChange.newEmail} — doğrulanmadı, giriş hâlâ {status.email} ile yapılır
+              (bağlantı {formatDateTime(status.pendingEmailChange.expiresAt)} tarihine kadar geçerli).
+            </p>
+          ) : null}
+          {status.invitationPending ? (
+            <p className="text-xs text-amber-800">
+              {status.invitationLinkActive
+                ? "Davet kabul edilmeyi bekliyor."
+                : "Eski davet bağlantısı geçersiz; yeni davet yönetici tarafından gönderilmelidir."}
+            </p>
+          ) : status.email.toLowerCase() !== (defaultEmail ?? "").trim().toLowerCase() ? (
+            <p className="text-xs text-[var(--color-text-muted)]">
+              İletişim e-postası ile portal giriş e-postası ayrı kayıtlardır; profildeki iletişim adresini değiştirmek giriş adresini
+              değiştirmez. Giriş e-postasını yalnız kurum sahibi &quot;Portal e-postasını değiştir&quot; ile değiştirir.
+            </p>
+          ) : null}
           <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
-            <div>Şifre sıfırlama son istek: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
+            <div>Son davet/şifre bağlantısı isteği: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>
           </dl>
           <div className="flex flex-wrap gap-2">
+            {status.invitationPending ? (
+              <Button variant="secondary" disabled={pending || !defaultEmail} onClick={onInvite}>
+                {pending ? "Gönderiliyor…" : status.invitationLinkActive ? "Davet e-postasını yeniden gönder" : "Davet gönder"}
+              </Button>
+            ) : null}
             {status.active ? (
               <Button variant="secondary" disabled={pending} onClick={() => onToggle(false)}>
                 Portal erişimini kapat
@@ -405,12 +498,64 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
                 Portal erişimini aç
               </Button>
             )}
-            {status.active ? (
+            {status.active && !status.invitationPending ? (
               <Button variant="ghost" disabled={pending} onClick={onSendReset}>
                 Şifre sıfırlama bağlantısı gönder
               </Button>
             ) : null}
+            {canChangePortalEmail && !emailChangeOpen ? (
+              <Button variant="ghost" disabled={pending} onClick={() => setEmailChangeOpen(true)}>
+                Portal e-postasını değiştir
+              </Button>
+            ) : null}
           </div>
+          {canChangePortalEmail && emailChangeOpen ? (
+            <div className="space-y-2 rounded-md border border-[var(--color-border)] p-3">
+              <Label>Yeni portal giriş e-postası</Label>
+              <Input
+                aria-label="Yeni portal giriş e-postası"
+                type="email"
+                autoComplete="off"
+                value={newPortalEmail}
+                onChange={(e) => {
+                  setNewPortalEmail(e.target.value);
+                  setEmailChangeConfirmed(false);
+                }}
+              />
+              {newPortalEmail.trim() ? (
+                <div className="space-y-1 text-xs text-[var(--color-text)]">
+                  <p>
+                    Eski: <span className="font-medium">{status.email}</span> → Yeni: <span className="font-medium">{newPortalEmail.trim().toLowerCase()}</span>
+                  </p>
+                  <p className="text-[var(--color-text-muted)]">
+                    {status.invitationPending
+                      ? "Davet henüz kabul edilmedi: giriş ve davet adresi hemen yeni adres olur, eski davet bağlantısı geçersizleşir; yeni daveti ayrıca gönderirsiniz."
+                      : "Giriş adresi hemen DEĞİŞMEZ: yeni adrese doğrulama bağlantısı, eski adrese güvenlik bildirimi gider. Bağlantı açılınca öğretmen yeni adresle girer, açık oturumları kapanır ve eski sıfırlama/davet bağlantıları geçersizleşir. Öğretmenin dersleri ve yetkileri değişmez."}
+                  </p>
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={emailChangeConfirmed} onChange={(e) => setEmailChangeConfirmed(e.target.checked)} />
+                    <span>Eski/yeni adresi ve girişe etkisini okudum; değişikliği onaylıyorum.</span>
+                  </label>
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <Button disabled={pending || !newPortalEmail.trim() || !emailChangeConfirmed} onClick={onChangePortalEmail}>
+                  {pending ? "Gönderiliyor…" : "Değişikliği başlat"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => {
+                    setEmailChangeOpen(false);
+                    setNewPortalEmail("");
+                    setEmailChangeConfirmed(false);
+                  }}
+                >
+                  Vazgeç
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -429,6 +574,7 @@ export function TeacherPortalAccessCard({ teacherId, defaultEmail }: { teacherId
  */
 export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: string; defaultEmail?: string }) {
   const [status, setStatus] = useState<StaffAccountStatusSummary | null>(null);
+  const [mobile, setMobile] = useState<MobileAccessSummary>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -441,6 +587,7 @@ export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: stri
     }
     setLoadError(null);
     setStatus(result.status);
+    setMobile(result.mobile);
   }, [staffId]);
 
   useEffect(() => {
@@ -510,9 +657,10 @@ export function StaffPortalAccessCard({ staffId, defaultEmail }: { staffId: stri
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-[var(--color-text)]">{status.email}</span>
-            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Erişim açık" : "Erişim kapalı"}</StatusBadge>
+            <StatusBadge tone={status.active ? "green" : "red"}>{status.active ? "Giriş hesabı açık" : "Giriş hesabı kapalı"}</StatusBadge>
             {status.role ? <StatusBadge tone="gray">{status.role === "SCHOOL_ADMIN" ? "Yönetim paneli" : status.role}</StatusBadge> : null}
           </div>
+          <MobileAccessLine mobile={mobile} />
           <dl className="grid grid-cols-1 gap-1 text-xs text-[var(--color-text-muted)] sm:grid-cols-2">
             <div>Son davet gönderimi: {formatDateTime(status.lastInvitedAt)}</div>
             <div>Şifre sıfırlama son istek: {formatDateTime(status.lastPasswordResetRequestedAt)}</div>

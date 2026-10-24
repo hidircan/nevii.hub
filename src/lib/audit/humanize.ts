@@ -182,17 +182,23 @@ export function describeAuditEvent(input: {
   outcome?: string;
   actorName: string;
   entityName?: string | null;
+  /** 2026-10-15 — kayıtlı alan değişiklikleri: güncellemede "hangi bilgi" somut yazılır (değer değil, alan adı). */
+  changes?: AuditFieldChange[];
 }): string {
   const entityWord = ENTITY_LABELS[input.entityType] ?? "kayıt";
   const entity = input.entityName?.trim() || entityWord;
   const template = ACTION_SENTENCES[input.action];
+  const verbKey = input.action.split(".").pop()?.split("_")[0] ?? "";
   let sentence: string;
-  if (template) {
+  if (input.changes?.length && (verbKey === "update" || verbKey === "profile" || !template)) {
+    const fields = Array.from(new Set(input.changes.map((c) => fieldLabel(c.field).toLocaleLowerCase("tr"))));
+    const list = fields.length > 3 ? `${fields.slice(0, 3).join(", ")} ve ${fields.length - 3} alan daha` : fields.join(", ");
+    sentence = `${input.actorName}, ${entity}${input.entityName ? ` (${entityWord})` : ""} kaydında ${list} bilgisini güncelledi.`;
+  } else if (template) {
     sentence = template.replace("{actor}", input.actorName).replace("{entity}", entity);
     // "{entity} öğrencisini" kalıbında ad yoksa "öğrenci öğrencisini" olmasın.
     if (!input.entityName) sentence = sentence.replace(`${entityWord} ${entityWord}`, entityWord);
   } else {
-    const verbKey = input.action.split(".").pop()?.split("_")[0] ?? "";
     const verb = VERB_FALLBACK[verbKey] ?? "üzerinde işlem yaptı";
     sentence = `${input.actorName}, ${entity}${input.entityName ? ` (${entityWord})` : ""} kaydını ${verb}.`;
   }
@@ -219,26 +225,77 @@ export function fieldLabel(field: string): string {
 }
 
 /**
- * Yama ile önceki kaydı karşılaştırır; yalnız gerçekten değişen alanları döner.
- * Kimlik/teknik alanlar ve kişisel veri şifreleri (…Cipher) asla yazılmaz.
+ * Karşılaştırma için kanonik değer. KÖK NEDEN (2026-10-19): formlar bölümün TÜM alanlarını gönderir ve eski
+ * karşılaştırma ham `JSON.stringify` idi — yalnız ad değişse bile kayıtlı `undefined` ↔ formdan gelen `""`/`false`,
+ * DB'nin `2026-01-05T00:00:00.000Z`'si ↔ formun `2026-01-05`'i, `12` ↔ `"12"` ve anahtar sırası farklı nesneler
+ * "değişti" sayılıyordu. Boşlar (undefined/null/""/[]) eşittir; gece yarısı ISO tarih = tarih; nesne anahtarı sıralı.
+ */
+function canonicalAuditValue(value: unknown): unknown {
+  if (value instanceof Date) value = value.toISOString();
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!t) return null;
+    return /^(\d{4}-\d{2}-\d{2})T00:00:00(?:\.000)?Z$/.exec(t)?.[1] ?? t;
+  }
+  if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) return null;
+  return value;
+}
+
+function stableAuditJson(value: unknown): string {
+  return JSON.stringify(canonicalAuditValue(value), (_k, v: unknown) =>
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => x.localeCompare(y)))
+      : v
+  );
+}
+
+/** İki değer kullanıcı açısından AYNI mı (boş ≡ boş, kaydedilmemiş boolean ≡ false, 12 ≡ "12"). */
+export function sameAuditValue(a: unknown, b: unknown): boolean {
+  const x = canonicalAuditValue(a);
+  const y = canonicalAuditValue(b);
+  if ((x === null && y === false) || (x === false && y === null)) return true;
+  if ((typeof x === "number" && typeof y === "string") || (typeof x === "string" && typeof y === "number")) {
+    return String(x) === String(y);
+  }
+  return stableAuditJson(x) === stableAuditJson(y);
+}
+
+/** Kimlik/teknik alanlar ve gizli/şifreli veriler (…Cipher, şifre, hash, token) denetim farkına asla girmez. */
+const AUDIT_DIFF_DENY = /^(id|studentId|tenantId|createdAt|updatedAt)$|Cipher|password|Hash|token|secret/i;
+/** Uzun metin / data-URI (logo, fotoğraf) farkı şişirmesin — denetim kaydı ne değiştiğini söyler, içeriği arşivlemez. */
+const AUDIT_VALUE_MAX = 300;
+
+function compactAuditValue(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? null;
+  if (value.startsWith("data:")) return "[dosya]";
+  return value.length > AUDIT_VALUE_MAX ? `${value.slice(0, AUDIT_VALUE_MAX - 1)}…` : value;
+}
+
+/**
+ * Yama ile önceki kaydı karşılaştırır; YALNIZ gerçekten değişen alanları döner (değişmeyen hiç yazılmaz).
+ * Saklanan şey minimal fark: `{ field, from, to }` — tam önce/sonra nesnesi değil.
  */
 export function diffRecordFields(before: Record<string, unknown>, patch: Record<string, unknown>): AuditFieldChange[] {
   const out: AuditFieldChange[] = [];
   for (const [field, to] of Object.entries(patch)) {
-    if (to === undefined || field === "studentId" || field === "id" || /Cipher|password|Hash/i.test(field)) continue;
+    if (to === undefined || AUDIT_DIFF_DENY.test(field)) continue;
     const from = before[field];
-    if (JSON.stringify(from ?? null) === JSON.stringify(to ?? null)) continue;
-    out.push({ field, from: from ?? null, to });
+    if (sameAuditValue(from, to)) continue;
+    out.push({ field, from: compactAuditValue(from), to: compactAuditValue(to) });
   }
   return out;
 }
 
-/** meta.changes'i güvenle okur (eski kayıtlarda yok). */
+/** meta.changes'i güvenle okur (eski kayıtlarda yok). Eski satırlardaki sahte "değişiklikler" de (boş→boş vb.) ayıklanır. */
 export function readAuditChanges(meta: Record<string, unknown> | null | undefined): AuditFieldChange[] {
   const raw = meta?.changes;
   if (!Array.isArray(raw)) return [];
   return raw.filter(
-    (c): c is AuditFieldChange => !!c && typeof c === "object" && typeof (c as { field?: unknown }).field === "string"
+    (c): c is AuditFieldChange =>
+      !!c &&
+      typeof c === "object" &&
+      typeof (c as { field?: unknown }).field === "string" &&
+      !sameAuditValue((c as AuditFieldChange).from, (c as AuditFieldChange).to)
   );
 }
 
@@ -341,4 +398,27 @@ export function auditClientInfo(meta: Record<string, unknown> | null | undefined
   const ua = typeof meta?.userAgent === "string" ? meta.userAgent : typeof meta?.device === "string" ? meta.device : undefined;
   const device = ua ? (/(iphone|android|mobile)/i.test(ua) ? "Mobil" : /expo|okhttp/i.test(ua) ? "Mobil uygulama" : "Tarayıcı") : undefined;
   return [ip, device].filter(Boolean).join(" · ") || undefined;
+}
+
+/** Eski kayıtta ekran bilgisi yoksa uydurulmaz. */
+export const AUDIT_SCREEN_UNKNOWN = "Kaynak ekran kaydedilmemiş";
+
+function actionLabelFromTemplate(template: string): string {
+  const s = template.replace(/^\{actor\},?\s*/, "").replace(/\{entity\}\s*/g, "").replace(/\.$/, "").trim();
+  return s.charAt(0).toLocaleUpperCase("tr") + s.slice(1);
+}
+
+/**
+ * "İşlem" filtresi: bilinen işlem kodları Türkçe adla; aynı adı taşıyan kodlar tek seçenekte (virgülle) birleşir.
+ * Teknik kod kullanıcıya gösterilmez; listede olmayan eski kodlar "Ara" ile bulunur.
+ */
+export function auditActionOptions(): { value: string; label: string }[] {
+  const byLabel = new Map<string, string[]>();
+  for (const [code, template] of Object.entries(ACTION_SENTENCES)) {
+    const label = actionLabelFromTemplate(template);
+    byLabel.set(label, [...(byLabel.get(label) ?? []), code]);
+  }
+  return Array.from(byLabel, ([label, codes]) => ({ label, value: codes.join(",") })).sort((a, b) =>
+    a.label.localeCompare(b.label, "tr")
+  );
 }

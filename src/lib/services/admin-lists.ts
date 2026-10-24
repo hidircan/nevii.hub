@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { serverCacheGetOrCompute, tenantCacheKey } from "../http/server-cache";
-import { readData } from "../store";
-import { computeAllTeacherPerformanceScores, computeTeacherPerformanceScore } from "../insights/teacher-performance";
+import {
+  readLessonWindow,
+  readMobileDashboardCounts,
+  readPaymentsPageData,
+  readReferenceData,
+  readTeacherAttendanceRows,
+} from "../store";
+import { scoreTeacherFromRows } from "../insights/teacher-performance";
 import { INSTRUMENTS } from "../types";
 import { requireRole, type ServiceContext } from "./context";
 import { fail, fromZodError, ok, type ServiceResult } from "./result";
@@ -70,7 +76,8 @@ export async function listStudentsTool(
   const offset = v.data.offset ?? 0;
   const q = normalize(v.data.q);
 
-  const data = await readData();
+  // DB egress (2026-10-17) — mobil Kişiler/arama her tuşta çağırır: yalnız öğrenci/öğretmen (referans) dilimi.
+  const data = await readReferenceData();
   const teacherNameOf = new Map(data.teachers.map((t) => [t.id, t.name]));
   const filtered = data.students
     .filter((s) => (ctx.role === "TEACHER" ? s.teacherId === ctx.teacherId : true))
@@ -124,7 +131,8 @@ export async function listTeachersTool(
   const offset = v.data.offset ?? 0;
   const q = normalize(v.data.q);
 
-  const data = await readData();
+  // DB egress (2026-10-18): referans veri + (öğretmen, yoklama statüsü) çiftleri — eskiden tam okuma.
+  const [data, attendanceRows] = await Promise.all([readReferenceData(), readTeacherAttendanceRows()]);
   const filtered = data.teachers
     .filter((t) => (ctx.role === "TEACHER" ? t.id === ctx.teacherId : true))
     .filter((t) => (v.data.active === undefined ? true : v.data.active === "true" ? t.active : !t.active))
@@ -134,7 +142,7 @@ export async function listTeachersTool(
   const page = paginate(filtered, limit, offset);
   return ok({
     teachers: page.rows.map((t) => {
-      const perf = computeTeacherPerformanceScore(data, t.id);
+      const perf = scoreTeacherFromRows(attendanceRows, data.students, t.id);
       return {
         id: t.id,
         name: t.name,
@@ -165,7 +173,7 @@ export type BranchRow = {
 export async function listBranchesTool(ctx: ServiceContext): Promise<ServiceResult<{ branches: BranchRow[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const data = await readData();
+  const data = await readReferenceData();
   const branches = [...(data.settings.branches ?? [])]
     .sort((a, b) => a.name.localeCompare(b.name, "tr") || String(a.id).localeCompare(String(b.id)))
     .map((b) => ({ id: String(b.id), name: b.name, shortName: b.shortName, address: b.address, phone: b.phone, city: b.city }));
@@ -219,7 +227,8 @@ export async function listLessonsTool(
     return fail("VALIDATION_ERROR", "Geçersiz tarih aralığı (from < to, en fazla 62 gün).");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-17) — yalnız istenen aralığın dersleri (+1 gün pay; kesin süzgeç aşağıda aynen).
+  const data = await readLessonWindow(new Date(fromMs - 86400000).toISOString(), new Date(toMs + 86400000).toISOString());
   const studentNameById = new Map(data.students.map((s) => [s.id, s.name]));
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
   const roomNameById = new Map((data.rooms ?? []).map((r) => [r.id, r.name]));
@@ -253,7 +262,10 @@ export async function listLessonsTool(
       studentExcused: l.studentExcused ?? null,
       lessonProcessed: l.lessonProcessed ?? null,
       opsMakeupFlag: l.opsMakeupFlag ?? null,
+      studentAttendanceNote: l.studentAttendanceNote ?? null,
       homeworkAssigned: homeworkByLesson.has(l.id),
+      // 2026-10-23 — grup dersi katılımcı satırı (mobil "Grup dersi" rozeti).
+      groupLessonId: l.groupLessonId ?? null,
     }));
   return ok({ lessons });
 }
@@ -285,7 +297,8 @@ export async function getCollectionSummaryTool(
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
 
-  const data = await readData();
+  // DB egress (2026-10-17) — yalnız ödeme satırları gerekir (ders/yoklama/telafi okunmaz).
+  const data = await readPaymentsPageData();
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const month = now.toISOString().slice(0, 7);
@@ -347,23 +360,22 @@ export async function getDashboardSummaryTool(
 }
 
 async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSummary> {
-  const data = await readData();
-  const nowMs = Date.now();
-  const today = new Date(nowMs).toISOString().slice(0, 10);
+  // DB egress (2026-10-18): bugünün ders penceresi + count sayaçları + puan çiftleri — eskiden tam okuma.
+  const now = new Date();
+  const nowMs = now.getTime();
+  const today = now.toISOString().slice(0, 10);
+  const dayStart = new Date(`${today}T00:00:00.000Z`);
+  const [window, counts, attendanceRows] = await Promise.all([
+    readLessonWindow(new Date(dayStart.getTime() - 86_400_000).toISOString(), new Date(dayStart.getTime() + 2 * 86_400_000).toISOString()),
+    readMobileDashboardCounts(now),
+    readTeacherAttendanceRows(),
+  ]);
+  const data = window;
 
   const upcomingLessonCount = data.lessons.filter(
     (l) => l.status !== "cancelled" && Date.parse(l.startAt) >= nowMs && l.startAt.slice(0, 10) === today
   ).length;
-  const pendingAttendanceCount = data.lessons.filter(
-    (l) =>
-      l.status !== "cancelled" &&
-      Date.parse(l.endAt) < nowMs &&
-      !l.studentAttended &&
-      !l.lessonProcessed &&
-      !l.studentAbsent &&
-      !l.studentExcused &&
-      !l.opsMakeupFlag
-  ).length;
+  const { pendingAttendanceCount } = counts;
 
   const { listTasks } = await import("../tasks");
   const tasks = await listTasks(ctx.tenantId);
@@ -378,26 +390,21 @@ async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSu
   const { isOpenFollowUpStatus } = await import("../tahsilat/status");
   const openCases = (await listFollowUpCases(ctx.tenantId)).filter((c) => isOpenFollowUpStatus(c.status));
 
-  const pendingPayments = data.payments.filter((p) => p.status !== "paid" && p.status !== "voided");
-  const overduePayments = pendingPayments.filter((p) => p.status === "overdue" || p.dueDate.slice(0, 10) < today);
-  const openMakeup = (data.makeupRequests ?? []).filter((m) =>
-    ["pending", "suggested", "awaiting_info"].includes(m.status)
-  );
 
   const attentionItems: DashboardSummary["attentionItems"] = [];
-  if (overduePayments.length > 0) {
+  if (counts.overduePaymentCount > 0) {
     attentionItems.push({
       id: "overdue-payments",
       kind: "payments",
-      label: `${overduePayments.length} gecikmiş ödeme`,
+      label: `${counts.overduePaymentCount} gecikmiş ödeme`,
       detail: "Tahsilat takibinden inceleyin",
     });
   }
-  if (openMakeup.length > 0) {
+  if (counts.openMakeupCount > 0) {
     attentionItems.push({
       id: "open-makeup",
       kind: "makeup",
-      label: `${openMakeup.length} bekleyen telafi talebi`,
+      label: `${counts.openMakeupCount} bekleyen telafi talebi`,
       detail: "Telafi merkezinden karara bağlayın",
     });
   }
@@ -411,7 +418,8 @@ async function computeDashboardSummary(ctx: ServiceContext): Promise<DashboardSu
   }
 
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
-  const topTeachers = computeAllTeacherPerformanceScores(data)
+  const topTeachers = data.teachers
+    .map((t) => scoreTeacherFromRows(attendanceRows, data.students, t.id))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
     .slice(0, 5)
     .map((p) => ({
@@ -462,7 +470,7 @@ async function computeHomeworkReport(ctx: ServiceContext): Promise<HomeworkRepor
     listAllHomework(ctx.tenantId),
     listAllHomeworkSubmissions(ctx.tenantId),
   ]);
-  const data = await readData();
+  const data = await readReferenceData(); // DB egress (2026-10-18): yalnız öğretmen adları
   const teacherNameById = new Map(data.teachers.map((t) => [t.id, t.name]));
   const nowMs = Date.now();
 
@@ -529,7 +537,7 @@ export type RoomRow = {
 export async function listRoomsTool(ctx: ServiceContext): Promise<ServiceResult<{ rooms: RoomRow[] }>> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
-  const data = await readData();
+  const data = await readReferenceData();
   const rooms = [...(data.rooms ?? [])]
     .sort((a, b) => a.name.localeCompare(b.name, "tr") || a.id.localeCompare(b.id))
     .map((r) => ({

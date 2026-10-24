@@ -1,4 +1,5 @@
-import type { Branch, Payment, SchoolSettings, Student } from "./types";
+import { contractInstallmentProgressDescription } from "./attendance-calendar-plan";
+import type { Branch, Payment, SchoolSettings, StudentRef } from "./types";
 
 /**
  * Tamamen ödenmiş kayıtlar dışında makbuz üretilmez — kısmi/bekleyen/gecikmiş
@@ -64,7 +65,7 @@ export type ReceiptViewModel = {
  */
 export function buildReceiptViewModel(
   payment: Payment,
-  student: Student,
+  student: StudentRef,
   settings: Pick<SchoolSettings, "name">,
   branch: Branch | undefined
 ): ReceiptViewModel {
@@ -83,7 +84,7 @@ export function buildReceiptViewModel(
     branchContact,
     studentName: student.name,
     parentLine,
-    description: payment.description,
+    description: contractInstallmentProgressDescription(payment),
     amount: payment.paidAmount,
     paymentDateIso: payment.paidAt ?? payment.dueDate,
     method: payment.method,

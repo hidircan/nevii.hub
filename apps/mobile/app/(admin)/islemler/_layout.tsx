@@ -18,6 +18,7 @@ export default function IslemlerStack() {
       <Stack.Screen name="silme-talepleri" />
       <Stack.Screen name="workflows" />
       <Stack.Screen name="katalog" />
+      <Stack.Screen name="grup-dersleri" />
     </Stack>
   );
 }

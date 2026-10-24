@@ -33,6 +33,7 @@
  */
 import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import type { AppData, Lesson } from "./types";
+import { narrowToStudentScope } from "./reference-data";
 
 /** Çakışma penceresi: hedef günün ±1 günü (gece yarısını aşan dersler için pay). */
 function dayWindow(date: Date): { from: number; to: number } {
@@ -104,8 +105,12 @@ export type SlotScopeTarget = Pick<Lesson, "studentId" | "teacherId" | "roomId" 
  * telafi talepleri. Yoklama/ödeme yok (henüz ders yok). `store-db` aynı kapsamı Prisma ile üretir;
  * json/memory doğrulamayı bu dar girdiyle çalıştırır (dilim yetersizse json testleri yakalar).
  */
-export function narrowSlotScope(data: AppData, target: SlotScopeTarget): AppData {
-  const days = lessonScopeDays(target);
+export function narrowSlotScope(
+  data: AppData,
+  target: SlotScopeTarget,
+  /** Öğretmen/oda pencere günleri — seri doğrulaması tüm oluşum günlerini verir (bkz. `seriesScopeDays`). */
+  days: Date[] = lessonScopeDays(target)
+): AppData {
   const probe = { ...target, id: "" };
   return {
     settings: { ...data.settings, logoUrl: "" },
@@ -156,5 +161,67 @@ export function mergeLessonScope(full: AppData, scope: AppData, lessonId: string
             ...scope.makeupRequests,
           ],
     payments: [...full.payments.filter((p) => p.lessonId !== lessonId), ...scope.payments],
+  };
+}
+
+/** Revize / öğretmen-oda değişimi çakışma penceresi: bu öğretmen/odaların bu günlerdeki (±1 gün) dersleri. */
+export type ConflictWindow = { teacherIds: string[]; roomIds: string[]; days: Date[] };
+
+function inConflictWindow(l: Pick<Lesson, "teacherId" | "roomId" | "startAt">, win: ConflictWindow): boolean {
+  if (!win.teacherIds.includes(l.teacherId) && !win.roomIds.includes(l.roomId)) return false;
+  const at = new Date(l.startAt).getTime();
+  return win.days.some((d) => {
+    const w = dayWindow(d);
+    return at >= w.from && at <= w.to;
+  });
+}
+
+/**
+ * DB egress (2026-10-18) — ders DÜZENLEME dilimi (sil / tamamen sil / revize / öğretmen-şube değişimi / seri iptal):
+ * öğrenci dilimi (`narrowToStudentScope`: seri tek öğrencinindir; yoklama/ödeme/telafi bağları öğrencinin satırları,
+ * koruma kuralı `lessonProtectionReason` bunlara bakar) + `win` verilirse diğer öğrencilerin o öğretmen/oda/gün
+ * dersleri (çakışma). `store-db.readLessonEditScope` aynı kapsamı Prisma ile üretir; json/memory `editOnScope` ile
+ * kuralı bu dilimde çalıştırır (dilim yetersizse json testleri yakalar).
+ */
+export function narrowLessonEditScope(data: AppData, studentId: string, win?: ConflictWindow): AppData {
+  const scope = narrowToStudentScope(data, studentId);
+  const others = win ? data.lessons.filter((l) => l.studentId !== studentId && inConflictWindow(l, win)) : [];
+  return { ...scope, lessons: [...scope.lessons, ...others], teacherPayouts: [] };
+}
+
+/** Dilimdeki satırları sonuçla değiştirir (sonuçta olmayan = silindi), dilim dışına dokunmaz; sıra korunur. */
+function replaceRows<T extends { id: string }>(all: T[], before: T[], after: T[]): T[] {
+  const inBefore = new Set(before.map((r) => r.id));
+  const next = new Map(after.map((r) => [r.id, r]));
+  const kept = all.flatMap((r) => (!inBefore.has(r.id) ? [r] : next.has(r.id) ? [next.get(r.id)!] : []));
+  return [...kept, ...after.filter((r) => !inBefore.has(r.id))];
+}
+
+/**
+ * json/memory — düzenleme kuralını db ile AYNI dilimde çalıştırır (`windowOf` önce öğrenci diliminden pencereyi
+ * hesaplar, db de iki adımda okur) ve başarılı sonucu tam veriye birleştirir (`next`).
+ */
+export function editOnScope<R extends { ok: boolean; data?: AppData }>(
+  full: AppData,
+  studentId: string | undefined,
+  rule: (scope: AppData) => R,
+  windowOf?: (scope: AppData) => ConflictWindow | undefined
+): { result: R; next: AppData | null } {
+  const base = narrowLessonEditScope(full, studentId ?? "");
+  const win = windowOf?.(base);
+  const scope = win ? narrowLessonEditScope(full, studentId ?? "", win) : base;
+  const result = rule(scope);
+  if (!result.ok || !result.data) return { result, next: null };
+  const out = result.data;
+  return {
+    result,
+    next: {
+      ...full,
+      lessons: replaceRows(full.lessons, scope.lessons, out.lessons),
+      lessonSeries: replaceRows(full.lessonSeries, scope.lessonSeries, out.lessonSeries),
+      attendances: replaceRows(full.attendances, scope.attendances, out.attendances),
+      makeupRequests: replaceRows(full.makeupRequests, scope.makeupRequests, out.makeupRequests),
+      payments: replaceRows(full.payments, scope.payments, out.payments),
+    },
   };
 }

@@ -1,7 +1,18 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { validateLessonSlot } from "../makeup-engine";
 import type { AppData, ClosedDay } from "../types";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
+
+
+// Seed dersleri ve göreli tarihler "bugün"e göre üretilir; gün kapalı güne/geçmişe/müsaitlik dışına düşünce test
+// takvime bağlı kırılıyordu (2026-10 CI baseline). Saat sabit bir SALI sabahına dondurulur — yalnız Date sahte.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T06:00:00.000Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 /**
  * Okulun mesai saati Pzt–Cuma 09:00–18:00; Pazar ve mesai dışı saatlerde

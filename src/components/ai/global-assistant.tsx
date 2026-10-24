@@ -26,6 +26,11 @@ import { AssistantChatBody } from "./assistant-chat-body";
 import { getRouteQuickActions, type AssistantSession } from "./assistant-quick-actions";
 
 const POSITION_STORAGE_KEY = "notaplan.assistant.popupPosition";
+/** 2026-10-20 — başlatıcı da sürüklenir (sayfa öğelerini örtüyordu); konum oturum boyunca korunur. */
+const LAUNCHER_STORAGE_KEY = "notaplan.assistant.launcherPosition";
+const LAUNCHER_SIZE = 52;
+/** Bu kadar pikselden az hareket = tıklama (sohbeti açar); fazlası = sürükleme. */
+const DRAG_THRESHOLD = 6;
 const POPUP_WIDTH = 352;
 const POPUP_HEIGHT = 480;
 const VIEWPORT_MARGIN = 8;
@@ -40,10 +45,10 @@ function renderEntityIcon(entity: AssistantEntity | null) {
   return <Bot className={className} />;
 }
 
-function readStoredPosition(): Position | null {
+function readStoredPosition(key: string = POSITION_STORAGE_KEY): Position | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(POSITION_STORAGE_KEY);
+    const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Position>;
     if (typeof parsed.x === "number" && typeof parsed.y === "number") return { x: parsed.x, y: parsed.y };
@@ -51,6 +56,14 @@ function readStoredPosition(): Position | null {
     // ignore malformed/unavailable storage
   }
   return null;
+}
+
+function storePosition(key: string, pos: Position) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(pos));
+  } catch {
+    // sessionStorage unavailable (private mode etc.) — position just won't survive a reload
+  }
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -77,6 +90,15 @@ export function GlobalAssistant() {
   const [dragPos, setDragPos] = useState<Position | null>(readStoredPosition);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  // null = varsayılan sağ-alt köşe (safe-area dahil).
+  const [launcherPos, setLauncherPos] = useState<Position | null>(() =>
+    typeof window === "undefined" ? null : (() => {
+      const p = readStoredPosition(LAUNCHER_STORAGE_KEY);
+      return p ? clampPosition(p, LAUNCHER_SIZE, LAUNCHER_SIZE) : null;
+    })()
+  );
+  const launcherDragRef = useRef<{ pointerId: number; startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
   // This component is mounted once in the root layout and persists across
   // client-side navigations (that's what lets the chat survive a page
   // change) — including navigating from /login to /panel right after
@@ -164,6 +186,7 @@ export function GlobalAssistant() {
       const width = rect?.width ?? POPUP_WIDTH;
       const height = rect?.height ?? POPUP_HEIGHT;
       setDragPos((prev) => (prev ? clampPosition(prev, width, height) : prev));
+      setLauncherPos((prev) => (prev ? clampPosition(prev, LAUNCHER_SIZE, LAUNCHER_SIZE) : prev));
     }
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -204,13 +227,62 @@ export function GlobalAssistant() {
     dragStateRef.current = null;
     document.body.style.userSelect = "";
     setDragPos((pos) => {
-      try {
-        if (pos) sessionStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(pos));
-      } catch {
-        // sessionStorage unavailable (private mode etc.) — position just won't survive a reload
-      }
+      if (pos) storePosition(POSITION_STORAGE_KEY, pos);
       return pos;
     });
+  }
+
+  // Başlatıcı: fare + dokunmatik (Pointer Events). Eşik altı hareket tıklamadır.
+  function onLauncherPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    // Dokunmatikte sürükleme sonrası `click` gelmeyebilir; bayrak her hareketin başında sıfırlanır.
+    suppressClickRef.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    launcherDragRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onLauncherPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    const drag = launcherDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    drag.moved = true;
+    setLauncherPos(clampPosition({ x: drag.origX + dx, y: drag.origY + dy }, LAUNCHER_SIZE, LAUNCHER_SIZE));
+  }
+
+  function endLauncherDrag(e: React.PointerEvent<HTMLButtonElement>) {
+    const drag = launcherDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    launcherDragRef.current = null;
+    if (!drag.moved) return;
+    suppressClickRef.current = true;
+    setLauncherPos((pos) => {
+      if (pos) storePosition(LAUNCHER_STORAGE_KEY, pos);
+      return pos;
+    });
+  }
+
+  function onLauncherClick() {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    // Popup hiç sürüklenmediyse başlatıcının yanında açılır (taşınmış başlatıcıdan uzakta değil).
+    if (!isOpen && !dragPos && launcherPos) {
+      const width = Math.min(POPUP_WIDTH, window.innerWidth - 24);
+      const height = Math.min(POPUP_HEIGHT, window.innerHeight - 72);
+      const above = launcherPos.y - height - 12;
+      setDragPos(
+        clampPosition(
+          { x: launcherPos.x + LAUNCHER_SIZE - width, y: above >= VIEWPORT_MARGIN ? above : launcherPos.y + LAUNCHER_SIZE + 12 },
+          width,
+          height
+        )
+      );
+    }
+    toggle();
   }
 
   // Auth hazır değilse boş dizi — chip alanı basılmaz; hazır olunca route/entity chip'leri.
@@ -228,12 +300,22 @@ export function GlobalAssistant() {
           it or doubles as a confusing second close control. */}
       <button
         type="button"
-        onClick={toggle}
-        aria-label={`${BRAND.assistantName}'yi aç`}
+        onClick={onLauncherClick}
+        onPointerDown={onLauncherPointerDown}
+        onPointerMove={onLauncherPointerMove}
+        onPointerUp={endLauncherDrag}
+        onPointerCancel={endLauncherDrag}
+        aria-label={`${BRAND.assistantName}'yi aç (sürükleyerek taşıyabilirsiniz)`}
+        title="Tıkla: aç · Sürükle: taşı"
+        style={
+          launcherPos
+            ? { left: launcherPos.x, top: launcherPos.y }
+            : { right: 20, bottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }
+        }
         className={cn(
-          "print:hidden fixed bottom-5 right-5 z-40 flex h-13 w-13 items-center justify-center rounded-full",
+          "print:hidden fixed z-40 flex h-13 w-13 cursor-grab touch-none select-none items-center justify-center rounded-full active:cursor-grabbing",
           "bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white shadow-lg shadow-violet-600/40",
-          "transition-all duration-200 ease-out hover:scale-105 hover:shadow-xl hover:shadow-violet-600/50",
+          "transition-[opacity,transform,box-shadow] duration-200 ease-out hover:scale-105 hover:shadow-xl hover:shadow-violet-600/50",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400",
           isOpen ? "pointer-events-none scale-90 opacity-0" : "scale-100 opacity-100"
         )}

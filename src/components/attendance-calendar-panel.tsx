@@ -19,17 +19,19 @@ import { useCurrentPath } from "@/lib/use-current-path";
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "@/components/link";
 import { cn, formatTime } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client-fetch";
-import type { CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
+import { isEmptyMonthPlan, type CalendarMonthPlan } from "@/lib/attendance-calendar-plan";
+import { DEBT_SOURCE_LABEL } from "@/lib/payment-source-label";
 import { TriangleAlert } from "lucide-react";
 import { LessonOpsActions } from "./lesson-ops-actions";
 import { LessonStatusBadge } from "./lesson-status-badge";
 import { PlannedMakeupMarker } from "./planned-makeup-marker";
 import { ATTENDED_PLANNED_MAKEUP_LABEL } from "@/lib/lesson-live-status";
 import { AttendanceCalendarCollectPaymentButton } from "./attendance-calendar-collect-payment-button";
+import { PaymentCorrectionForm } from "./payment-correction-form";
 import {
   currentAcademicAnchorYear,
   resolveDayFillSegments,
@@ -94,9 +96,12 @@ type DayLessonOpsInfo = {
   teacherName?: string;
   instrument: string;
   roomName?: string;
+  branchName?: string;
   availabilityOverride: boolean;
   /** Telafi Merkezi'nden planlanan ders — "Geldi" ise T işareti (aynı yeşil). */
   plannedMakeup?: boolean;
+  attendanceNote?: string | null;
+  processedReason?: string | null;
 };
 
 type DayInfo = {
@@ -241,15 +246,17 @@ const PLAN_STATUS_LABEL: Record<string, string> = {
  * gösterilir. Plan yoksa tutar UYDURULMAZ, açık durum yazılır.
  */
 /** 2026-10-05 — ayın tahsilatı sabit görünür: "Ödendi · 05.10.2026 · Nakit" (birden çok tahsilatta her biri). */
-function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
+function MonthCollections({ plan, onCorrected }: { plan: CalendarMonthPlan; onCorrected?: (paymentId: string) => void }) {
+  // 2026-10-20 — "Düzelt" MEVCUT tahsilat satırını açar (PATCH); "Yeni tahsilat" formundan ayrıdır.
+  const [editing, setEditing] = useState<string | null>(null);
   if (plan.state !== "ok" && plan.state !== "student_plan") return null;
   if (plan.collections.length === 0) return null;
   const fullyPaid = plan.remaining <= 0;
   return (
     <ul className="mt-1 space-y-0.5" aria-label="Bu ayın tahsilatları">
       {plan.collections.map((c, i) => (
-        <li
-          key={`${c.paidAt}-${i}`}
+        <li key={`${c.paymentId}-${i}`}>
+        <div
           className="flex flex-wrap items-center gap-x-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium tabular-nums"
           style={{
             background: fullyPaid ? "var(--color-success-soft)" : "var(--color-warning-soft)",
@@ -263,7 +270,28 @@ function MonthCollections({ plan }: { plan: CalendarMonthPlan }) {
           </span>
           <span>· {c.method ? PAYMENT_METHOD_LABEL[c.method] ?? c.method : "Şekil belirtilmemiş"}</span>
           {plan.collections.length > 1 || !fullyPaid ? <span className="ml-auto">{formatMoneyTL(c.amount)}</span> : null}
+          {onCorrected && editing !== c.paymentId ? (
+            <button
+              type="button"
+              onClick={() => setEditing(c.paymentId)}
+              className={cn("font-semibold underline-offset-2 hover:underline", plan.collections.length > 1 || !fullyPaid ? "" : "ml-auto")}
+              aria-label={`${formatMoneyTL(c.rowPaidAmount)} tahsilatını düzelt`}
+            >
+              Düzelt
+            </button>
+          ) : null}
           {c.note ? <span className="basis-full truncate font-normal" title={c.note}>Not: {c.note}</span> : null}
+        </div>
+        {onCorrected && editing === c.paymentId ? (
+          <PaymentCorrectionForm
+            payment={{ paymentId: c.paymentId, paidAmount: c.rowPaidAmount, paidAt: c.paidAt, method: c.method, note: c.note }}
+            onCancel={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              onCorrected(c.paymentId);
+            }}
+          />
+        ) : null}
         </li>
       ))}
     </ul>
@@ -276,7 +304,7 @@ function PaidMonthEntry({ collapsed, children }: { collapsed: boolean; children:
   return (
     <details className="mt-1 text-[11px]">
       <summary className="cursor-pointer select-none text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
-        Yeni tahsilat / düzelt
+        + Yeni tahsilat ekle
       </summary>
       {children}
     </details>
@@ -308,6 +336,8 @@ function MonthClubFees({ fees }: { fees?: MonthResponse["clubFees"] }) {
 }
 
 function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
+  // 2026-10-23 — o aya ait borç/ödeme satırı yoksa kutuda ödeme planı ibaresi yazılmaz (nötr boş ay).
+  if (isEmptyMonthPlan(plan)) return null;
   if (plan.state === "ok") {
     return (
       <p className="text-[10px] text-[var(--color-text-muted)]">
@@ -321,6 +351,7 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
         {" · "}
         {PLAN_STATUS_LABEL[plan.status] ?? plan.status}
         {plan.periodLabel ? ` · ${plan.periodLabel}` : ""}
+        {` · ${DEBT_SOURCE_LABEL.contract}`}
       </p>
     );
   }
@@ -333,7 +364,18 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
   }
   if (plan.state === "student_plan") {
     // 8. tur — sözleşmesiz öğrencinin kendi planı: gerçek satırlar varsa onların toplamı,
-    // yoksa yalnız anlaşılan aylık ücret bilgi olarak (borç gibi gösterilmez).
+    // yoksa tutar GÖSTERİLMEZ (karttaki aylık ücret o aya ait borç değildir).
+    const combined = plan.coveredByCombinedFirstCollection;
+    if (combined && plan.amount === 0) {
+      // 2026-10-14 — kayıtta "takip eden ayı da ekle" ile peşin alınmış ay: borç değil, ikinci tahsilat istenmez.
+      return (
+        <p className="text-[10px] font-medium text-[var(--color-success)]">
+          Bu ay kayıt ilk tahsilatına dahil
+          {combined.paidAt ? ` (tahsilat ${new Date(combined.paidAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })})` : ""}
+          {" — ayrıca tahsilat gerekmez. Ayın tutarı kayda ayrı işlenmemiş; tutar ilk tahsilat satırındadır."}
+        </p>
+      );
+    }
     return (
       <p className="text-[10px] text-[var(--color-text-muted)]">
         {plan.paymentIds.length > 0 ? (
@@ -349,9 +391,7 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
             {" · "}
           </>
         ) : null}
-        Sözleşmesiz aylık plan
-        {plan.monthlyFee ? ` (aylık ${formatMoneyTL(plan.monthlyFee)})` : ""}
-        {plan.paymentIds.length === 0 ? " — bu ay henüz ödeme kaydı yok" : ""}
+        {DEBT_SOURCE_LABEL.monthly_plan}
       </p>
     );
   }
@@ -403,7 +443,6 @@ export function AttendanceCalendarPanel({
    */
   showWeekdayLabels?: boolean;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const multiBranch = branches.length > 1;
@@ -433,9 +472,11 @@ export function AttendanceCalendarPanel({
       const params = new URLSearchParams(searchParams.toString());
       params.set("attTerm", nextTerm);
       params.set("attYear", String(nextYear));
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      // DB egress (2026-10-18): attTerm/attYear'ı sunucu okumaz (veri /api/v1/attendance-calendar/term'den) — native
+      // history, sayfanın sunucu turu YOK (bkz. students-table).
+      window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
     },
-    [pathname, router, searchParams]
+    [pathname, searchParams]
   );
 
   function changeTerm(nextTerm: AttendanceTerm) {
@@ -640,6 +681,26 @@ export function AttendanceCalendarPanel({
     }
   }
 
+  function monthsWithPayment(paymentId: string): string[] {
+    return Object.entries(byMonth)
+      .filter(([, m]) => (m.plan.state === "ok" || m.plan.state === "student_plan") && m.plan.collections.some((c) => c.paymentId === paymentId))
+      .map(([k]) => k);
+  }
+
+  /** Ayı (ve tahsilatın mahsup edildiği sonraki ayları) sunucudan tazeler. */
+  async function refreshMonths(monthKeys: string[]) {
+    for (const k of monthKeys) {
+      const [ty, tm] = k.split("-").map(Number) as [number, number];
+      try {
+        const res2 = await apiFetch(`/api/v1/attendance-calendar/month?studentId=${studentId}&year=${ty}&month=${tm}${branchQuery}`);
+        const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
+        if (json2.ok && json2.data) setByMonth((prev) => ({ ...prev, [k]: json2.data! }));
+      } catch {
+        setError("Bağlantı hatası — sayfayı yenileyin.");
+      }
+    }
+  }
+
   async function onSaveAmount(key: string) {
     if (!canEdit || readOnly) return;
     const raw = amounts[key];
@@ -691,17 +752,25 @@ export function AttendanceCalendarPanel({
           ...(branchId ? { enrollmentId: branchId } : {}),
         }),
       });
-      const json = (await res.json()) as { ok: boolean; error?: { message: string } };
+      const json = (await res.json()) as { ok: boolean; data?: { months?: string[] }; error?: { message: string } };
       if (!json.ok) {
         setError(json.error?.message ?? "Tutar kaydedilemedi.");
         return;
       }
-      const res2 = await apiFetch(
-        `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${year}&month=${month}${branchQuery}`
-      );
-      const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
-      if (json2.ok && json2.data) {
-        setByMonth((prev) => ({ ...prev, [key]: json2.data! }));
+      // 2026-10-14 — tek tahsilat sonraki aylara da mahsup edildiyse o ayların kutuları da sunucudan yenilenir.
+      const touched = [...new Set([monthStr, ...(json.data?.months ?? [])])];
+      const loadedKeys = new Set(Object.keys(byMonth));
+      for (const mk of touched) {
+        const [ty, tm] = mk.split("-").map(Number) as [number, number];
+        const k = `${ty}-${tm}`;
+        if (mk !== monthStr && !loadedKeys.has(k)) continue;
+        const res2 = await apiFetch(
+          `/api/v1/attendance-calendar/month?studentId=${studentId}&year=${ty}&month=${tm}${branchQuery}`
+        );
+        const json2 = (await res2.json()) as { ok: boolean; data?: MonthResponse };
+        if (json2.ok && json2.data) {
+          setByMonth((prev) => ({ ...prev, [k]: json2.data! }));
+        }
       }
     } catch {
       setError("Bağlantı hatası.");
@@ -889,8 +958,15 @@ export function AttendanceCalendarPanel({
         {months.map((m) => {
           const key = `${m.year}-${m.month}`;
           const data = byMonth[key];
+          // 2026-10-23 — o aya ait borç/ödeme yok: ödeme metni yok, tahsilat girişi kapalı ("+ Yeni tahsilat ekle"
+          // ile açılır); dersi de yoksa kutu silik görünür.
+          const emptyFinance = !!data && isEmptyMonthPlan(data.plan) && !(data.clubFees?.length);
+          const quietMonth = emptyFinance && data.days.every((d) => d.lessonIds.length === 0);
           return (
-            <div key={key} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+            <div
+              key={key}
+              className={cn("rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3", quietMonth && "opacity-60")}
+            >
               {/* 10. tur iş #7 — kompakt ay başlığı: tutar+tarih BİR satırda,
                   şekil+not+kaydet BİR satırda; eskiden 4 satıra taşan sarma
                   düzeni 2 sabit satıra indi. Tüm alanlar/işlevler korunur;
@@ -900,14 +976,22 @@ export function AttendanceCalendarPanel({
                   {MONTH_LABELS[m.month - 1]} {m.year}
                 </h3>
                 {canEdit && !readOnly && data ? <MonthPlanSummary plan={data.plan} /> : null}
-                {data ? <MonthCollections plan={data.plan} /> : null}
+                {data ? (
+                  <MonthCollections
+                    plan={data.plan}
+                    // Tek satır birden çok aya mahsup edilmiş olabilir → yalnız bu satırı içeren yüklü aylar tazelenir.
+                    onCorrected={canEdit && !readOnly ? (paymentId) => void refreshMonths(monthsWithPayment(paymentId)) : undefined}
+                  />
+                ) : null}
                 {data ? <MonthClubFees fees={data.clubFees} /> : null}
                 {canEdit && !readOnly ? (
                   <PaidMonthEntry
                     collapsed={
-                      (data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
-                      data.plan.collections.length > 0 &&
-                      data.plan.remaining <= 0
+                      emptyFinance ||
+                      ((data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
+                      (data.plan.collections.length > 0 ||
+                        (data.plan.state === "student_plan" && !!data.plan.coveredByCombinedFirstCollection)) &&
+                      data.plan.remaining <= 0)
                     }
                   >
                   <div className="mt-1.5 space-y-1.5">
@@ -1005,8 +1089,13 @@ export function AttendanceCalendarPanel({
                   ))}
                   {data.days.map((day) => {
                     const { style, segmentCount } = dayFillStyle(day);
-                    const attendedMakeup = day.status !== "closed" && day.lessons.some((l) => l.plannedMakeup && l.opsStatus === "attended");
-                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}${attendedMakeup ? ` · ${ATTENDED_PLANNED_MAKEUP_LABEL}` : ""}`;
+                    // T işareti ders bazında: şerit i = day.lessons[i] (ikisi de başlangıç saatine göre sıralı, bkz.
+                    // dayFillStyle). Gün bazında tek bayrak, aynı gün iki telafiye gelişte yalnız bir T gösteriyordu.
+                    const makeupIdx =
+                      day.status === "closed"
+                        ? []
+                        : day.lessons.flatMap((l, i) => (l.plannedMakeup && l.opsStatus === "attended" ? [i] : []));
+                    const dayTitle = `${day.date} — ${weekdayFullNameFor(day.date)} — ${day.label}${day.lessonIds.length ? ` · ${day.lessonIds.length} ders` : ""}${makeupIdx.length ? ` · ${makeupIdx.length > 1 ? `${makeupIdx.length} ders ` : ""}${ATTENDED_PLANNED_MAKEUP_LABEL}` : ""}`;
                     return (
                       <button
                         key={day.date}
@@ -1030,7 +1119,15 @@ export function AttendanceCalendarPanel({
                             {segmentCount}
                           </span>
                         ) : null}
-                        {attendedMakeup ? <PlannedMakeupMarker className="absolute -bottom-1 -left-1 !h-3 !w-3 !text-[8px]" /> : null}
+                        {makeupIdx.map((i) => (
+                          <span
+                            key={day.lessons[i]!.lessonId}
+                            className="absolute -bottom-1"
+                            style={{ left: segmentCount > 1 ? `calc(${((i + 0.5) / segmentCount) * 100}% - 6px)` : "-4px" }}
+                          >
+                            <PlannedMakeupMarker className="!h-3 !w-3 !text-[8px]" />
+                          </span>
+                        ))}
                       </button>
                     );
                   })}
@@ -1073,6 +1170,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
       {lesson.teacherName ? <span className="text-[var(--color-text-muted)]">· {lesson.teacherName}</span> : null}
       <span className="text-[var(--color-text-muted)]">· {lesson.instrument}</span>
       {lesson.roomName ? <span className="text-[var(--color-text-muted)]">· {lesson.roomName}</span> : null}
+      <span className="min-w-0 break-words text-[var(--color-text-muted)]">· Şube: {lesson.branchName ?? "belirtilmemiş"}</span>
       <LessonStatusBadge
         status={
           lesson.opsStatus === "attended" ||
@@ -1085,6 +1183,7 @@ function LessonSummaryLine({ lesson }: { lesson: DayLessonOpsInfo }) {
         }
         plannedMakeup={lesson.plannedMakeup}
       />
+      {lesson.processedReason ? <span className="text-[var(--color-text-muted)]">· {lesson.processedReason}</span> : null}
       {lesson.availabilityOverride ? (
         <span
           title="Öğretmen bu saatte müsait görünmüyordu — onaylı planlandı"
@@ -1124,6 +1223,7 @@ function DayDetail({
   onLessonOpsSettled: (lessonId: string) => void;
 }) {
   const currentPath = useCurrentPath();
+  const [correcting, setCorrecting] = useState<string | null>(null);
   // Takvimden tahsilat: yoklama statüsüyle (Geldi/İşlendi/Telafi) ZORLA
   // bağlanmaz — ayrı bir kavramdır. Ancak mevcut iş kuralı gereği tahsilat
   // yalnızca kapalı OLMAYAN bir günde, aktif bir öğrenci için, admin/yönetici
@@ -1150,7 +1250,11 @@ function DayDetail({
           Kapalı gün — yoklama/tahsilat işlemi yapılamaz.
         </p>
       ) : day.lessonIds.length === 0 ? (
-        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Bu gün ders yok.</p>
+        <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+          {day.payments.length
+            ? "Bu günün dersi iptal edilmiş (iptal edilen eski dersler takvimde gösterilmez); dersin ödeme kaydı aşağıda."
+            : "Bu gün ders yok."}
+        </p>
       ) : readOnly ? (
         <div className="mt-2 space-y-2">
           {day.lessons.map((l) => (
@@ -1184,6 +1288,7 @@ function DayDetail({
                   opsMakeupFlag={opsStatus === "makeup"}
                   studentAbsent={opsStatus === "absent"}
                   studentExcused={opsStatus === "excused"}
+                  attendanceNote={lessonInfo?.attendanceNote}
                   onStatusChange={onLessonStatusChange}
                   onSettled={onLessonOpsSettled}
                 />
@@ -1227,6 +1332,22 @@ function DayDetail({
                     </div>
                     {p.paidAt ? (
                       <p className="text-[var(--color-text-muted)]">Tahsilat tarihi: {formatRecordedAt(p.paidAt)}</p>
+                    ) : null}
+                    {canEdit && !readOnly ? (
+                      correcting === p.paymentId ? (
+                        <PaymentCorrectionForm
+                          payment={{ paymentId: p.paymentId, paidAmount: p.paidAmount, paidAt: p.paidAt, method: p.method }}
+                          onCancel={() => setCorrecting(null)}
+                          onSaved={() => {
+                            setCorrecting(null);
+                            onLessonOpsSettled(p.lessonId);
+                          }}
+                        />
+                      ) : (
+                        <button type="button" onClick={() => setCorrecting(p.paymentId)} className="font-medium text-[var(--color-primary)] hover:underline">
+                          Düzelt
+                        </button>
+                      )
                     ) : null}
                   </div>
                 ) : (

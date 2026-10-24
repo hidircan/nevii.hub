@@ -81,7 +81,7 @@ export default async function MebHubPage() {
           </div>
           <h2 className="mt-3 text-xl font-semibold tracking-tight text-[var(--color-text)]">MEB Öğrenci Listesi</h2>
           <p className="mt-1 max-w-xl text-sm text-[var(--color-text-muted)]">
-            Yalnız MEB öğrencilerinin tablosu. Seviye, dönem tarihleri ve sınav bilgileri düzenlenir.
+            Yalnız MEB olan branş kayıtlarının tablosu (aynı öğrencinin her MEB branşı ayrı satır). Seviye, dönem tarihleri ve sınav bilgileri düzenlenir.
           </p>
           <p className="mt-3 text-sm text-[var(--color-text)]">
             <span className="text-2xl font-semibold tracking-tight">Toplam {total}</span>

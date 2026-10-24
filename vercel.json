@@ -9,6 +9,14 @@
     {
       "path": "/api/v1/platform/jobs/monthly-accrual?apply=1",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/v1/notifications/tick?stages=lessons",
+      "schedule": "*/10 4-18 * * *"
+    },
+    {
+      "path": "/api/v1/notifications/tick",
+      "schedule": "0 6 * * *"
     }
   ]
 }

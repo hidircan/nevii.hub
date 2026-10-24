@@ -3,6 +3,7 @@ import { jsonFail } from "@/lib/api/http";
 import { recordAuditLog } from "@/lib/audit/log";
 import { uid } from "@/lib/utils";
 import { runNotificationSweeps } from "@/lib/notification-sweeps";
+import { safeErrorFields } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +21,18 @@ function extractBearer(request: Request): string | null {
 }
 
 /**
- * POST /api/v1/notifications/tick — yaklaşan ders, bekleyen ödeme, bekleyen izin.
- * Secret: NOTIFICATION_CRON_SECRET (fail-closed). JWT kabul edilmez.
+ * POST|GET /api/v1/notifications/tick — yaklaşan ders, bekleyen ödeme, bekleyen izin.
+ * Secret (fail-closed, JWT kabul edilmez): NOTIFICATION_CRON_SECRET (eski GitHub Actions POST'u) veya
+ * Vercel'in `CRON_SECRET`'ı. 2026-10-16: zamanlayıcı Vercel Cron'a taşındı (vercel.json: her 10 dk `?stages=lessons`,
+ * günde bir tam tur). 2026-10-18 (Active CPU + egress): 10 dk'lık tur yalnız 04–18 UTC (07:00–21:59 TR) — 1 sa/15 dk
+ * hatırlatma ve 15–90 dk "yaklaşan ders" 08:00–22:00 TR arası başlayan dersleri kapsar (canlı dersler 10:00–19:59 TR).
+ * Daha erken/geç ders başlarsa vercel.json + apps/cloudflare-cron'daki saat aralığını genişletin.
+ * Çift tetiklenme güvenli: bildirimler tekilleştirme anahtarı + günlük satır kimliğiyle idempotent.
  */
-export async function POST(request: Request) {
+async function tick(request: Request) {
   const requestId = uid("audit");
-  const configured = process.env.NOTIFICATION_CRON_SECRET;
-  if (!configured) {
+  const configured = [process.env.NOTIFICATION_CRON_SECRET, process.env.CRON_SECRET].filter((s): s is string => Boolean(s));
+  if (configured.length === 0) {
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -41,7 +47,7 @@ export async function POST(request: Request) {
     return jsonFail("FORBIDDEN", "Geçersiz tick kimliği.");
   }
   const provided = extractBearer(request);
-  if (!provided || !timingSafeStringEqual(provided, configured)) {
+  if (!provided || !configured.some((secret) => timingSafeStringEqual(provided, secret))) {
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -55,7 +61,9 @@ export async function POST(request: Request) {
     return jsonFail("FORBIDDEN", "Geçersiz tick kimliği.");
   }
   try {
-    const summary = await runNotificationSweeps();
+    // `?stages=lessons` → yalnız ders hatırlatmaları (10 dk'lık Vercel Cron); parametresiz → tam tur (günlük cron, elle POST).
+    const stages = new URL(request.url).searchParams.get("stages") === "lessons" ? "lessons" : "all";
+    const summary = await runNotificationSweeps(new Date(), { stages });
     void recordAuditLog({
       tenantId: "system",
       actorUserId: "cron",
@@ -63,8 +71,9 @@ export async function POST(request: Request) {
       action: "notifications.tick",
       entityType: "NotificationSweep",
       entityId: requestId,
-      outcome: "success",
+      outcome: summary.tenantErrors > 0 ? "error" : "success",
       meta: {
+        tenantErrors: summary.tenantErrors,
         upcomingCreated: summary.upcoming.created,
         remindersCreated: summary.reminders.created,
         remindersDuplicate: summary.reminders.duplicate,
@@ -76,8 +85,30 @@ export async function POST(request: Request) {
         contractExpiring: summary.contractExpiring,
       },
     });
+    if (summary.tenantErrors > 0) {
+      // Diğer kurumlar işlendi ama koşu "başarılı" sayılmaz: cron kırmızı görünsün, sayaçlar gövdede.
+      // Kurum id + aşama + hata adı log'da: [notifications.sweep.tenant.failed].
+      return Response.json(
+        {
+          ok: false,
+          error: {
+            code: "INTERNAL_ERROR",
+            message: `Bildirim taraması ${summary.tenantErrors} kurumda tamamlanamadı; diğer kurumlar işlendi. Ayrıntı sunucu log'unda.`,
+          },
+          data: summary,
+        },
+        { status: 500 }
+      );
+    }
     return Response.json({ ok: true, data: summary });
-  } catch {
+  } catch (error: unknown) {
+    // Mesaj/stack ilk satırı log'a girmez (sorgu argümanı, kişi verisi taşıyabilir) — bkz. safeErrorFields.
+    console.error("[notifications.tick.failed]", { requestId, ...safeErrorFields(error) });
+
     return jsonFail("INTERNAL_ERROR", "Bildirim taraması başarısız.");
   }
 }
+
+export const POST = tick;
+/** Vercel Cron GET gönderir (`Authorization: Bearer $CRON_SECRET`). Yanıt önbelleğe alınmaz (force-dynamic). */
+export const GET = tick;

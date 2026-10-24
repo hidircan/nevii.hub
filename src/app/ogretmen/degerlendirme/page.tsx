@@ -6,6 +6,7 @@ import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { Card, EmptyState, Badge } from "@/components/ui";
 import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function TeacherAssessmentStudentsPage() {
 
   const data = await readReferenceData();
   const teacherId = session.teacherId || "t1";
-  const students = data.students.filter((s) => s.active && s.teacherId === teacherId);
+  const students = data.students.filter((s) => s.active && isOwnStudent(s, teacherId));
   const pendingResult = await listPendingPeriodicAssessmentsTool(
     { role: session.role, userId: session.userId, tenantId: session.tenantId, teacherId: session.teacherId, channel: "web" },
     {}

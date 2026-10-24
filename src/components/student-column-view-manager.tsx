@@ -38,7 +38,7 @@ export type StudentColumnKey =
   | "createdBy";
 
 export const STUDENT_COLUMN_LABELS: Record<StudentColumnKey, string> = {
-  branch: "Şube",
+  branch: "Şubeler",
   type: "Tür / Seviye",
   instruments: "Enstrüman",
   teacher: "Öğretmen",

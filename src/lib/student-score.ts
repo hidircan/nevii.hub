@@ -245,7 +245,7 @@ function combineComponents(components: Record<ComponentKey, StudentScoreComponen
 }
 
 export async function computeStudentScore(
-  data: AppData,
+  data: Pick<AppData, "lessons">,
   tenantId: string,
   studentId: string,
   periodStart: string,

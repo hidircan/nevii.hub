@@ -1,5 +1,26 @@
 import type { Payment } from "./types";
+import { paidInstallmentCount, type CalendarPlanInstallment } from "./attendance-calendar-plan";
 import { isTerminalContractStatus, selectCurrentContract } from "./contract-list-helpers";
+import { isPaymentOverdue } from "./payments/status";
+import { supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
+
+/**
+ * 2026-10-20 — "gecikmiş" TEK kuraldan (`payments/status.ts`): vade günü (kurum saati) geçmiş canlı borç. Ham
+ * `status === "overdue"` yalnız oluşturulurken damgalandığı için bayattır; vade bilgisi olmayan özet satırlarda
+ * (öğrenci listesi SQL grubu, orada zaten canonical'a çevrilmiş) saklanan statü kullanılır.
+ */
+function overdueOf(p: Pick<Payment, "status" | "amount" | "paidAmount"> & { dueDate?: string }): boolean {
+  return p.dueDate ? isPaymentOverdue({ ...p, dueDate: p.dueDate }) : p.status === "overdue";
+}
+
+type DebtRow = Pick<Payment, "status" | "contractId" | "amount" | "paidAmount"> &
+  Partial<Pick<PlanLinkRow, "id" | "studentId" | "source" | "enrollmentId" | "description" | "installmentPeriodLabel" | "installmentBreakdown" | "firstCollectionIncludesNextMonth" | "dueDate">>;
+
+/** Dönem alanları yoksa (liste özeti) boş küme: gruplama zaten kalanı düşmüştür. */
+function supersededIds(payments: readonly DebtRow[], terminalContractIds: ReadonlySet<string>): Set<string> {
+  if (!payments.some((p) => p.source === "monthly_plan" && p.id && p.studentId)) return new Set();
+  return supersededUncollectedMonthlyPlanIds(payments as PlanLinkRow[], terminalContractIds);
+}
 
 export type StudentPaymentSummary = {
   /** Geçerli tahakkuk: iptal/yenilenmiş sözleşme satırlarından yalnız fiilen tahsil edilen kısım. */
@@ -9,6 +30,8 @@ export type StudentPaymentSummary = {
   remaining: number;
   overdueRemaining: number;
   openCount: number;
+  /** Tam kapanmış dönem sayısı. Satır adedi değil (`coveredInstallmentCount`). */
+  paidInstallmentCount: number;
   /**
    * Güncel (iptal/yenilenmemiş) sözleşmenin taksit tutarları toplamı. `null`:
    * aktif sözleşme yok ya da çağıran sözleşme listesi vermedi.
@@ -35,13 +58,14 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
   let overdueRemaining = 0;
   let openCount = 0;
   const terminalIds = new Set((contracts ?? []).filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const duplicatedPlan = supersededIds(payments, terminalIds);
   const current = contracts ? selectCurrentContract(contracts) : null;
   let currentContractBilled = current ? 0 : null;
 
   for (const p of payments) {
     // "voided" (ders iptaliyle geri alınmış otomatik tahsilat) hiç borç/tahsilat
     // sayılmaz — özet toplamlarına hiç girmez, yalnızca geçmişte görünür kalır.
-    if (p.status === "voided") continue;
+    if (p.status === "voided" || duplicatedPlan.has(p.id)) continue;
     totalCollected += p.paidAmount;
     if (current && p.contractId === current.id) currentContractBilled! += p.amount;
     if (p.contractId && terminalIds.has(p.contractId)) {
@@ -51,7 +75,7 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
     totalBilled += p.amount;
     const due = Math.max(p.amount - p.paidAmount, 0);
     remaining += due;
-    if (p.status === "overdue") overdueRemaining += due;
+    if (overdueOf(p)) overdueRemaining += due;
     if (p.status !== "paid") openCount += 1;
   }
 
@@ -61,9 +85,25 @@ export function computeStudentPaymentSummary(payments: Payment[], contracts?: Su
     remaining,
     overdueRemaining,
     openCount,
+    paidInstallmentCount: paidInstallmentCount(payments),
     currentContractBilled,
     currentContractNumber: current?.contractNumber ?? null,
   };
+}
+
+/** Öğrenci kimliği → ödenmiş taksit sayısı. Ödemeler listesi çekmecesi bunu düz nesne olarak alır. */
+export function paidInstallmentCountsByStudent(
+  payments: readonly (CalendarPlanInstallment & { studentId: string })[]
+): Record<string, number> {
+  const groups = new Map<string, (CalendarPlanInstallment & { studentId: string })[]>();
+  for (const p of payments) {
+    const list = groups.get(p.studentId);
+    if (list) list.push(p);
+    else groups.set(p.studentId, [p]);
+  }
+  const out: Record<string, number> = {};
+  for (const [studentId, rows] of groups) out[studentId] = paidInstallmentCount(rows);
+  return out;
 }
 
 /** Ödeme geçmişi görünümü için sıralama: en yeni vade önce. */
@@ -109,36 +149,9 @@ export function collectedAmountOf(p: Pick<Payment, "status" | "amount" | "paidAm
   return Math.max(0, p.paidAmount ?? 0);
 }
 
-/**
- * 2026-10-04 — BORÇ KAYNAĞI (tek tablo `Payment`; satır ikinci bir yerden toplanmaz).
- * - contract: güncel sözleşmenin dondurulmuş taksidi (`contractId`)
- * - registration: kayıt anı ilk tahsilatı (sözleşmeye bağlanmamışsa)
- * - monthly_plan: sözleşmesiz öğrencinin aylık plan satırı (Yoklama Takvimi / Ödemeler)
- * - lesson: ders bazlı otomatik tahsilat (Geldi/İşlendi)
- * - manual: elle girilen bağımsız borç/tahakkuk
- * Tahsilat = satırdaki `paidAmount`; iptal (voided) ve iptal/yenilenmiş sözleşmenin ödenmemiş
- * kalanı borç değildir (`isLiveObligation`). İade ayrı bir satır türü değildir: yanlış tahsilat
- * ters kayıtla (tahsilatı geri alma) düzeltilir, borç yeniden canlanır.
- */
-export type DebtSourceKey = "contract" | "registration" | "monthly_plan" | "club" | "lesson" | "manual";
-
-export const DEBT_SOURCE_LABEL: Record<DebtSourceKey, string> = {
-  contract: "Sözleşme taksidi",
-  registration: "Kayıt ilk tahsilatı",
-  monthly_plan: "Sözleşmesiz aylık plan",
-  club: "Kulüp ücreti",
-  lesson: "Ders bazlı tahsilat",
-  manual: "Elle girilen borç",
-};
-
-export function debtSourceOf(p: Pick<Payment, "source" | "contractId" | "lessonId">): DebtSourceKey {
-  if (p.contractId) return "contract";
-  if (p.source === "registration_first_payment") return "registration";
-  if (p.source === "monthly_plan") return "monthly_plan";
-  if (p.source === "club") return "club";
-  if (p.source === "lesson_ops" || p.lessonId) return "lesson";
-  return "manual";
-}
+// 2026-10-23 — kaynak türü ve adı tek yerde (`payment-source-label.ts`); buradan da dışa verilir.
+import { DEBT_SOURCE_LABEL, debtSourceOf, type DebtSourceKey } from "./payment-source-label";
+export { DEBT_SOURCE_LABEL, debtSourceOf, type DebtSourceKey };
 
 export type StudentDebtSummary = {
   openTotal: number;
@@ -154,9 +167,10 @@ export type StudentDebtSummary = {
  * bağımsız borcu (aylık plan, elle borç, ders bazlı) aynen sayılır; sözleşme yok diye dışlanmaz.
  */
 export function summarizeStudentDebt(
-  payments: Pick<Payment, "status" | "contractId" | "amount" | "paidAmount">[],
+  payments: DebtRow[],
   terminalContractIds: ReadonlySet<string>
 ): StudentDebtSummary {
+  const duplicatedPlan = supersededIds(payments, terminalContractIds);
   let openTotal = 0;
   let overdueTotal = 0;
   let openCount = 0;
@@ -164,13 +178,14 @@ export function summarizeStudentDebt(
   let anyPaid = false;
   for (const p of payments) {
     if (p.status === "paid") anyPaid = true;
+    if (p.id && duplicatedPlan.has(p.id)) continue;
     if (!isLiveObligation(p, terminalContractIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     if (due <= 0) continue;
     openTotal += due;
     openCount += 1;
-    if (p.status === "overdue") overdueTotal += due;
-    if (p.status === "partial") anyPartial = true;
+    if (overdueOf(p)) overdueTotal += due;
+    else if (p.status === "partial" || p.paidAmount > 0) anyPartial = true;
   }
   const status: StudentDebtSummary["status"] =
     overdueTotal > 0 ? "overdue" : anyPartial ? "partial" : openCount > 0 ? "pending" : anyPaid ? "paid" : "none";
@@ -191,13 +206,14 @@ export type StudentDebtView = {
 };
 
 export function splitStudentDebt(payments: Payment[], terminalContractIds: ReadonlySet<string>): StudentDebtView {
-  const live = payments.filter((p) => isLiveObligation(p, terminalContractIds));
+  const duplicatedPlan = supersededIds(payments, terminalContractIds);
+  const live = payments.filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id));
   const open = [...live].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   const due = (p: Payment) => Math.max(p.amount - p.paidAmount, 0);
   return {
     open,
     openTotal: open.reduce((s, p) => s + due(p), 0),
-    overdueTotal: open.filter((p) => p.status === "overdue").reduce((s, p) => s + due(p), 0),
+    overdueTotal: open.filter((p) => overdueOf(p)).reduce((s, p) => s + due(p), 0),
     movements: payments
       .filter((p) => p.status !== "voided" && p.paidAmount > 0)
       .sort((a, b) => (b.paidAt ?? b.dueDate).localeCompare(a.paidAt ?? a.dueDate)),
@@ -237,6 +253,7 @@ export function computeBranchPaymentBreakdown(input: {
   unassignedLabel: string;
 }): BranchPaymentRow[] {
   const terminalIds = new Set(input.contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const duplicatedPlan = supersededIds(input.payments, terminalIds);
   const rows = new Map<string, BranchPaymentRow>();
   const rowOf = (key: string, label: string) => {
     let r = rows.get(key);
@@ -261,10 +278,10 @@ export function computeBranchPaymentBreakdown(input: {
     const key = input.paymentBranchOf(p) ?? "__unassigned__";
     const r = rows.get(key) ?? rowOf("__unassigned__", input.unassignedLabel);
     r.collected += collectedAmountOf(p);
-    if (!isLiveObligation(p, terminalIds)) continue;
+    if (duplicatedPlan.has(p.id) || !isLiveObligation(p, terminalIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     r.openTotal += due;
-    if (p.status === "overdue") r.overdueTotal += due;
+    if (overdueOf(p)) r.overdueTotal += due;
   }
   return [...rows.values()];
 }

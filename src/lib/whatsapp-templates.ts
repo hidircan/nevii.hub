@@ -1,9 +1,9 @@
 import { format, isSameDay, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
-import type { AppData, Lesson, MakeupRequest, Student, Teacher } from "./types";
+import type { AppData, Lesson, MakeupRequest, StudentRef, Teacher } from "./types";
 import { DEFAULT_COLLECTIONS_SETTINGS } from "./types";
 import { resolveCollectionsIban } from "./collections-due";
-import { effectiveStudentTypes } from "./student-types";
+import { studentTypesForPaymentBank } from "./student-enrollments";
 
 function phoneToWa(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -44,7 +44,7 @@ function build(toName: string, toPhone: string, title: string, audience: WaMessa
 /** Telafi hakkı oluşunca veliye */
 export function templateMakeupCreated(
   school: string,
-  student: Student,
+  student: StudentRef,
   req: MakeupRequest,
   branchName: string
 ): WaMessage {
@@ -64,7 +64,7 @@ export function templateMakeupCreated(
 /** Telafi onaylanınca veliye */
 export function templateMakeupConfirmed(
   school: string,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   teacher: Teacher,
   branchName: string
@@ -86,7 +86,7 @@ export function templateMakeupConfirmed(
 export function templateTeacherMakeupAssigned(
   school: string,
   teacher: Teacher,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   branchName: string
 ): WaMessage {
@@ -104,7 +104,7 @@ export function templateTeacherMakeupAssigned(
 /** Yarınki ders hatırlatması */
 export function templateLessonReminder(
   school: string,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   teacher: Teacher,
   branchName: string
@@ -123,7 +123,7 @@ export function templateLessonReminder(
 /** Ödeme hatırlatması */
 export function templatePaymentReminder(
   school: string,
-  student: Student,
+  student: StudentRef,
   amount: number,
   dueDate: string,
   paymentDetails?: { bankLabel?: string; iban?: string }
@@ -144,7 +144,7 @@ export function templatePaymentReminder(
 /** Devamsızlık sonrası veli */
 export function templateAbsenceNotice(
   school: string,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   reason: string
 ): WaMessage {
@@ -206,7 +206,7 @@ export function buildDemoMessages(data: AppData): WaMessage[] {
   for (const p of data.payments.filter((x) => x.status === "overdue" || x.status === "pending")) {
     const student = data.students.find((s) => s.id === p.studentId);
     if (!student) continue;
-    const { bankLabel, iban } = resolveCollectionsIban(effectiveStudentTypes(student), collectionsSettings);
+    const { bankLabel, iban } = resolveCollectionsIban(studentTypesForPaymentBank(student, p, data.teachers), collectionsSettings);
     msgs.push(
       templatePaymentReminder(school, student, p.amount - p.paidAmount, p.dueDate, { bankLabel, iban })
     );
@@ -269,7 +269,7 @@ function buildLessonMessage(
 /** Yeni ders planlanınca veliye taslak */
 export function templateLessonScheduled(
   school: string,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   teacher: Teacher,
   branchName: string
@@ -291,7 +291,7 @@ export function templateLessonScheduled(
 export function templateTeacherLessonAssigned(
   school: string,
   teacher: Teacher,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson,
   branchName: string
 ): string {
@@ -314,7 +314,7 @@ export function templateTeacherLessonAssigned(
  */
 export function buildLessonCommunicationDraft(
   school: string,
-  student: Student,
+  student: StudentRef,
   teacher: Teacher,
   lesson: Lesson,
   branchName: string
@@ -337,7 +337,7 @@ export function buildLessonCommunicationDraft(
 
 export function templateMakeupLessonScheduledSms(
   school: string,
-  student: Student,
+  student: StudentRef,
   lesson: Lesson
 ): string {
   return `${school}: ${student.name} için telafi dersi ${fmtWhen(lesson.startAt)} (${lesson.instrument}).`;
@@ -345,7 +345,7 @@ export function templateMakeupLessonScheduledSms(
 
 export function buildMakeupLessonScheduledDraft(
   school: string,
-  student: Student,
+  student: StudentRef,
   teacher: Teacher,
   lesson: Lesson,
   branchName: string
