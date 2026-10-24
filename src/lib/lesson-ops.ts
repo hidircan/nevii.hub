@@ -22,9 +22,8 @@ import { buildDisruptionPatch, type LessonDisruptionInput, type LessonDisruption
 import type { AppData, Attendance, Lesson, MakeupRequest } from "./types";
 import { uid } from "./utils";
 import { reoccupyBlockMessage } from "./lesson-occupancy";
-import { addDays, formatISO } from "date-fns";
 import { assertCanCreateMakeup } from "./makeup-quota";
-import { closedMakeupToReopen, reopenMakeupRequest } from "./makeup-deadline";
+import { closedMakeupToReopen, makeupExpiresAtFromSource, reopenMakeupRequest } from "./makeup-deadline";
 
 export type LessonOpsFlag = "attended" | "processed" | "makeup" | "absent" | "excused";
 
@@ -286,7 +285,11 @@ function applyLessonOpsFlagUnguarded(
       attendanceId: attendance.id,
       status: "pending",
       reason: reason!.trim(),
-      expiresAt: formatISO(addDays(now, data.settings.makeupWindowDays)),
+      // 2026-10-24 — SON GÜN TEK ÇAPA (LESSONS_LEARNED #3): kaçan dersin başlangıcı + pencere.
+      // Eskiden işaretleme anı (`now`) kullanılıyordu; geç işaretlenen derste pencere haksız uzuyor,
+      // pencere değişimiyle de çelişiyordu (değişim kaynak çapalıdır). "Yeniden Telafi" (reopen)
+      // owner kararıyla bugünden başlar — aynen korunur.
+      expiresAt: makeupExpiresAtFromSource(lesson.startAt, data.settings.makeupWindowDays),
       suggestedSlots: [],
       createdAt: nowIso,
       policyNote: `${data.settings.makeupWindowDays} gün pencere · ${data.settings.monthlyMakeupAllowance ?? 2}/dönem hak · ${branch?.shortName ?? ""}`,

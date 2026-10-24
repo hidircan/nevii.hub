@@ -1607,3 +1607,14 @@ alan öğrencide listelenen dönemin gönderimi reddedildi, ilk ders tarihi boş
 **Ders:** liste ile yazma aynı anahtarı FARKLI veri diliminden hesaplıyorsa eşitlik kontrolü veri kaybettirir; yazmada
 kural doğrula (kendi dersi aralıkta var mı, gönderilmiş raporla çakışıyor mu) ve @@unique'i idempotency için kullan.
 "Bekleyen" üreten kural geçmişe sınırsız bakmamalı (öğrenci×öğretmen başına en çok bir dönem, 60 gün taban).
+
+## 2026-10-24 — Telafi son günü iki çapadan hesaplanıyordu; bekleyen talepte uzatma düğmesi yoktu
+
+Ops "Telafi" işareti (`lesson-ops.ts`) son günü işaretleme anından (`now + pencere`), yoklama ve pencere
+değişimi ise kaynak dersten hesaplıyordu — geç işaretlenen derste pencere haksız uzuyor, karttaki dakika
+(:26 gibi) hangi kuralın yazdığını ele veriyordu (Kubilay O.: 28 Ağu 14:26 + 74 gün = 10 Kas 14:26).
+Ayrıca "Son günü uzat" yalnız geçmiş satırlardaydı; bekleyen karttaki "yetkili yönetici son günü uzatsın"
+yönergesi havada kalıyordu (sunucu uzatmayı destekliyordu, düğme yoktu).
+**Ders:** süre üreten TÜM yazım yolları tek çapayı (`makeupExpiresAtFromSource`) kullanmalı; hata mesajının
+vadettiği eylem aynı kartta erişilebilir olmalı; kalan-gün kartı sunucu diliminde değil kurum diliminde
+(`makeupDaysLeft`) hesaplanmalı — yoksa gece yarısına yakın kart "bugün son gün" derken yazım reddeder.

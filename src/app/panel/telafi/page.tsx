@@ -8,7 +8,7 @@ import { MakeupDecisionForm } from "@/components/makeup-decision-form";
 import { GenerateSuggestionsForm } from "@/components/generate-suggestions-form";
 import { ManualMakeupPlanForm } from "@/components/manual-makeup-plan-form";
 import Link from "@/components/link";
-import { differenceInCalendarDays, parseISO } from "date-fns";
+import { makeupDaysLeft } from "@/lib/makeup-deadline";
 import { formatDateTime, formatTime } from "@/lib/utils";
 import { isRoomSchedulable, makeupDurationMinutes, validateLessonSlot } from "@/lib/makeup-engine";
 import { isMakeupPlanningExpiryClosure, lessonHasConductMark } from "@/lib/makeup-lifecycle";
@@ -22,6 +22,7 @@ import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { MakeupWindowDaysEditor } from "@/components/makeup-window-days-editor";
+import { MakeupLifecycleActions } from "@/components/makeup-lifecycle-actions";
 import { MakeupPolicyDialog } from "@/components/makeup-policy-dialog";
 import { MakeupHistoryTable } from "@/components/makeup-history-table";
 import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
@@ -109,7 +110,7 @@ export default async function TelafiPage({
 
   const OPEN_STATUSES = ["pending", "suggested", "awaiting_info"];
   const now = new Date();
-  const daysLeft = (r: (typeof requests)[number]) => differenceInCalendarDays(parseISO(r.expiresAt), now);
+  const daysLeft = (r: (typeof requests)[number]) => makeupDaysLeft(r.expiresAt, now);
   // Önce çözülmesi gereken en üstte: son kullanım tarihi en yakın olan.
   const open = requests
     .filter((r) => OPEN_STATUSES.includes(r.status))
@@ -517,6 +518,19 @@ export default async function TelafiPage({
                       />
                     );
                   })()}
+
+                  {/* 2026-10-24 — bekleyen talepte talebe özel uzatma (sunucu: extendMakeupDeadlineTool,
+                      SCHOOL_ADMIN/SUPER_ADMIN). Eskiden bu düğme yalnız geçmiş satırlardaydı; açık karttaki
+                      "yetkili yönetici son günü uzatsın" yönergesi havada kalıyordu. Uzatma formu öğretmen/oda
+                      kullanmaz; planlama yazımında sunucu güncel son günü yeniden doğrular. */}
+                  {canWrite ? (
+                    <MakeupLifecycleActions
+                      row={{ id: req.id, status: req.status, expiresAt: req.expiresAt }}
+                      teachers={[]}
+                      rooms={[]}
+                      only="extend"
+                    />
+                  ) : null}
 
                   {/* İptal/ret gerekçe kutusu yalnız istenince açılır (yerel <details>: klavye + aria hazır). */}
                   <details className="group open:order-last open:basis-full">
