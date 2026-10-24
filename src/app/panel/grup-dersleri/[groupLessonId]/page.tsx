@@ -1,7 +1,7 @@
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
-import { GroupLessonActionButton, GroupLessonForm, GroupMemberAddExisting, GroupSessionAdd } from "@/components/group-lesson-components";
+import { GroupBackfill, GroupLessonActionButton, GroupLessonForm, GroupMemberAddExisting, GroupSessionAdd } from "@/components/group-lesson-components";
 import { requireSessionContext } from "@/lib/auth/session";
 import { getInstitutionContext } from "@/lib/institution/context";
 import { enrollmentTerms } from "@/lib/student-enrollments";
@@ -131,6 +131,11 @@ export default async function GrupDersiPage({ params }: { params: Promise<{ grou
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Geçmiş oturumlar ({done.length})</h2>
           <ul className="divide-y divide-[var(--color-border)]">{done.slice(0, 30).map(sessionRow)}</ul>
+          {g.status === "active" ? (
+            <div className="mt-3 border-t border-[var(--color-border)] pt-3">
+              <GroupBackfill groupLessonId={g.id} />
+            </div>
+          ) : null}
           <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
             Öğretmen hakedişi bireysel dersle aynı kuralla hesaplanır: oturumda en az bir öğrenci “Geldi/İşlendi” ise oturum süresine göre TEK ders sayılır;
             kimse gelmediyse sayılmaz.

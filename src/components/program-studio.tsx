@@ -996,6 +996,28 @@ export function ProgramStudio({
     (r) => !seriesBranchId || r.branchId === seriesBranchId
   );
 
+  /**
+   * 2026-10-24 — seçili (veya tek aday olarak otomatik bağlanacak) kayıt bir GRUP dersi kaydıysa: bireysel ders yazılmaz
+   * (sunucu da reddeder, bkz. store.resolveLessonEnrollmentId); kullanıcı grup ekranına yönlendirilir.
+   */
+  const groupEnrollmentOf = (sid: string, eid: string, instr: string) => {
+    const act = (students.find((x) => x.id === sid)?.enrollments ?? []).filter((e) => e.active);
+    if (eid) return act.find((e) => e.id === eid && e.groupLessonId);
+    return act.some((e) => !e.groupLessonId && e.instrument === instr) ? undefined : act.find((e) => e.groupLessonId && e.instrument === instr);
+  };
+  const lessonGroupEnrollment = groupEnrollmentOf(studentId, enrollmentId, instrument);
+  const seriesGroupEnrollment = groupEnrollmentOf(seriesStudentId, seriesEnrollmentId, seriesInstrument);
+  const groupEnrollmentNotice = (e: { instrument: string; groupLessonId?: string } | undefined) =>
+    e ? (
+      <p role="alert" className="sm:col-span-2 lg:col-span-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        Bu öğrencinin {e.instrument} kaydı bir grup dersine bağlı; burada planlanan ders bireysel olur ve grup oturumuna bağlanmaz.{" "}
+        <Link href={`/panel/grup-dersleri/${e.groupLessonId}`} className="font-semibold underline">
+          Grup ekranını açın
+        </Link>{" "}
+        — geçmiş dersler için &quot;Geçmiş oturumları tamamla&quot;, tek seferlik oturum için &quot;Ek oturum ekle&quot;.
+      </p>
+    ) : null;
+
   function resetPanelState() {
     clearNotices();
     setFormError(null);
@@ -1666,12 +1688,13 @@ export function ProgramStudio({
             />
           </div>
         ) : null}
+        {groupEnrollmentNotice(lessonGroupEnrollment)}
         <div className="flex items-end gap-2">
           <Button type="button" variant="secondary" onClick={handleFindSlots} disabled={suggestLoading}>
             {suggestLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             Uygun saatleri bul
           </Button>
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || Boolean(lessonGroupEnrollment)}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Dersi planla
           </Button>
@@ -1977,8 +2000,9 @@ export function ProgramStudio({
         </div>
       ) : null}
 
+      {seriesGroupEnrollment ? <div className="mt-3">{groupEnrollmentNotice(seriesGroupEnrollment)}</div> : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary" onClick={() => void handleSeriesPreview()} disabled={seriesPreviewLoading}>
+        <Button type="button" variant="secondary" onClick={() => void handleSeriesPreview()} disabled={seriesPreviewLoading || Boolean(seriesGroupEnrollment)}>
           {seriesPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Tarihleri ve çakışmaları kontrol et
         </Button>

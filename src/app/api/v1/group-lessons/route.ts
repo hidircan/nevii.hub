@@ -3,6 +3,7 @@ import { fail } from "@/lib/services/result";
 import {
   listGroupLessonsTool,
   addGroupSessionTool,
+  backfillGroupSessionsTool,
   cancelGroupSessionTool,
   createGroupLessonTool,
   endGroupLessonTool,
@@ -21,7 +22,8 @@ export const POST = withApiHandler(async ({ ctx, body }) => createGroupLessonToo
 /**
  * PATCH /api/v1/group-lessons { action, groupLessonId, … }:
  *  - "update" (tanım alanları) · "end" · "sync" { studentId? }
- *  - "cancelSession" { sessionKey } · "addSession" { startLocal }
+ *  - "cancelSession" { sessionKey } · "addSession" { startLocal } (geçmiş tarih: yapılmış dersi işler)
+ *  - "backfill" { dryRun?, skipIssues? } — başlangıçtan bugüne eksik geçmiş oturum satırları (önizleme + onay)
  */
 export const PATCH = withApiHandler(async ({ ctx, body }) => {
   const action = (body as { action?: string } | null)?.action;
@@ -30,5 +32,6 @@ export const PATCH = withApiHandler(async ({ ctx, body }) => {
   if (action === "sync") return syncGroupLessonTool(ctx, body);
   if (action === "cancelSession") return cancelGroupSessionTool(ctx, body);
   if (action === "addSession") return addGroupSessionTool(ctx, body);
+  if (action === "backfill") return backfillGroupSessionsTool(ctx, body);
   return fail("VALIDATION_ERROR", "Geçersiz grup dersi işlemi. Sayfayı yenileyip tekrar deneyin.");
 });

@@ -324,7 +324,9 @@ async function conflictWindowLessons(sessions: { startAt: string }[]): Promise<L
 
 // ── Satır üretimi (tek, idempotent yazıcı) ───────────────────────────────────
 
-type SyncResult = { created: number; skippedClosedDays: number };
+/** Geçmiş oturum önizlemesi/raporu: oluşturulacak · zaten var · kapalı gün · sorunlu · o tarihte katılımcı yok. */
+export type GroupBackfillSession = { key: string; startAt: string; status: "create" | "exists" | "closed" | "issue" | "empty"; students: string[]; message?: string };
+type SyncResult = { created: number; skippedClosedDays: number; sessions?: GroupBackfillSession[] };
 
 /**
  * Katılımcıların GELECEK planlı oturumlarındaki eksik satırlarını üretir (TEK yazıcı: gruba ekleme, yeni öğrenci kaydı,
@@ -341,8 +343,20 @@ export async function syncGroupLessonRowsLocked(
    * `ignoreRowIds`: bu işlemde iptal edilecek satırlar (yok sayılır). `dryRun`: yalnız doğrula, yazma.
    * `virtualMember`: henüz kaydı açılmamış katılımcı — katılım ön kontrolü yazıcıyla AYNI kurallardan geçer (kayıt + ilk
    * tahsilat yazılıp satırlar yazılamadığı yarım durum oluşmasın).
+   * `past`: YALNIZ saati geçmiş oturumlar (geçmiş dersleri sisteme işleme — "Geçmiş oturumları tamamla"). Otomatik akışlar
+   * (katılım, düzenleme, yenile) bunu KULLANMAZ: geçmiş satır yalnız yöneticinin önizleyip onayladığı açık işlemle yazılır.
+   * Geçmiş modda iptal edilmiş satır yeniden açılmaz, sorunlu oturum (çakışma/kontenjan/eski düzen) bütünüyle atlanıp
+   * raporlanır; `skipIssues` yoksa ve sorun varsa hiçbir şey yazılmaz. `onlyKeys`: yalnız bu oturumlar.
    */
-  opts: { studentIds?: string[]; ignoreRowIds?: Set<string>; dryRun?: boolean; virtualMember?: GroupMember } = {}
+  opts: {
+    studentIds?: string[];
+    ignoreRowIds?: Set<string>;
+    dryRun?: boolean;
+    virtualMember?: GroupMember;
+    past?: boolean;
+    onlyKeys?: Set<string>;
+    skipIssues?: boolean;
+  } = {}
 ): Promise<ServiceResult<SyncResult>> {
   if (g.status !== "active") return ok({ created: 0, skippedClosedDays: 0 });
   const data = await readGroupLessonData(g.id);
@@ -350,26 +364,36 @@ export async function syncGroupLessonRowsLocked(
   const { findSlotConflict } = await import("./lesson-occupancy");
   const { formatDateTime } = await import("./utils");
   const nowMs = Date.now();
+  const past = Boolean(opts.past);
   const members = groupMembers(data.students, g.id).filter(
     (m) => (!opts.studentIds || opts.studentIds.includes(m.student.id)) && m.student.active && !m.student.deletedAt && !m.student.purgedAt
   );
   if (opts.virtualMember) members.push(opts.virtualMember);
   const ignored = opts.ignoreRowIds ?? new Set<string>();
-  const liveRows = data.lessons.filter((l) => l.groupLessonId === g.id && l.groupSessionId && l.status !== "cancelled" && !ignored.has(l.id));
-  const existing = new Set(liveRows.map((l) => `${l.groupSessionId}|${l.studentId}`));
+  const groupRows = data.lessons.filter((l) => l.groupLessonId === g.id && l.groupSessionId && !ignored.has(l.id));
+  const liveRows = groupRows.filter((l) => l.status !== "cancelled");
+  // Gelecek: kaydı açık öğrencinin iptal satırı yeniden kurulur. Geçmiş: iptal edilmiş satır KARARDIR, yeniden açılmaz.
+  const existing = new Set((past ? groupRows : liveRows).map((l) => `${l.groupSessionId}|${l.studentId}`));
+  const nameOf = (id: string) => data.students.find((x) => x.id === id)?.name ?? "Öğrenci";
   let skippedClosedDays = 0;
   const candidates: Lesson[] = [];
+  const report: GroupBackfillSession[] = [];
   const room = data.rooms.find((r) => r.id === g.roomId);
   if (!room) return fail("VALIDATION_ERROR", "Grubun odası bulunamadı. Grup dersini düzenleyip aktif bir oda seçin.");
   for (const s of planGroupSessions(g)) {
-    if (Date.parse(s.startAt) <= nowMs) continue;
-    if (!assertSchedulableDate(s.startAt, data).ok) {
+    if (past ? Date.parse(s.startAt) > nowMs : Date.parse(s.startAt) <= nowMs) continue;
+    if (opts.onlyKeys && !opts.onlyKeys.has(s.key)) continue;
+    const closed = assertSchedulableDate(s.startAt, data);
+    if (!closed.ok) {
       skippedClosedDays++;
+      report.push({ key: s.key, startAt: s.startAt, status: "closed", students: [], message: closed.message });
       continue;
     }
     const ymd = toZonedYmd(new Date(s.startAt), TZ);
-    for (const m of members) {
-      if (!enrollmentCoversDay(m.enrollment, ymd) || existing.has(`${s.key}|${m.student.id}`)) continue;
+    const covering = members.filter((m) => enrollmentCoversDay(m.enrollment, ymd));
+    const missing = covering.filter((m) => !existing.has(`${s.key}|${m.student.id}`));
+    report.push({ key: s.key, startAt: s.startAt, status: missing.length ? "create" : covering.length ? "exists" : "empty", students: missing.map((m) => m.student.name) });
+    for (const m of missing) {
       candidates.push({
         id: uid("les"),
         studentId: m.student.id,
@@ -389,50 +413,73 @@ export async function syncGroupLessonRowsLocked(
       });
     }
   }
-  if (!candidates.length) return ok({ created: 0, skippedClosedDays });
+  const done = (created: number) => ok({ created, skippedClosedDays, ...(past ? { sessions: report } : {}) });
+  if (!candidates.length) return done(0);
 
-  // Kapasite: oturum başına canlı satır + yeni satır ≤ kapasite.
+  // Kapasite: oturum başına canlı satır + yeni satır ≤ kapasite (o tarihteki katılımcılar).
   const live = new Map<string, number>();
   for (const l of liveRows) live.set(l.groupSessionId!, (live.get(l.groupSessionId!) ?? 0) + 1);
   for (const c of candidates) live.set(c.groupSessionId!, (live.get(c.groupSessionId!) ?? 0) + 1);
-  for (const c of candidates) {
-    if ((live.get(c.groupSessionId!) ?? 0) > g.capacity) {
-      return fail("CONFLICT", `${formatDateTime(c.startAt)} oturumunda kontenjan (${g.capacity} öğrenci) doluyor. Grubun kapasitesini artırın veya başka bir grup seçin.`);
-    }
-  }
 
   const { listTrialLessons } = await import("./trial-lessons");
   const [window, trials] = await Promise.all([conflictWindowLessons(candidates), listTrialLessons(ctx.tenantId)]);
   const others = window.filter((l) => !ignored.has(l.id));
-  const nameOf = (id: string) => data.students.find((x) => x.id === id)?.name ?? "Öğrenci";
-  for (const c of candidates) {
+  const issueOf = (c: Lesson): string | null => {
+    const when = formatDateTime(c.startAt);
+    if ((live.get(c.groupSessionId!) ?? 0) > g.capacity) {
+      return `${when} oturumunda kontenjan (${g.capacity} öğrenci) doluyor. Grubun kapasitesini artırın veya başka bir grup seçin.`;
+    }
+    // Aynı gün grubun FARKLI anahtarlı canlı satırı (eski saat düzeni / ek oturum): ikinci kopya açılmaz.
+    const day = toZonedYmd(new Date(c.startAt), TZ);
+    if (past && liveRows.some((l) => l.groupSessionId !== c.groupSessionId && toZonedYmd(new Date(l.startAt), TZ) === day)) {
+      return `${when}: Bu gün için grubun başka saatte kayıtlı oturumu var. O oturumu kontrol edin; aynı güne ikinci grup oturumu açılmadı.`;
+    }
     const hit = findSlotConflict(others, c);
     if (hit) {
-      const when = formatDateTime(c.startAt);
-      if (hit.resource === "student") {
-        return fail("CONFLICT", `${when}: ${nameOf(c.studentId)} bu saatte başka bir derste. Önce o dersi taşıyın veya öğrenciyi başka bir gruba ekleyin.`);
-      }
-      return fail(
-        "CONFLICT",
-        `${when}: ${hit.resource === "teacher" ? "Öğretmenin" : `${room.name} odasının`} bu saatte başka dersi var. Grup dersinin gün/saatini veya odasını değiştirin ya da çakışan dersi taşıyın.`
-      );
+      if (hit.resource === "student") return `${when}: ${nameOf(c.studentId)} bu saatte başka bir derste. Önce o dersi taşıyın veya öğrenciyi başka bir gruba ekleyin.`;
+      return `${when}: ${hit.resource === "teacher" ? "Öğretmenin" : `${room.name} odasının`} bu saatte başka dersi var. Grup dersinin gün/saatini veya odasını değiştirin ya da çakışan dersi taşıyın.`;
     }
     const s = Date.parse(c.startAt);
     const e = Date.parse(c.endAt);
     if (trials.some((t) => t.teacherId === g.teacherId && t.status !== "cancelled" && Date.parse(t.startAt) < e && s < Date.parse(t.endAt))) {
-      return fail("CONFLICT", `${formatDateTime(c.startAt)}: Öğretmenin bu saatte deneme dersi var. Deneme dersini taşıyın veya grup saatini değiştirin.`);
+      return `${when}: Öğretmenin bu saatte deneme dersi var. Deneme dersini taşıyın veya grup saatini değiştirin.`;
     }
+    return null;
+  };
+
+  let toWrite = candidates;
+  if (!past) {
+    for (const c of candidates) {
+      const issue = issueOf(c);
+      if (issue) return fail("CONFLICT", issue);
+    }
+  } else {
+    // Sorunlu oturum BÜTÜNÜYLE atlanır (aynı oturumun katılımcıları ya hep birlikte ya hiç yazılır).
+    const bad = new Map<string, string>();
+    for (const c of candidates) {
+      if (bad.has(c.groupSessionId!)) continue;
+      const issue = issueOf(c);
+      if (issue) bad.set(c.groupSessionId!, issue);
+    }
+    for (const r of report) {
+      const msg = bad.get(r.key);
+      if (msg) Object.assign(r, { status: "issue", message: msg });
+    }
+    if (bad.size && !opts.skipIssues && !opts.dryRun) {
+      return fail("CONFLICT", `${bad.size} geçmiş oturumda sorun var (çakışma/kontenjan); hiçbir satır yazılmadı. Önizlemedeki sorunları giderin veya "Sorunlu oturumları atla" ile kalanları işleyin.`);
+    }
+    toWrite = candidates.filter((c) => !bad.has(c.groupSessionId!));
   }
-  if (opts.dryRun) return ok({ created: candidates.length, skippedClosedDays });
+  if (opts.dryRun || !toWrite.length) return done(opts.dryRun ? toWrite.length : 0);
   const { addGroupLessonRows } = await import("./store");
   try {
-    await addGroupLessonRows(candidates);
+    await addGroupLessonRows(toWrite);
   } catch (e) {
     const { LessonSlotValidationError } = await import("./makeup-engine");
     if (e instanceof LessonSlotValidationError) return fail("CONFLICT", e.message);
     throw e;
   }
-  return ok({ created: candidates.length, skippedClosedDays });
+  return done(toWrite.length);
 }
 
 /**
@@ -610,9 +657,8 @@ export async function createGroupLessonTool(ctx: ServiceContext, input: unknown)
   if (!def.ok) return def;
   const now = new Date().toISOString();
   const g: GroupLesson = { ...def.data, id: uid("grp"), sessionOverrides: { extra: [], cancelled: [] }, status: "active", createdByUserId: ctx.userId, createdAt: now, updatedAt: now };
-  if (!planGroupSessions(g).some((s) => Date.parse(s.startAt) > Date.now())) {
-    return fail("VALIDATION_ERROR", "Seçilen tarihlerde gelecekte bir oturum yok. Başlangıç tarihini bugün veya sonrası seçin.");
-  }
+  // Geçmiş başlangıç serbest (geçmişte başlamış grubu sisteme işleme): geçmiş satırlar yalnız "Geçmiş oturumları tamamla" ile yazılır.
+  if (!planGroupSessions(g).length) return fail("VALIDATION_ERROR", "Seçilen tarihlerde planlanacak oturum yok. Başlangıç/bitiş tarihini ve günü kontrol edin.");
   const busy = await checkPlanFree(g, new Set());
   if (busy) return fail("CONFLICT", busy);
   await writeGroupLesson(ctx.tenantId, g, true);
@@ -735,7 +781,8 @@ export async function addGroupSessionTool(ctx: ServiceContext, input: unknown): 
     if (g.status !== "active") return fail("VALIDATION_ERROR", "Sona ermiş gruba oturum eklenemez.");
     const [day, time] = parsed.data.startLocal.split("T") as [string, string];
     const start = zonedWallTimeToUtc(day, time, TZ);
-    if (start.getTime() <= Date.now()) return fail("VALIDATION_ERROR", "Ek oturum geçmiş bir zamana planlanamaz. Bugün veya ileri bir tarih seçin.");
+    // Geçmiş ek oturum: yapılmış dersi sisteme işler (yoklama ayrıca girilir; bildirim gitmez).
+    const isPast = start.getTime() <= Date.now();
     const key = groupSessionKey(g.id, start.toISOString());
     if (planGroupSessions(g).some((s) => s.key === key)) return fail("CONFLICT", "Bu saatte grubun oturumu zaten planlı.");
     const { assertSchedulableDate } = await import("./lesson-scheduling");
@@ -750,7 +797,7 @@ export async function addGroupSessionTool(ctx: ServiceContext, input: unknown): 
     const busy = await checkPlanFree({ ...next, recurrence: "once", startsOn: day, endsOn: day, sessionOverrides: { extra: [], cancelled: [] }, startTime: time }, new Set());
     if (busy) return fail("CONFLICT", busy);
     await writeGroupLesson(ctx.tenantId, next, false);
-    const res = await syncGroupLessonRowsLocked(ctx, next);
+    const res = await syncGroupLessonRowsLocked(ctx, next, isPast ? { past: true, onlyKeys: new Set([key]) } : {});
     if (!res.ok) {
       await writeGroupLesson(ctx.tenantId, g, false); // plan geri alınır: yazılmamış oturum listede kalmasın
       return res;
@@ -770,6 +817,27 @@ export async function syncGroupLessonTool(ctx: ServiceContext, input: unknown): 
     const g = await getGroupLesson(ctx.tenantId, parsed.data.groupLessonId);
     if (!g) return fail("NOT_FOUND", "Grup dersi bulunamadı.");
     return syncGroupLessonRowsLocked(ctx, g, parsed.data.studentId ? { studentIds: [parsed.data.studentId] } : {});
+  });
+}
+
+/**
+ * "Geçmiş oturumları tamamla": grubun başlangıcından bugüne planlı oturumlarında, o tarihte katılımı geçerli öğrencilerin
+ * eksik satırlarını yazar (yapılmış dersleri sisteme işleme). `dryRun` önizleme döner. İdempotent (var olan / iptal edilmiş
+ * satır yeniden açılmaz); satırlar "Planlandı" durumunda yazılır — yoklama/işlendi/telafi OTOMATİK verilmez, bildirim
+ * gönderilmez, borç/tahsilat üretilmez (aylık tahakkuk kayda bağlıdır). Hakediş yalnız sonradan girilen yoklamayla oluşur.
+ */
+export async function backfillGroupSessionsTool(ctx: ServiceContext, input: unknown): Promise<ServiceResult<SyncResult>> {
+  const denied = gate(ctx);
+  if (denied) return denied;
+  const parsed = z.object({ groupLessonId: z.string().min(1), dryRun: z.boolean().optional(), skipIssues: z.boolean().optional() }).safeParse(input);
+  if (!parsed.success) return fail("VALIDATION_ERROR", "Grup dersi seçilmedi.");
+  return withGroupLessonLock(ctx.tenantId, [parsed.data.groupLessonId], async () => {
+    const g = await getGroupLesson(ctx.tenantId, parsed.data.groupLessonId);
+    if (!g) return fail("NOT_FOUND", "Grup dersi bulunamadı.");
+    if (g.status !== "active") return fail("VALIDATION_ERROR", "Sona ermiş grubun geçmiş oturumları tamamlanamaz.");
+    const res = await syncGroupLessonRowsLocked(ctx, g, { past: true, dryRun: parsed.data.dryRun, skipIssues: parsed.data.skipIssues });
+    if (res.ok && !parsed.data.dryRun && res.data.created) audit(ctx, "group_lesson.backfill", g.id, { created: res.data.created });
+    return res;
   });
 }
 
