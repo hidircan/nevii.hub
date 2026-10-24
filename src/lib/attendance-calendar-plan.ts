@@ -64,6 +64,8 @@ export interface CalendarPlanInstallment {
   dueDate: string;
   status: string;
   kind?: ContractInstallmentKind;
+  /** `Payment.installmentKind` — sözleşmenin bu satırı hangi tür taksit olarak planladığı. */
+  installmentKind?: ContractInstallmentKind;
   periodLabel?: string;
   /** `Payment` satırındaki adları — çağıranlar doğrudan `Payment` geçirir. */
   installmentPeriodLabel?: string;
@@ -215,7 +217,8 @@ export function installmentMonthKeys(p: CalendarPlanInstallment): string[] {
  * - `amount`: satırın o döneme düşen BORCU; `paidAmount`: o döneme MAHSUP edilen tahsilat. Toplamlar satırın kendi
  *   `amount`/`paidAmount`'ına eşittir — aynı para iki ayda sayılmaz, mahsup tahsilatı aşmaz.
  * - Dönem kırılımı (`installmentBreakdown`) varsa borç, kırılım tutarları sırayla doldurularak dağıtılır; satır tutarı
- *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer. Tahsilat en eski dönemden başlayarak
+ *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer — ilk tahsilatta ise İLK döneme (elle
+ *   tutar kayıt ayını değiştirir, takip eden ayın tam ücreti korunur). Tahsilat en eski dönemden başlayarak
  *   mahsup edilir (kısmi ödeme / iade sonrası eksik kalan, en yeni dönemdir).
  * - Kırılımı OLMAYAN eski kayıtta "takip eden ayı da ekle" seçiliyse (alanın kendisi; kaynak veya sözleşme bağı
  *   aranmaz), sonraki ay KARŞILANMIŞ sayılır ama tutarı kayda işlenmemiştir: o ayın payı 0'dır ve `unsplit`
@@ -268,6 +271,18 @@ function withUnsplitNextMonth(own: InstallmentMonthShare, includeNext: boolean |
   return [own, { month: nextMonthKeyOf(own.month), amount: 0, paidAmount: 0, unsplit: true }];
 }
 
+/**
+ * 2026-10-24 — "takip eden ayı da ekle" işareti bu satıra sonraki ayı ekler mi? Sözleşme taksidinde satırın türünü
+ * SÖZLEŞME belirler: tek dönem (`first_collection`/`period_fee`/`deposit`) olarak planlanmış satırda işaret ay
+ * eklemez — sözleşme o ayı ayrı taksitle borçlandırmıştır (ilk tahsilat sonradan tek aya düzeltilip işaret açık
+ * kalmış olabilir). Gerçek iki aylık satır `first_collection_combined`'dır ve tutarlı kırılımla gelir. Türü bilinmeyen
+ * (eski) satırda ve sözleşmesiz satırda işaret aynen geçerlidir.
+ */
+function flagAddsNextMonth(p: CalendarPlanInstallment): boolean {
+  if (!p.firstCollectionIncludesNextMonth) return false;
+  return !(p.contractId && p.installmentKind && p.installmentKind !== "first_collection_combined");
+}
+
 export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentMonthShare[] {
   const amount = Math.trunc(p.amount);
   const paid = Math.trunc(p.paidAmount);
@@ -275,7 +290,14 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
     .map((b) => ({ month: monthKeyOfPeriodLabel(b.periodLabel), cap: b.amount, label: b.periodLabel }))
     .filter((b): b is { month: string; cap: number; label: string } => !!b.month);
   if (parts.length >= 2) {
-    const amounts = allocateInOrder(amount, parts.map((b) => b.cap));
+    // 2026-10-24 — ilk tahsilatta (kayıt / birleşik ilk taksit) elle girilen tutar YALNIZ kayıt ayı bileşenini
+    // değiştirir; takip eden ayın tam ücreti korunur (contracts.ts `buildPerLessonInstallmentSchedule` kuralı). Kırılım
+    // otomatik bileşenleri taşıdığı için fark İLK döneme düşer — eskiden son döneme düşüyordu (Seres K.: 10.425 TL
+    // elle, kırılım 1.737 + 6.950 → ekranda Ekim 1.737 / Kasım 8.688; doğrusu 3.475 / 6.950).
+    const firstCollection = p.installmentKind === "first_collection_combined" || p.source === "registration_first_payment";
+    const amounts = firstCollection
+      ? allocateInOrder(amount, parts.map((b) => b.cap).reverse()).reverse()
+      : allocateInOrder(amount, parts.map((b) => b.cap));
     const paids = allocateInOrder(paid, amounts);
     return parts.map((b, i) => ({ month: b.month, amount: amounts[i]!, paidAmount: paids[i]!, periodLabel: b.label }));
   }
@@ -283,7 +305,7 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
     const amounts = allocateInOrder(amount, [parts[0]!.cap]);
     const paids = allocateInOrder(paid, amounts);
     const own: InstallmentMonthShare = { month: parts[0]!.month, amount: amounts[0]!, paidAmount: paids[0]!, periodLabel: parts[0]!.label };
-    return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+    return withUnsplitNextMonth(own, flagAddsNextMonth(p));
   }
   const label = p.installmentPeriodLabel ?? p.periodLabel;
   const labeled = combinedPeriodMonths(label);
@@ -301,7 +323,7 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
   const fromDescription = p.source === "monthly_plan" ? monthlyPlanMonthOfDescription(p.description) : undefined;
   const month = fromLabel ?? fromDescription ?? monthKeyOf(p.dueDate);
   const own: InstallmentMonthShare = { month, amount, paidAmount: paid, ...(label ? { periodLabel: label } : {}) };
-  return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+  return withUnsplitNextMonth(own, flagAddsNextMonth(p));
 }
 
 /** Satırın tamamen tahsil edilip edilmediği. `unsplit` ayın sayaçta görünmesi buna bağlıdır. */
@@ -340,6 +362,9 @@ export function isStaleUnsplitShare(
   share: InstallmentMonthShare,
   ownMonths: ContractOwnMonths
 ): boolean {
+  // Sözleşmenin AÇIKÇA iki dönemlik saydığı satır (birleşik ilk tahsilat) elenmez: aynı ayın ayrı taksiti de varsa
+  // durum belirsizdir ve seçim kullanıcıya kalır (iki aday).
+  if (p.installmentKind === "first_collection_combined") return false;
   return !!share.unsplit && !!p.contractId && !!ownMonths.get(p.contractId)?.has(share.month);
 }
 

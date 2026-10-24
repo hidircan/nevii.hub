@@ -9,6 +9,8 @@ import { describe, it, expect } from "vitest";
 import {
   resolveContractPlanForMonth,
   paidInstallmentCount,
+  installmentMonthShares,
+  contractInstallmentProgressDescription,
   type CalendarPlanContract,
   type CalendarPlanInstallment,
 } from "../attendance-calendar-plan";
@@ -162,5 +164,67 @@ describe("Ödenmiş taksit sayısı (öğrencinin tüm geçmişi, benzersiz kapa
       { ...row({ id: "x", contractId: "other", paidAmount: 7950, status: "paid" }), studentId: "s2" },
     ]);
     expect(counts).toEqual({ s1: 1, s2: 1 });
+  });
+});
+
+describe("2026-10-24 — ilk tahsilatın dönem dağılımı (Seres K. vakası, sentetik veri)", () => {
+  // Sözleşme planı birleşik ilk tahsilatta kırılıma OTOMATİK bileşenleri yazar (kıst Ekim 1.737 + Kasım 6.950);
+  // satır tutarı elle girilen 10.425'tir.
+  const combined = (over: Partial<CalendarPlanInstallment> = {}) =>
+    row({
+      id: "seres-ilk",
+      installmentSequence: 1,
+      amount: 10425,
+      paidAmount: 10425,
+      status: "paid",
+      dueDate: "2026-10-23T00:00:00.000Z",
+      source: "registration_first_payment",
+      installmentKind: "first_collection_combined",
+      installmentPeriodLabel: "23–31 Ekim 2026 + Kasım 2026",
+      installmentBreakdown: [
+        { periodLabel: "23–31 Ekim 2026", amount: 1737 },
+        { periodLabel: "Kasım 2026", amount: 6950 },
+      ],
+      firstCollectionIncludesNextMonth: true,
+      ...over,
+    });
+  const shares = (p: CalendarPlanInstallment) => installmentMonthShares(p).map((s) => [s.month, s.amount, s.paidAmount]);
+
+  it("elle girilen ilk ay tutarı yeniden kıst yapılmaz: Ekim 3.475 + Kasım 6.950 (eskiden 1.737 / 8.688)", () => {
+    expect(shares(combined())).toEqual([["2026-10", 3475, 3475], ["2026-11", 6950, 6950]]);
+    // Aynı veri tekrar okununca dağılım değişmez.
+    expect(shares(combined())).toEqual(shares(combined()));
+  });
+
+  it("elle tutar girilmemişse otomatik kıst kuralı aynen kalır", () => {
+    expect(shares(combined({ amount: 8687, paidAmount: 8687 }))).toEqual([["2026-10", 1737, 1737], ["2026-11", 6950, 6950]]);
+  });
+
+  it("kısmi tahsilat taksit borcunu değiştirmez; tahsilat en eski döneme mahsup edilir", () => {
+    expect(shares(combined({ paidAmount: 5000, status: "partial" }))).toEqual([["2026-10", 3475, 3475], ["2026-11", 6950, 1525]]);
+  });
+
+  it("takvim: gerçek iki aylık tahsilatın Kasım payı korunur; sayaç 2", () => {
+    const aralik = row({ id: "aralik", installmentSequence: 3, amount: 6950, installmentPeriodLabel: "Aralık 2026", dueDate: "2026-12-05T00:00:00.000Z" });
+    const p = plan([ctr("v1", "generated", "2026-10-23")], [combined(), aralik], 11);
+    expect(p.state).toBe("ok");
+    if (p.state !== "ok") return;
+    expect([p.paymentIds, p.amount, p.paidAmount, p.remaining]).toEqual([["seres-ilk"], 6950, 6950, 0]);
+    expect(paidInstallmentCount([combined(), aralik])).toBe(2);
+  });
+
+  it("Ediz/Seres ayrımı: sözleşmenin TEK dönem saydığı satırda açık kalmış işaret ay eklemez; birleşik satırda Kasım kalır", () => {
+    const ediz = { ...staleFirst(), installmentKind: "first_collection" as const };
+    expect(installmentMonthShares(ediz).map((s) => s.month)).toEqual(["2026-09"]);
+    expect(paidInstallmentCount([ediz])).toBe(1);
+    expect(installmentMonthShares(combined()).map((s) => s.month)).toEqual(["2026-10", "2026-11"]);
+  });
+
+  it("taksit etiketi: Ediz satırı '1/10' (eskiden 2/10); birleşik iki dönem kapattığı için '2/3'", () => {
+    const ediz = { ...staleFirst(), installmentKind: "first_collection" as const, description: "Sözleşme taksiti 1/10 — Kayıt anında tahsil edildi" };
+    expect(contractInstallmentProgressDescription(ediz)).toBe("Sözleşme taksiti 1/10 — Kayıt anında tahsil edildi");
+    expect(contractInstallmentProgressDescription(combined({ description: "Sözleşme taksiti 1/3 — Kayıt anında tahsil edildi" }))).toBe(
+      "Sözleşme taksiti 2/3 — Kayıt anında tahsil edildi"
+    );
   });
 });

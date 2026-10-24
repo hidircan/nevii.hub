@@ -16678,11 +16678,12 @@ export async function previewContractInstallmentPlanTool(
     const firstDueDateInWindow = firstDueDay >= rule.windowStartDay && firstDueDay <= rule.windowEndDay;
     let amendmentCredit: { collected: number; applied: number; leftover: number; remainingDue: number } | undefined;
     if (v.data.contractType === "amendment" && v.data.previousContractId) {
-      const { computePriorContractCollected, allocatePriorCollections, getContract } = await import("../contracts");
+      const { computePriorContractCollections, allocatePriorCollections, getContract } = await import("../contracts");
       const previous = await getContract(ctx.tenantId, v.data.previousContractId);
       if (previous && (!v.data.studentId || previous.studentId === v.data.studentId)) {
-        const collected = await computePriorContractCollected(ctx.tenantId, previous.id);
-        const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+        const prior = await computePriorContractCollections(ctx.tenantId, previous.id);
+        const collected = prior.reduce((sum, c) => sum + c.amount, 0);
+        const allocated = allocatePriorCollections(installments, prior, previous.contractNumber);
         amendmentCredit = {
           collected,
           applied: allocated.applied,

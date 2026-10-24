@@ -49,10 +49,10 @@ describe("installmentMonthShares — tek tahsilatın dönemlere dağılımı", (
     expect(sum(shares.map((s) => s.amount))).toBe(6000);
   });
 
-  it("indirimli/manuel tutar kırılımdan azsa eksik son dönemde kalır; fazlaysa son döneme eklenir", () => {
+  it("2026-10-24 — ilk tahsilatta elle/indirimli tutar yalnız kayıt ayını değiştirir; takip eden ayın tam ücreti korunur", () => {
     const bd = [{ periodLabel: "17–31 Ekim 2026", amount: 1500 }, { periodLabel: "Kasım 2026", amount: 3000 }];
-    expect(installmentMonthShares(row({ amount: 4000, paidAmount: 4000, installmentBreakdown: bd })).map((s) => s.amount)).toEqual([1500, 2500]);
-    expect(installmentMonthShares(row({ amount: 5000, paidAmount: 5000, installmentBreakdown: bd })).map((s) => s.amount)).toEqual([1500, 3500]);
+    expect(installmentMonthShares(row({ amount: 4000, paidAmount: 4000, installmentBreakdown: bd })).map((s) => s.amount)).toEqual([1000, 3000]);
+    expect(installmentMonthShares(row({ amount: 5000, paidAmount: 5000, installmentBreakdown: bd })).map((s) => s.amount)).toEqual([2000, 3000]);
   });
 
   it("iade/geri alma (ödenen 0) her iki dönemi açık borç yapar", () => {

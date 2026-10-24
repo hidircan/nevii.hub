@@ -108,11 +108,10 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     expect(res.data.contract.status).toBe("generated");
     expect(res.data.contract.documentInstanceId).toBeTruthy();
     expect(res.data.contract.documentInstanceId).not.toBe(initial.contract.documentInstanceId);
-    // 2026-10-04 — mahsup: önceki sürümde tahsil edilen 9.000 TL yeni planın ilk taksitlerine düşülür;
-    // ödenmiş aylar yeniden borç yazılmaz, yalnız kalan 1.500 TL borç satırı oluşur.
+    // 2026-10-04 — mahsup: önceki sürümde tahsil edilen 9.000 TL yeniden borç yazılmaz.
+    // 2026-10-24 — dönem bazlı: her ayın 3.000'i kendi ayına düşer; zam farkı (3.500 − 3.000) her ayda kalır.
     expect(res.data.amendmentCredit).toEqual({ collected: 9000, applied: 9000, leftover: 0 });
-    expect(res.data.installments).toHaveLength(1);
-    expect(res.data.installments[0]!.amount).toBe(1500);
+    expect(res.data.installments.map((r) => r.amount)).toEqual([500, 500, 500]);
 
     // Önceki sürüm: durumu dışında HİÇBİR alanı değişmedi.
     const after = await getStudentContractTool(adminCtx(), { contractId: initial.contract.id });
@@ -214,6 +213,64 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     // v1'de kayıtta alınan 3.000 TL v2'de yalnız tutardan düşülmüştü (tahsilat değil) — v3 yine 3.000 mahsup eder.
     expect(v3.data.amendmentCredit).toEqual({ collected: 3000, applied: 3000, leftover: 0 });
     expect(v3.data.installments.map((r) => r.amount)).toEqual([1000, 4000, 4000]);
+  });
+
+  it("2026-10-24: önceki mahsup ile gerçek yeni tahsilat ayrılır — v2'de alınan Ekim parası da kendi ayına, bir kez", async () => {
+    const initial = await createInitial();
+    const v2 = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
+    expect(v2.ok).toBe(true);
+    if (!v2.ok) return;
+    const ekim = v2.data.installments.find((r) => r.sequence === 2)!;
+    expect((await createPaymentTool(adminCtx(), { paymentId: ekim.paymentId, amount: ekim.amount })).ok).toBe(true);
+    const v3 = await createStudentContractTool(adminCtx(), amendInput(v2.data.contract.id, { monthlyAmount: 4000 }));
+    expect(v3.ok).toBe(true);
+    if (!v3.ok) return;
+    // v1 Eylül 3.000 (gerçek) + v2 Ekim 3.500 (gerçek); v2'nin Eylül mahsubu (3.000) ikinci kez sayılmaz.
+    expect(v3.data.amendmentCredit).toEqual({ collected: 6500, applied: 6500, leftover: 0 });
+    expect(v3.data.installments.map((r) => r.amount)).toEqual([1000, 500, 4000]);
+  });
+
+  it("2026-10-24: geri alınmış (iade/ters kayıt) tahsilat revizyonda mahsup edilmez", async () => {
+    const initial = await createInitial();
+    const { mutateStoreUnderLock } = await import("../store-json");
+    await mutateStoreUnderLock(async (d) => ({
+      ...d,
+      payments: d.payments.map((p) => (p.source === "registration_first_payment" ? { ...p, paidAmount: 0, status: "pending" as const, paidAt: undefined } : p)),
+    }));
+    const v2 = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
+    expect(v2.ok).toBe(true);
+    if (!v2.ok) return;
+    expect(v2.data.amendmentCredit?.collected ?? 0).toBe(0);
+    expect(v2.data.installments.map((r) => r.amount)).toEqual([3500, 3500, 3500]);
+  });
+
+  it("2026-10-24: zincir yenileme sınırında durur — önceki dönemin tahsilatı yenilemenin revizyonunda mahsup edilmez", async () => {
+    const initial = await createInitial();
+    await payAllRemaining(initial.installments);
+    const renewal = await createStudentContractTool(adminCtx(), {
+      ...amendInput(initial.contract.id, {
+        contractType: "renewal",
+        enrollmentStartDate: "2026-12-01T00:00:00.000Z",
+        enrollmentEndDate: "2027-03-01T00:00:00.000Z",
+        firstDueDate: "2026-12-01T00:00:00.000Z",
+        monthlyAmount: 3000,
+        firstPaymentCollected: { method: "cash", amount: 3000, collectedAt: "2026-12-01T00:00:00.000Z" },
+      }),
+    });
+    expect(renewal.ok, renewal.ok ? "" : renewal.error.message).toBe(true);
+    if (!renewal.ok) return;
+    const amended = await createStudentContractTool(
+      adminCtx(),
+      amendInput(renewal.data.contract.id, {
+        enrollmentStartDate: "2026-12-01T00:00:00.000Z",
+        enrollmentEndDate: "2027-03-01T00:00:00.000Z",
+        firstDueDate: "2026-12-01T00:00:00.000Z",
+      })
+    );
+    expect(amended.ok, amended.ok ? "" : amended.error.message).toBe(true);
+    if (!amended.ok) return;
+    // Yalnız yenilemede alınan 3.000; ilk dönemin 9.000'i bu dönemin revizyonuna mahsup edilmez.
+    expect(amended.data.amendmentCredit?.collected).toBe(3000);
   });
 
   it("2026-10-24: revize edilmiş sözleşmenin açık taksidine tahsilat yazılmaz (güncel sözleşmeye yönlendirir)", async () => {
