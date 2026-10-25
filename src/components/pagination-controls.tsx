@@ -40,6 +40,28 @@ export function computePagination<T>(items: T[], page: number, pageSize: number)
 }
 
 /**
+ * Doğrudan sayfa seçimi için kısaltılmış sayfa penceresi (saf — `computePagination`
+ * gibi `src/lib/__tests__` içinde test edilir). İlk/son sayfa her zaman görünür,
+ * araya "…" konur; yüzlerce düğme üretilmez. `maxButtons` sayısal düğme üst sınırıdır.
+ */
+export function pageWindow(page: number, totalPages: number, maxButtons = 7): (number | "…")[] {
+  const total = Math.max(1, totalPages);
+  const current = Math.min(Math.max(1, page), total);
+  const max = Math.max(5, maxButtons);
+  if (total <= max) return Array.from({ length: total }, (_, i) => i + 1);
+  const headCount = max - 1;
+  if (current <= headCount - 1) {
+    return [...Array.from({ length: headCount }, (_, i) => i + 1), "…", total];
+  }
+  if (current >= total - headCount + 2) {
+    return [1, "…", ...Array.from({ length: headCount }, (_, i) => total - headCount + 1 + i)];
+  }
+  const side = Math.floor((max - 3) / 2);
+  const middle = Array.from({ length: side * 2 + 1 }, (_, i) => current - side + i);
+  return [1, "…", ...middle, "…", total];
+}
+
+/**
  * `defaultPageSize`/`pageSize` kasıtlı olarak `number` (yalnız `PageSize`
  * değil) — bu, sabit sayfa boyutlu (ör. öğrenci detayında 3'lük, seçici
  * OLMADAN) kullanım alanlarının da aynı sayfalama matematiğini
@@ -101,6 +123,16 @@ export function PaginationControls({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  /**
+   * Opsiyonel genişletmeler (varsayılanlar mevcut davranışı aynen korur —
+   * diğer 11 tüketici etkilenmez):
+   * - `pageSizeOptions`: bu liste için geçerli sayfa boyutları.
+   * - `showPageNumbers`: Önceki/Sonraki arasına kısaltılmış doğrudan sayfa seçimi.
+   * - `showRange`: "Toplam N kayıttan X–Y arası" bilgisi.
+   */
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
+  showPageNumbers = false,
+  showRange = false,
 }: {
   page: number;
   totalPages: number;
@@ -108,8 +140,13 @@ export function PaginationControls({
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  pageSizeOptions?: readonly number[];
+  showPageNumbers?: boolean;
+  showRange?: boolean;
 }) {
   if (totalCount === 0) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(totalCount, page * pageSize);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] px-4 py-3 text-sm">
       <div className="flex items-center gap-2 text-[var(--color-text-muted)]">
@@ -120,13 +157,13 @@ export function PaginationControls({
           aria-label="Sayfa başına kayıt sayısı"
           className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-sm text-[var(--color-text)]"
         >
-          {PAGE_SIZE_OPTIONS.map((size) => (
+          {pageSizeOptions.map((size) => (
             <option key={size} value={size}>
               {size}
             </option>
           ))}
         </select>
-        <span>kayıt · Toplam {totalCount}</span>
+        <span>{showRange ? `kayıt · Toplam ${totalCount} kayıttan ${from}–${to} arası` : `kayıt · Toplam ${totalCount}`}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <button
@@ -138,9 +175,36 @@ export function PaginationControls({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="px-1 text-[var(--color-text-muted)]">
-          Sayfa {page} / {totalPages}
-        </span>
+        {showPageNumbers ? (
+          <span className="flex items-center gap-1" role="group" aria-label="Sayfa seçimi">
+            {pageWindow(page, totalPages).map((entry, i) =>
+              entry === "…" ? (
+                <span key={`gap-${i}`} aria-hidden="true" className="px-0.5 text-[var(--color-text-muted)]">
+                  …
+                </span>
+              ) : (
+                <button
+                  key={entry}
+                  type="button"
+                  onClick={() => onPageChange(entry)}
+                  aria-label={`Sayfa ${entry}`}
+                  aria-current={entry === page ? "page" : undefined}
+                  className={
+                    entry === page
+                      ? "inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] px-2 py-1 text-sm font-semibold text-[var(--color-text)]"
+                      : "inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-transparent px-2 py-1 text-sm text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                  }
+                >
+                  {entry}
+                </button>
+              )
+            )}
+          </span>
+        ) : (
+          <span className="px-1 text-[var(--color-text-muted)]">
+            Sayfa {page} / {totalPages}
+          </span>
+        )}
         <button
           type="button"
           disabled={page >= totalPages}
