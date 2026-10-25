@@ -16,16 +16,18 @@ import type { AppData, AttendanceStatus, Lesson, LessonSeriesStatus, MakeupReque
 import { OPS_LABEL, effectiveLessonOpsStatus } from "./lesson-ops";
 import { validateLessonSlot, type SlotValidationCode } from "./makeup-engine";
 import { isPassiveMakeup, makeupLinksOfLesson } from "./makeup-deadline";
-import { assertWorkDaySchedulable } from "./work-days";
+import { assertWorkDaySchedulable, FORCE_OPEN_HINT } from "./work-days";
 import {
   DEFAULT_APP_TIMEZONE,
   addDaysYmd,
+  formatDateTr,
   toZonedYmd,
   wallDateTimeInputToIso,
   zonedHm,
   zonedWallTimeToUtc,
   zonedWeekday,
 } from "./timezone";
+import { dayName } from "./utils";
 
 export type LessonEditScope = "single" | "fromHereOnward" | "entireSeries";
 
@@ -251,6 +253,23 @@ export type LessonRevisionResult =
     }
   | { ok: false; code: "INVALID" | "BLOCKED_BY_CONFLICT" | "NEEDS_AVAILABILITY_CONFIRM"; message: string; conflicts?: LessonRevisionConflict[] };
 
+/** 2026-10-25 — revize engel mesajları HER ZAMAN engellenen tarihi ve hedef saati söyler (örn. "08.06.2027 Salı 20:00"). */
+function formatRevisionWhen(start: Date): string {
+  return `${formatDateTr(start)} ${dayName(zonedWeekday(start))} ${zonedHm(start, DEFAULT_APP_TIMEZONE)}`;
+}
+
+/**
+ * 2026-10-25 — kapalı gün engeli: engellenen tarih + hedef saat + kapatma kapsamı
+ * (kurum geneli — ClosedDay tarih bazlıdır, şube/öğretmen ayrımı yoktur) + nedeni +
+ * düzeltme yolu. Blok davranışı DEĞİŞMEDİ (atomik: hata varsa kısmi değişiklik yok).
+ */
+function closedDayConflictMessage(start: Date, explanation: string): string {
+  return (
+    `${formatRevisionWhen(start)} hedefi engellendi: ${explanation} ` +
+    `Kural kurum genelidir (tüm şubeler ve öğretmenler için geçerli). ${FORCE_OPEN_HINT}`
+  );
+}
+
 export function applyLessonRevision(data: AppData, input: LessonRevisionInput): LessonRevisionResult {
   const resolved = resolveScopeLessons(data, input.lessonId, input.scope);
   if (!resolved.ok) return { ok: false, code: "INVALID", message: resolved.message };
@@ -309,7 +328,12 @@ export function applyLessonRevision(data: AppData, input: LessonRevisionInput): 
       data.settings.termWeeklyClosedDays
     );
     if (!planDay.ok) {
-      conflicts.push({ lessonId: p.lesson.id, startAt: startIso, code: "CLOSED_DAY", message: planDay.day.explanation });
+      conflicts.push({
+        lessonId: p.lesson.id,
+        startAt: startIso,
+        code: "CLOSED_DAY",
+        message: closedDayConflictMessage(p.start, planDay.day.explanation),
+      });
       continue;
     }
     const check = validateLessonSlot(
@@ -319,7 +343,12 @@ export function applyLessonRevision(data: AppData, input: LessonRevisionInput): 
       { durationMinutes: p.duration, allowAvailabilityOverride: true }
     );
     if (!check.ok) {
-      conflicts.push({ lessonId: p.lesson.id, startAt: startIso, code: check.code, message: check.message });
+      conflicts.push({
+        lessonId: p.lesson.id,
+        startAt: startIso,
+        code: check.code,
+        message: `${formatRevisionWhen(p.start)} için: ${check.message}`,
+      });
       continue;
     }
     if (check.slot.availabilityOverridden) needsConfirm = true;
