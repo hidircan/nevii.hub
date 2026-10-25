@@ -1,14 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, X } from "lucide-react";
-import { actionCreateFeeRule, actionRemoveFeeRule, actionUpdateFeeRule } from "@/lib/actions";
+import { actionCreateFeeRule, actionPreviewFeeRuleRemoval, actionRemoveFeeRule, actionUpdateFeeRule } from "@/lib/actions";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { Instrument } from "@/lib/types";
 import type { TeacherFeeRule } from "@/lib/types";
+import type { FeeRuleRemovalPreview } from "@/lib/teacher-payout";
 
 type TeacherOption = { id: string; name: string };
 type BranchOption = { id: string; shortName: string };
@@ -53,11 +54,64 @@ export function FeeRuleManager({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  // 2026-09-30 — kural kaldırma: kullanılmadıysa kalıcı sil, kullanıldıysa tarihten itibaren devre dışı.
+  // Kural kaldırma: etki önizlemesi + açık onay ile kalıcı silme veya tarihten itibaren devre dışı.
   const [removing, setRemoving] = useState<TeacherFeeRule | null>(null);
   const [removeForm, setRemoveForm] = useState({ mode: "deactivate" as "delete" | "deactivate", fromDate: "", reason: "", password: "" });
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [impact, setImpact] = useState<FeeRuleRemovalPreview | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [impactConfirmed, setImpactConfirmed] = useState(false);
+
+  // Önizleme: popup açılışında + mod/tarih değişiminde tazelenir (sunucu, salt-okunur).
+  // Yarışlar için sıra numarası: yalnız son isteğin cevabı işlenir.
+  const impactSeq = useRef(0);
+  async function loadImpact(ruleId: string, mode: "delete" | "deactivate", fromDate: string) {
+    const seq = (impactSeq.current += 1);
+    if (mode === "deactivate" && !fromDate) {
+      setImpact(null);
+      setImpactError("Devre dışı tarihi seçin.");
+      return;
+    }
+    setImpactLoading(true);
+    setImpactError(null);
+    const res = await actionPreviewFeeRuleRemoval({
+      ruleId,
+      mode,
+      fromDate: mode === "deactivate" ? fromDate : undefined,
+    });
+    if (seq !== impactSeq.current) return;
+    setImpactLoading(false);
+    if (!res.ok) {
+      setImpact(null);
+      setImpactError(res.message);
+      return;
+    }
+    setImpact(res.data);
+    setImpactConfirmed(false);
+  }
+
+  function openRemove(rule: TeacherFeeRule) {
+    const fromDate = new Date().toISOString().slice(0, 10);
+    setRemoving(rule);
+    setRemoveError(null);
+    setImpact(null);
+    setImpactError(null);
+    setImpactConfirmed(false);
+    setRemoveForm({ mode: "deactivate", fromDate, reason: "", password: "" });
+    void loadImpact(rule.id, "deactivate", fromDate);
+  }
+
+  function changeRemoveMode(mode: "delete" | "deactivate") {
+    setRemoveForm((f) => ({ ...f, mode }));
+    if (removing) void loadImpact(removing.id, mode, removeForm.fromDate);
+  }
+
+  function changeRemoveFromDate(fromDate: string) {
+    setRemoveForm((f) => ({ ...f, fromDate }));
+    if (removing) void loadImpact(removing.id, removeForm.mode, fromDate);
+  }
 
   async function submitRemove() {
     if (!removing) return;
@@ -69,6 +123,7 @@ export function FeeRuleManager({
       fromDate: removeForm.mode === "deactivate" ? removeForm.fromDate || undefined : undefined,
       reason: removeForm.reason,
       criticalPassword: removeForm.mode === "delete" ? removeForm.password : undefined,
+      confirmedImpact: removeForm.mode === "delete" ? impactConfirmed : undefined,
     });
     setRemoveBusy(false);
     if (!res.ok) {
@@ -76,11 +131,17 @@ export function FeeRuleManager({
       return;
     }
     setRemoving(null);
-    setSuccess(
+    setImpact(null);
+    const parts = [
       res.data.mode === "deleted"
         ? "Kural kalıcı olarak silindi."
-        : `Kural ${res.data.effectiveTo ? formatDate(res.data.effectiveTo) : ""} sonrasında devre dışı. ${res.data.affectedOpenLessons > 0 ? `${res.data.affectedOpenLessons} kayda geçmemiş ders artık başka bir kurala ihtiyaç duyuyor (Hakedişler ekranında "ücret kuralı eksik" görünür).` : ""}`
-    );
+        : `Kural ${res.data.effectiveTo ? formatDate(res.data.effectiveTo) : ""} sonrasında devre dışı.`,
+    ];
+    parts.push(`${res.data.recordedUnchanged} kayıtlı hakediş değişmedi.`);
+    if (res.data.pendingRecalculated > 0) parts.push(`${res.data.pendingRecalculated} bekleyen kayıt yeniden hesaplandı.`);
+    if (res.data.affectedOpenLessons > 0) parts.push(`${res.data.affectedOpenLessons} açık ders halef kurala düştü (kural kalmayan derste "ücret kuralı eksik" görünür).`);
+    if (res.data.failed.length > 0) parts.push(`Yeniden hesaplanamayan: ${res.data.failed.join(", ")}.`);
+    setSuccess(parts.join(" "));
     router.refresh();
   }
 
@@ -216,11 +277,7 @@ export function FeeRuleManager({
                       type="button"
                       variant="secondary"
                       className="ml-1 !py-1.5 text-xs"
-                      onClick={() => {
-                        setRemoving(r);
-                        setRemoveError(null);
-                        setRemoveForm({ mode: "deactivate", fromDate: new Date().toISOString().slice(0, 10), reason: "", password: "" });
-                      }}
+                      onClick={() => openRemove(r)}
                       disabled={!canWrite}
                     >
                       <X className="h-3.5 w-3.5" /> Kaldır
@@ -349,7 +406,13 @@ export function FeeRuleManager({
             <button
               type="button"
               className={removeForm.mode === "delete" ? modalButton.danger : modalButton.primary}
-              disabled={removeBusy || removeForm.reason.trim().length < 5 || (removeForm.mode === "delete" && !removeForm.password)}
+              disabled={
+                removeBusy ||
+                impactLoading ||
+                !impact ||
+                removeForm.reason.trim().length < 5 ||
+                (removeForm.mode === "delete" && (!removeForm.password || (impact.confirmRequired && !impactConfirmed)))
+              }
               onClick={() => void submitRemove()}
             >
               {removeBusy ? "Kaydediliyor…" : removeForm.mode === "delete" ? "Kalıcı sil" : "Devre dışı bırak"}
@@ -358,37 +421,64 @@ export function FeeRuleManager({
         }
       >
         <div className="space-y-3 text-sm">
+          {removing ? (
+            <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 text-xs text-[var(--color-text-muted)]">
+              Ücret kuralı · {teacherName(removing.teacherId)} · {branchName(removing.branchId)} · {removing.instrument ?? "tüm enstrümanlar"} ·{" "}
+              {formatMoney(roundToCents(removing.perMinuteRate * 60))}/sa · {formatDate(removing.effectiveFrom)} –{" "}
+              {removing.effectiveTo ? formatDate(removing.effectiveTo) : "süresiz"}
+            </p>
+          ) : null}
           <label className="flex items-start gap-2">
-            <input type="radio" checked={removeForm.mode === "deactivate"} onChange={() => setRemoveForm({ ...removeForm, mode: "deactivate" })} />
+            <input type="radio" checked={removeForm.mode === "deactivate"} onChange={() => changeRemoveMode("deactivate")} />
             <span>
               <span className="font-medium">Bir tarihten itibaren devre dışı bırak</span>
               <span className="block text-xs text-[var(--color-text-muted)]">
                 Tarihten önceki dersler ve kayıtlı hakedişler aynen kalır (kayıt, hangi kuralla hesaplandığını saklar). Tarihten
-                sonraki kayda geçmemiş dersler başka bir kurala ihtiyaç duyar.
+                sonraki kayda geçmemiş dersler halef kurala düşer (yoksa &quot;ücret kuralı eksik&quot; olur).
               </span>
             </span>
           </label>
           {removeForm.mode === "deactivate" ? (
             <label className="block pl-6 text-xs font-medium">
-              Devre dışı başlangıcı
+              Devre dışı başlangıcı (bu gün dahil geçersiz)
               <input
                 type="date"
                 value={removeForm.fromDate}
-                onChange={(e) => setRemoveForm({ ...removeForm, fromDate: e.target.value })}
+                onChange={(e) => changeRemoveFromDate(e.target.value)}
                 className="mt-1 block rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-sm"
               />
             </label>
           ) : null}
           <label className="flex items-start gap-2">
-            <input type="radio" checked={removeForm.mode === "delete"} onChange={() => setRemoveForm({ ...removeForm, mode: "delete" })} />
+            <input type="radio" checked={removeForm.mode === "delete"} onChange={() => changeRemoveMode("delete")} />
             <span>
               <span className="font-medium">Kalıcı sil</span>
               <span className="block text-xs text-[var(--color-text-muted)]">
-                Yalnız hiç kullanılmamış kural silinebilir (kayıtlı hakedişte veya işlenmiş derste kullanılıyorsa reddedilir). Kritik
-                işlem şifresi gerekir.
+                Kural yapılandırmadan çıkar; kayıtlı hakedişler değişmez (donmuş tutar + denetim izi korunur). Açık hesapların
+                etkisi aşağıda hesaplanır. Kritik işlem şifresi ve etki onayı gerekir.
               </span>
             </span>
           </label>
+          <RemovalImpact
+            loading={impactLoading}
+            error={impactError}
+            impact={impact}
+            mode={removeForm.mode}
+            successorLabel={(id) => {
+              const r = rules.find((x) => x.id === id);
+              if (!r) return "—";
+              return `${formatMoney(roundToCents(r.perMinuteRate * 60))}/sa · ${r.instrument ?? "tüm enstrümanlar"} · ${branchName(r.branchId)}`;
+            }}
+          />
+          {removeForm.mode === "delete" && impact?.confirmRequired ? (
+            <label className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50/60 p-2.5 text-xs font-medium dark:border-amber-800 dark:bg-amber-950/30">
+              <input type="checkbox" checked={impactConfirmed} onChange={(e) => setImpactConfirmed(e.target.checked)} className="mt-0.5" />
+              <span>
+                Yukarıdaki etkiyi gördüm, onaylıyorum: {impact.recordedUnchanged.length} kayıtlı hakediş değişmeyecek,{" "}
+                {impact.pendingRecomputed.length} bekleyen kayıt yeniden hesaplanacak, {impact.openLessons.total} açık ders etkilenecek.
+              </span>
+            </label>
+          ) : null}
           <label className="block text-xs font-medium">
             Gerekçe (en az 5 karakter)
             <textarea
@@ -418,6 +508,106 @@ export function FeeRuleManager({
           ) : null}
         </div>
       </ModalShell>
+    </div>
+  );
+}
+
+const PAYOUT_STATUS_TR: Record<string, string> = { pending: "Bekliyor", partial: "Kısmi ödendi", paid: "Ödendi" };
+
+/** Silme/deaktivasyon etkisi (sunucu önizlemesi): kayıtlı defter, bekleyen kayıtlar, açık dersler. */
+function RemovalImpact({
+  loading,
+  error,
+  impact,
+  mode,
+  successorLabel,
+}: {
+  loading: boolean;
+  error: string | null;
+  impact: FeeRuleRemovalPreview | null;
+  mode: "delete" | "deactivate";
+  successorLabel: (ruleId: string) => string;
+}) {
+  if (loading) return <p className="text-xs text-[var(--color-text-muted)]">Etki hesaplanıyor…</p>;
+  if (error) {
+    return (
+      <p role="alert" className="text-xs font-medium text-[var(--color-danger)]">
+        {error}
+      </p>
+    );
+  }
+  if (!impact) return null;
+  const open = impact.openLessons;
+  const openDiff = Math.round((open.afterTotal - open.beforeTotal) * 100) / 100;
+  return (
+    <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2.5 text-xs">
+      <p className="font-semibold text-[var(--color-text)]">Etki önizlemesi</p>
+      <p>
+        <strong>{impact.recordedUnchanged.length}</strong> kayıtlı hakediş bu kuralın donmuş tutarını taşıyor —{" "}
+        <strong>değişmeyecek</strong>.
+        {impact.recordedUnchanged.length > 0 ? (
+          <span className="block text-[var(--color-text-muted)]">
+            {impact.recordedUnchanged
+              .map((p) => `${p.periodStart} – ${p.periodEnd} (${PAYOUT_STATUS_TR[p.status] ?? p.status}, ${formatMoney(p.totalAmount)})`)
+              .join(" · ")}
+          </span>
+        ) : null}
+      </p>
+      {impact.pendingRecomputed.length > 0 ? (
+        <div>
+          <p>
+            <strong>{impact.pendingRecomputed.length}</strong> bekleyen kayıt otomatik yeniden hesaplanacak:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {impact.pendingRecomputed.map((p) => (
+              <li key={p.payoutId} className="tabular-nums">
+                {p.periodStart} – {p.periodEnd}: {formatMoney(p.before)} →{" "}
+                {p.after !== undefined ? (
+                  <strong>{formatMoney(p.after)}</strong>
+                ) : (
+                  <strong className="text-[var(--color-danger)]">hesaplanamaz ({p.blocked ?? "ücret kuralı eksik"})</strong>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p>Yeniden hesaplanacak bekleyen kayıt yok.</p>
+      )}
+      <p>
+        <strong>{open.total}</strong> açık ders bu kuralla hesaplanıyor
+        {open.months.length > 0 ? ` (${open.months.join(", ")})` : ""}: {formatMoney(open.beforeTotal)} →{" "}
+        {formatMoney(open.afterTotal)}
+        {openDiff !== 0 ? ` (${openDiff > 0 ? "+" : "−"}${formatMoney(Math.abs(openDiff))})` : ""}
+        {open.withoutRule > 0 ? (
+          <>
+            {" "}
+            · <strong className="text-[var(--color-danger)]">{open.withoutRule} derste halef kural yok</strong> (&quot;ücret kuralı
+            eksik&quot; olur; önce sağdaki formdan yeni kural ekleyin ya da dersi hakedişten hariç tutun).
+          </>
+        ) : open.total > 0 ? (
+          " · tümü halef kurala düşer."
+        ) : (
+          ""
+        )}
+      </p>
+      {open.rows.length > 0 ? (
+        <ul className="max-h-32 space-y-0.5 overflow-y-auto">
+          {open.rows.map((r) => (
+            <li key={r.lessonId} className="tabular-nums text-[var(--color-text-muted)]">
+              {formatDate(r.date)} · {r.studentName ?? "—"} · {r.minutes} dk: {formatMoney(r.before)} →{" "}
+              {r.after !== undefined ? formatMoney(r.after) : "kural yok"}
+              {r.successorRuleId ? ` (${successorLabel(r.successorRuleId)})` : ""}
+            </li>
+          ))}
+          {open.truncated ? <li>… ve {open.total - open.rows.length} ders daha (toplamlar tümünü içerir).</li> : null}
+        </ul>
+      ) : null}
+      <p className="text-[var(--color-text-muted)]">
+        {mode === "delete"
+          ? "Silme sonrası bu kural gelecek aylarda öğretmen-bazlı hesaplarda kullanılmayacak; sabit-ücret (30/40/50) ayları etkilenmez."
+          : `Devre dışı sonrası yeni bitiş: ${impact.effectiveTo ? formatDate(impact.effectiveTo) : "—"}; bu tarihten sonraki dersler halef kurala düşer.`}
+      </p>
     </div>
   );
 }

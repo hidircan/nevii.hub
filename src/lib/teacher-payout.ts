@@ -211,6 +211,301 @@ export function updateTeacherFeeRuleData(
   return { ok: true, data: { ...data, teacherFeeRules }, rule: candidate };
 }
 
+// ─── Ücret kuralı kaldırma önizlemesi (saf) ──────────────────────────────────
+
+export type FeeRuleRemovalMode = "delete" | "deactivate";
+
+export type FeeRuleRemovalLessonRow = {
+  lessonId: string;
+  date: string;
+  studentName?: string;
+  instrument: Instrument;
+  branchName?: string;
+  minutes: number;
+  before: number;
+  /** Silme/deaktivasyon sonrası tutar; kural kalmıyorsa tanımsız ("ücret kuralı eksik"). */
+  after?: number;
+  /** Dersin düşeceği halef kural (yoksa tanımsız). */
+  successorRuleId?: string;
+};
+
+export type FeeRuleRemovalPendingRow = {
+  payoutId: string;
+  periodStart: string;
+  periodEnd: string;
+  before: number;
+  /** Yeniden hesaplanamazsa tanımsız + blocked gerekçesi. */
+  after?: number;
+  blocked?: string;
+};
+
+export type FeeRuleRemovalRecordedRow = {
+  payoutId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  totalAmount: number;
+};
+
+export type FeeRuleRemovalPreview = {
+  rule: {
+    id: string;
+    teacherId: string;
+    teacherName: string;
+    branchId?: BranchId;
+    instrument?: Instrument;
+    perMinuteRate: number;
+    effectiveFrom: string;
+    effectiveTo?: string;
+  };
+  mode: FeeRuleRemovalMode;
+  fromDate?: string;
+  /** deactivate: hesaplanan yeni bitiş (fromDate'in bir önceki günü). */
+  effectiveTo?: string;
+  /** Bu işlemde DEĞİŞMEYECEK kayıtlı hakedişler (donmuş kalemi bu kurala ait). */
+  recordedUnchanged: FeeRuleRemovalRecordedRow[];
+  /** Canlı hesabı bu kurala dayanan bekleyen kayıtlar: otomatik yeniden hesap (before/after). */
+  pendingRecomputed: FeeRuleRemovalPendingRow[];
+  /** Kayda geçmemiş, güncel hesabı bu kuralla yapılan dersler (satırlar ilk N; toplamlar tümü). */
+  openLessons: {
+    total: number;
+    months: string[];
+    beforeTotal: number;
+    afterTotal: number;
+    withoutRule: number;
+    rows: FeeRuleRemovalLessonRow[];
+    truncated: boolean;
+  };
+  /** Aynı öğretmenin diğer kuralları (otomatik halef adayları). */
+  replacementRules: {
+    id: string;
+    branchId?: BranchId;
+    instrument?: Instrument;
+    perMinuteRate: number;
+    effectiveFrom: string;
+    effectiveTo?: string;
+  }[];
+  /** Kayıtlı referans veya açık hesap varsa silme açık onay ister. */
+  confirmRequired: boolean;
+};
+
+/** Önizlemede gösterilen en fazla açık ders satırı (toplamlar her zaman tüm derslerden). */
+export const FEE_RULE_REMOVAL_PREVIEW_ROW_LIMIT = 50;
+
+/**
+ * Devre dışı bırakmanın tarih kuralı — TEK kaynak (önizleme ve uygulama aynı
+ * fonksiyonu kullanır, mesaj da buradan gelir): fromDate ilk GEÇERSİZ gündür,
+ * yeni bitiş onun bir öncesi; kuralın en az bir geçerli günü kalmalıdır.
+ */
+export function deactivateEffectiveToForRule(
+  rule: Pick<TeacherFeeRule, "effectiveFrom">,
+  fromDate: string
+): { ok: true; effectiveTo: string } | { ok: false; message: string } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) {
+    return { ok: false, message: "Devre dışı tarihi geçersiz (gün seçin). Kural değişmedi." };
+  }
+  const effectiveTo = new Date(Date.parse(`${fromDate}T12:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (effectiveTo < rule.effectiveFrom.slice(0, 10)) {
+    return {
+      ok: false,
+      message: `Devre dışı tarihi (ilk geçersiz gün) kuralın başlangıcından (${rule.effectiveFrom.slice(0, 10)}) sonraki bir gün olmalı; aksi halde kuralın hiç geçerli günü kalmaz. Kuralın tamamını kaldırmak için "Kalıcı sil"i kullanın.`,
+    };
+  }
+  return { ok: true, effectiveTo };
+}
+
+function feeRuleRemovalDataAfter(
+  data: AppData,
+  rule: TeacherFeeRule,
+  mode: FeeRuleRemovalMode,
+  effectiveTo?: string
+): AppData {
+  return {
+    ...data,
+    teacherFeeRules:
+      mode === "delete"
+        ? data.teacherFeeRules.filter((r) => r.id !== rule.id)
+        : data.teacherFeeRules.map((r) => (r.id === rule.id ? { ...r, effectiveTo } : r)),
+  };
+}
+
+/** Ders günü, öğretmenin iptal edilmemiş bir hakediş dönemine giriyor mu (kayda geçmiş sayılır). */
+function feeRuleLessonCoveredByPayout(payouts: TeacherPayout[], teacherId: string, day: string): boolean {
+  return payouts.some(
+    (p) =>
+      p.teacherId === teacherId &&
+      p.status !== "cancelled" &&
+      payoutPeriodDayKey(p.periodStart) <= day &&
+      payoutPeriodDayKey(p.periodEnd) >= day
+  );
+}
+
+function feeRuleFrozenReferencesRule(payout: TeacherPayout, ruleId: string): boolean {
+  return (payout.lineSnapshot ?? []).some((l) => l.feeRuleId === ruleId);
+}
+
+/**
+ * Ücret kuralı kaldırma ETKİSİ (saf — yazmaz). Önizleme ve uygulama (onay anında
+ * taze hesap) aynı fonksiyonu kullanır; ikisi de aynı sayıları görür.
+ *
+ * Kural yalnız öğretmen-bazlı (`per_teacher_rule`) aylarda hesaba girer:
+ * sabit-ücret aylarındaki dersler kurala "çözümlense" bile tutarı ondan almaz,
+ * bu yüzden açık ders sayımına girmez (eski sayaç politika körüydü).
+ */
+export function previewFeeRuleRemovalData(
+  data: AppData,
+  ruleId: string,
+  mode: FeeRuleRemovalMode,
+  fromDate?: string,
+  now: Date = new Date()
+): { ok: true; preview: FeeRuleRemovalPreview } | { ok: false; code: "NOT_FOUND" | "INVALID_DATE"; message: string } {
+  const rule = data.teacherFeeRules.find((r) => r.id === ruleId);
+  if (!rule) return { ok: false, code: "NOT_FOUND", message: "Ücret kuralı bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  let effectiveTo: string | undefined;
+  let from: string | undefined;
+  if (mode === "deactivate") {
+    from = fromDate ?? now.toISOString().slice(0, 10);
+    const eff = deactivateEffectiveToForRule(rule, from);
+    if (!eff.ok) return { ok: false, code: "INVALID_DATE", message: eff.message };
+    effectiveTo = eff.effectiveTo;
+  }
+  const after = feeRuleRemovalDataAfter(data, rule, mode, effectiveTo);
+
+  const teacherName = data.teachers.find((t) => t.id === rule.teacherId)?.name ?? "Öğretmen";
+  const active = data.teacherPayouts.filter((p) => p.teacherId === rule.teacherId && p.status !== "cancelled");
+
+  // Bekleyen kayıtlar: canlı hesabı bu kurala dayanıyorsa işlem sonrası otomatik yeniden hesaplanır.
+  const pendingRecomputed: FeeRuleRemovalPendingRow[] = [];
+  const pendingLiveAffected = new Set<string>();
+  for (const p of active) {
+    if (p.status !== "pending") continue;
+    const liveUsesRule = computeTeacherEarningsForPeriod(data, rule.teacherId, p.periodStart, p.periodEnd).lines.some(
+      (l) => l.feeRuleId === rule.id
+    );
+    if (!liveUsesRule) continue;
+    pendingLiveAffected.add(p.id);
+    const next = recomputePayoutData(after, p);
+    if ("error" in next) {
+      pendingRecomputed.push({
+        payoutId: p.id,
+        periodStart: payoutPeriodDayKey(p.periodStart),
+        periodEnd: payoutPeriodDayKey(p.periodEnd),
+        before: p.totalAmount,
+        blocked: next.error,
+      });
+    } else {
+      pendingRecomputed.push({
+        payoutId: p.id,
+        periodStart: payoutPeriodDayKey(p.periodStart),
+        periodEnd: payoutPeriodDayKey(p.periodEnd),
+        before: p.totalAmount,
+        after: next.totalAmount,
+      });
+    }
+  }
+
+  // Değişmeyecek kayıtlı hakedişler: donmuş kalemi bu kurala ait, yeniden hesaplanmayacak kayıtlar.
+  const recordedUnchanged: FeeRuleRemovalRecordedRow[] = active
+    .filter((p) => !pendingLiveAffected.has(p.id) && feeRuleFrozenReferencesRule(p, rule.id))
+    .map((p) => ({
+      payoutId: p.id,
+      periodStart: payoutPeriodDayKey(p.periodStart),
+      periodEnd: payoutPeriodDayKey(p.periodEnd),
+      status: p.status,
+      totalAmount: p.totalAmount,
+    }));
+
+  // Açık dersler: işlenmiş + kayda geçmemiş + bu ay öğretmen-bazlı + güncel çözüm bu kural.
+  const rows: FeeRuleRemovalLessonRow[] = [];
+  const months = new Set<string>();
+  let beforeTotal = 0;
+  let afterTotal = 0;
+  let withoutRule = 0;
+  for (const l of data.lessons) {
+    if (l.teacherId !== rule.teacherId || !isLessonProcessedForPayout(l)) continue;
+    const day = toDayKey(l.startAt);
+    if (feeRuleLessonCoveredByPayout(active, rule.teacherId, day)) continue;
+    if (resolvePayoutPolicy(data, rule.teacherId, day.slice(0, 7)).policy !== "per_teacher_rule") continue;
+    const current = resolveFeeRule(data.teacherFeeRules, {
+      teacherId: l.teacherId,
+      branchId: l.branchId,
+      instrument: l.instrument,
+      lessonDateIso: l.startAt,
+    });
+    if (current?.id !== rule.id) continue;
+    const minutes = differenceInMinutes(parseISO(l.endAt), parseISO(l.startAt));
+    const before = roundCurrency(payableMinutesFor(data, minutes) * rule.perMinuteRate);
+    const successor = resolveFeeRule(after.teacherFeeRules, {
+      teacherId: l.teacherId,
+      branchId: l.branchId,
+      instrument: l.instrument,
+      lessonDateIso: l.startAt,
+    });
+    const afterAmount = successor ? roundCurrency(payableMinutesFor(data, minutes) * successor.perMinuteRate) : undefined;
+    months.add(day.slice(0, 7));
+    beforeTotal = roundCurrency(beforeTotal + before);
+    if (afterAmount !== undefined) afterTotal = roundCurrency(afterTotal + afterAmount);
+    else withoutRule += 1;
+    rows.push({
+      lessonId: l.id,
+      date: l.startAt,
+      studentName: data.students.find((s) => s.id === l.studentId)?.name,
+      instrument: l.instrument,
+      branchName: data.settings.branches.find((b) => b.id === l.branchId)?.shortName,
+      minutes,
+      before,
+      after: afterAmount,
+      successorRuleId: successor?.id,
+    });
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.lessonId.localeCompare(b.lessonId));
+
+  const replacementRules = data.teacherFeeRules
+    .filter((r) => r.id !== rule.id && r.teacherId === rule.teacherId)
+    .map((r) => ({
+      id: r.id,
+      branchId: r.branchId,
+      instrument: r.instrument,
+      perMinuteRate: r.perMinuteRate,
+      effectiveFrom: r.effectiveFrom,
+      effectiveTo: r.effectiveTo,
+    }));
+
+  const confirmRequired =
+    recordedUnchanged.length > 0 || pendingRecomputed.length > 0 || rows.length > 0;
+  return {
+    ok: true,
+    preview: {
+      rule: {
+        id: rule.id,
+        teacherId: rule.teacherId,
+        teacherName,
+        branchId: rule.branchId,
+        instrument: rule.instrument,
+        perMinuteRate: rule.perMinuteRate,
+        effectiveFrom: rule.effectiveFrom,
+        effectiveTo: rule.effectiveTo,
+      },
+      mode,
+      fromDate: from,
+      effectiveTo,
+      recordedUnchanged,
+      pendingRecomputed,
+      openLessons: {
+        total: rows.length,
+        months: [...months].sort(),
+        beforeTotal,
+        afterTotal,
+        withoutRule,
+        rows: rows.slice(0, FEE_RULE_REMOVAL_PREVIEW_ROW_LIMIT),
+        truncated: rows.length > FEE_RULE_REMOVAL_PREVIEW_ROW_LIMIT,
+      },
+      replacementRules,
+      confirmRequired,
+    },
+  };
+}
+
 // ─── Hakediş politikası (2026-09-29) ─────────────────────────────────────────
 
 export const PAYOUT_POLICY_LABELS: Record<TeacherPayoutPricingPolicy, string> = {
@@ -262,6 +557,35 @@ export function resolvePayoutPolicy(data: Pick<AppData, "teacherPayoutPolicies">
   return resolvePayoutPolicyWithSource(data, teacherId, month).terms;
 }
 
+/**
+ * Bir öğretmenin ücret kuralına ihtiyacı var mı — TEK karar noktası.
+ * Sabit ücret (`fixed_duration`) aylarında öğretmen dakika-ücreti kuralı
+ * KULLANILMAZ; bu yüzden "Hakediş ücreti tanımlı değil" uyarısı da
+ * üretilmemelidir (Şevval vakası: güncel politika sabitken eski kural
+ * yokluğu yanlış alarm veriyordu).
+ */
+export function teacherFeeRuleRequired(
+  data: Pick<AppData, "teacherPayoutPolicies">,
+  teacherId: string,
+  month: string
+): boolean {
+  return resolvePayoutPolicy(data, teacherId, month).policy !== "fixed_duration";
+}
+
+/** Bir dönemin kapsadığı ayların politika + kaynak bilgisi (ekran açıklaması için). */
+export function resolvePayoutPolicySources(
+  data: Pick<AppData, "teacherPayoutPolicies">,
+  teacherId: string,
+  periodStart: string,
+  periodEnd: string
+): Record<string, PayoutPolicyResolution> {
+  const out: Record<string, PayoutPolicyResolution> = {};
+  for (let m = toDayKey(periodStart).slice(0, 7); m <= toDayKey(periodEnd).slice(0, 7); m = nextMonthKey(m)) {
+    out[m] = resolvePayoutPolicyWithSource(data, teacherId, m);
+  }
+  return out;
+}
+
 function termsOf(p: TeacherPayoutPolicyTerms): TeacherPayoutPolicyTerms {
   return p.policy === "fixed_duration"
     ? { policy: p.policy, rate30: p.rate30, rate40: p.rate40, rate50: p.rate50 }
@@ -273,7 +597,10 @@ function termsOf(p: TeacherPayoutPolicyTerms): TeacherPayoutPolicyTerms {
  * en yakın ÜST tarifenin dakika oranıyla orantılı önerilir (45 dk = 50 dk ücreti × 45/50; 50+ dk için 50 dk oranı)
  * ve satır "süre istisnası" olarak işaretlenir — yönetici kayıttan sonra revizyonla değiştirebilir.
  */
-function fixedRateFor(terms: TeacherPayoutPolicyTerms, minutes: number): { amount: number; exception: boolean } | undefined {
+function fixedRateFor(
+  terms: TeacherPayoutPolicyTerms,
+  minutes: number
+): { amount: number; exception: boolean; tariffMinutes?: number; tariffRate?: number } | undefined {
   if (minutes === 30 && terms.rate30 !== undefined) return { amount: terms.rate30, exception: false };
   if (minutes === 40 && terms.rate40 !== undefined) return { amount: terms.rate40, exception: false };
   if (minutes === 50 && terms.rate50 !== undefined) return { amount: terms.rate50, exception: false };
@@ -281,7 +608,7 @@ function fixedRateFor(terms: TeacherPayoutPolicyTerms, minutes: number): { amoun
   const tariff = minutes < 30 ? 30 : minutes < 40 ? 40 : 50;
   const rate = tariff === 30 ? terms.rate30 : tariff === 40 ? terms.rate40 : terms.rate50;
   if (rate === undefined) return undefined;
-  return { amount: roundCurrency((rate * minutes) / tariff), exception: true };
+  return { amount: roundCurrency((rate * minutes) / tariff), exception: true, tariffMinutes: tariff, tariffRate: rate };
 }
 
 /** Ayla (gün bazında) kesişen AKTİF (iptal edilmemiş) hakediş kayıtları. */
@@ -376,6 +703,8 @@ export type TeacherEarningsLine = {
   issue?: TeacherEarningsLineIssue;
   /** Bu satıra uygulanan politika (ay bazlı). */
   pricingPolicy?: TeacherPayoutPricingPolicy;
+  /** Süre istisnasında uygulanan üst tarife (orantı açıklaması; kayda da donar). */
+  exceptionDetail?: { tariffMinutes: number; tariffRate: number };
 };
 
 export type TeacherEarningsResult = {
@@ -532,6 +861,7 @@ export function computeTeacherEarningsForPeriod(
     let amount = 0;
     let perMinuteRate: number | undefined;
     let feeRuleId: string | undefined;
+    let exceptionDetail: TeacherEarningsLine["exceptionDetail"];
     if (terms.policy === "fixed_duration") {
       // Sabit ücret: ders başı tutar; yuvarlama modu ve öğretmen kuralı KULLANILMAZ.
       const fixed = fixedRateFor(terms, durationMinutes);
@@ -541,6 +871,9 @@ export function computeTeacherEarningsForPeriod(
         if (fixed.exception) {
           issue = "duration-exception";
           unsupportedDurationLessonIds.push(lesson.id);
+          if (fixed.tariffMinutes !== undefined && fixed.tariffRate !== undefined) {
+            exceptionDetail = { tariffMinutes: fixed.tariffMinutes, tariffRate: fixed.tariffRate };
+          }
         }
       }
     } else {
@@ -580,6 +913,7 @@ export function computeTeacherEarningsForPeriod(
       feeRuleId,
       issue,
       pricingPolicy: terms.policy,
+      exceptionDetail,
     });
   }
 
@@ -793,6 +1127,7 @@ function toSnapshotLines(lines: TeacherEarningsLine[]): TeacherPayoutSnapshotLin
     feeRuleId: l.feeRuleId,
     pricingPolicy: l.pricingPolicy,
     issue: l.issue,
+    exceptionDetail: l.exceptionDetail,
   }));
 }
 

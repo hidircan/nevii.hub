@@ -1414,6 +1414,8 @@ export interface TeacherPayoutSnapshotLine {
   feeRuleId?: string;
   pricingPolicy?: TeacherPayoutPricingPolicy;
   issue?: string;
+  /** Süre istisnasında uygulanan üst tarife (orantı açıklaması; eski kayıtlarda tanımsız olabilir). */
+  exceptionDetail?: { tariffMinutes: number; tariffRate: number };
 }
 
 /** Ters kaydı olan satır toplamlara girmez ama silinmez (muhasebe izi). */

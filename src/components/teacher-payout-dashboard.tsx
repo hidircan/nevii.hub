@@ -335,7 +335,7 @@ export function TeacherPayoutDashboard({
                 tone={(existing?.balance ?? 0) < 0 ? "danger" : "warning"}
               />
             </dl>
-            <PolicyLine byMonth={result.pricingByMonth} />
+            <PolicyLine byMonth={result.pricingByMonth} sources={result.policySources} frozen={Boolean(existing?.hasSnapshot)} />
           </Card>
 
           {/* Uyarılar */}
@@ -505,7 +505,17 @@ export function TeacherPayoutDashboard({
                             {src?.state === "missing" ? <Tag tone="danger">Programda yok — yalnız hakediş kalemi</Tag> : null}
                             {src?.state === "not_processed" ? <Tag tone="warning">Ders artık &quot;İşlendi&quot; değil</Tag> : null}
                             {src?.demo ? <Tag tone="warning">Test/demo verisi</Tag> : null}
-                            {line.issue === "duration-exception" ? <Tag tone="info">Süre istisnası (orantılı)</Tag> : null}
+                            {line.issue === "duration-exception" ? (
+                              <span
+                                title={
+                                  line.exceptionDetail
+                                    ? `${line.durationMinutes} dk ders, ${line.exceptionDetail.tariffMinutes} dk tarifesi (${formatMoney(line.exceptionDetail.tariffRate)}) × ${line.durationMinutes}/${line.exceptionDetail.tariffMinutes} oranıyla`
+                                    : "30/40/50 dışı süre: en yakın üst tarifeden orantılı"
+                                }
+                              >
+                                <Tag tone="info">Süre istisnası (orantılı)</Tag>
+                              </span>
+                            ) : null}
                             {line.original ? <Tag tone="info">Revize</Tag> : null}
                             {src?.programHref ? (
                               <Link href={src.programHref} className="text-[11px] font-medium text-amber-700 hover:underline">
@@ -773,28 +783,64 @@ function Alert({ tone, children }: { tone: "danger" | "warning" | "info"; childr
   );
 }
 
-function PolicyLine({ byMonth }: { byMonth: Record<string, { policy: string; rate30?: number; rate40?: number; rate50?: number }> }) {
-  const entries = Object.entries(byMonth ?? {});
-  if (entries.length === 0) return null;
+type PolicyTermsView = { policy: string; rate30?: number; rate40?: number; rate50?: number };
+type PolicySourceView = { source: "explicit" | "inherited" | "default"; fromMonth?: string; terms: PolicyTermsView };
+
+function policyTermsText(t: PolicyTermsView): string {
+  return t.policy === "fixed_duration"
+    ? `Süreye göre sabit (30 dk ${formatMoney(t.rate30 ?? 0)} · 40 dk ${formatMoney(t.rate40 ?? 0)} · 50 dk ${formatMoney(t.rate50 ?? 0)})`
+    : "Öğretmen bazlı dakika ücreti";
+}
+
+function policySourceText(s: PolicySourceView): string {
+  if (s.source === "inherited") {
+    const label = s.fromMonth ? format(new Date(`${s.fromMonth}-15T12:00:00Z`), "MMMM yyyy", { locale: tr }) : "önceki ay";
+    return ` (${label} seçiminden devralındı — o aydan beri yürürlükte)`;
+  }
+  if (s.source === "default") return " (varsayılan — bu ay için seçim yapılmadı)";
+  return " (bu ay için seçildi)";
+}
+
+function samePolicyTerms(a: PolicyTermsView, b: PolicyTermsView): boolean {
+  return a.policy === b.policy && (a.policy !== "fixed_duration" || (a.rate30 === b.rate30 && a.rate40 === b.rate40 && a.rate50 === b.rate50));
+}
+
+/**
+ * Dönem politikası: kayıtsız dönemde güncel etkin politika + kaynağı; kayıtlı
+ * dönemde KAYITTAKİ (donmuş) politika esas, güncelden farklıysa ikisi de yazılır
+ * (farkın parasal karşılığı yukarıdaki drift uyarısındadır).
+ */
+function PolicyLine({ byMonth, sources, frozen }: { byMonth: Record<string, PolicyTermsView>; sources?: Record<string, PolicySourceView>; frozen: boolean }) {
+  const shown = Object.entries(byMonth ?? {});
+  if (shown.length === 0) return null;
   return (
-    <p className="mt-3 text-xs text-[var(--color-text-muted)]">
-      Politika:{" "}
-      {entries.map(([m, t], i) => (
-        <span key={m}>
-          {i > 0 ? " · " : ""}
-          {entries.length > 1 ? `${m}: ` : ""}
-          <strong className="text-[var(--color-text)]">
-            {t.policy === "fixed_duration"
-              ? `Süreye göre sabit (30 dk ${formatMoney(t.rate30 ?? 0)} · 40 dk ${formatMoney(t.rate40 ?? 0)} · 50 dk ${formatMoney(t.rate50 ?? 0)})`
-              : "Öğretmen bazlı dakika ücreti"}
-          </strong>
-        </span>
-      ))}
-      {" — "}
-      <Link href="/panel/hakedisler" className="underline">
-        Hakedişler ekranından değiştir
-      </Link>
-    </p>
+    <div className="mt-3 space-y-1 text-xs text-[var(--color-text-muted)]">
+      {shown.map(([m, t]) => {
+        const current = sources?.[m];
+        const differs = frozen && current && !samePolicyTerms(t, current.terms);
+        return (
+          <p key={m}>
+            {shown.length > 1 ? `${m}: ` : ""}
+            {frozen ? "Kayıttaki politika: " : "Politika: "}
+            <strong className="text-[var(--color-text)]">{policyTermsText(t)}</strong>
+            {frozen && !differs ? " (kayıt güncel politikayla uyumlu)" : ""}
+            {differs && current ? (
+              <>
+                {" (donmuş — değişmez) · güncel politika: "}
+                <strong className="text-[var(--color-text)]">{policyTermsText(current.terms)}</strong>
+                {policySourceText(current)}
+              </>
+            ) : null}
+            {!frozen && current ? policySourceText(current) : ""}
+          </p>
+        );
+      })}
+      <p>
+        <Link href="/panel/hakedisler" className="underline">
+          Hakedişler ekranından değiştir
+        </Link>
+      </p>
+    </div>
   );
 }
 
