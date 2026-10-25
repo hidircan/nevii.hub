@@ -13,6 +13,7 @@ import {
   cancelTeacherPayoutTool,
   computeTeacherPayoutTool,
   createTeacherPayoutTool,
+  previewFeeRuleRemovalTool,
   removeFeeRuleTool,
   reverseTeacherPayoutPaymentTool,
   setLessonPayoutExclusionTool,
@@ -25,6 +26,8 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import type { Lesson } from "../types";
 import { payoutBalance, payoutNetAmount, payoutPaidAmount } from "../payout-ledger";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, TEST_CRITICAL_PASSWORD } from "./contract-cancel-test-helper";
 
 const DIR = resolveDataDir(path.join(process.cwd(), "data"));
 const admin: ServiceContext = { role: "SCHOOL_ADMIN", userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web" };
@@ -65,6 +68,7 @@ const payoutOf = async (id: string) => (await readData()).teacherPayouts.find((p
 
 beforeEach(async () => {
   await fs.rm(path.join(DIR, "store.json"), { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 describe("ödeme defteri", () => {
@@ -173,13 +177,82 @@ describe("hariç tutma ve düzeltme", () => {
 });
 
 describe("ücret kuralı kaldırma", () => {
-  it("kullanılan kural silinemez; tarihten itibaren devre dışı bırakılır", async () => {
+  it("önizleme etkiyi sayar; onaysız silme reddedilir", async () => {
     await seedNovember();
+    const preview = await previewFeeRuleRemovalTool(admin, { ruleId: "fee-t1", mode: "delete" });
+    expect(preview.ok).toBe(true);
+    if (!preview.ok) return;
+    // Kasım dersleri bekleyen kayda geçti → açık ders yok; bekleyen kayıt canlıda kuralı kullanıyor.
+    expect(preview.data.openLessons.total).toBe(0);
+    expect(preview.data.pendingRecomputed).toHaveLength(1);
+    expect(preview.data.pendingRecomputed[0].before).toBe(700);
+    expect(preview.data.pendingRecomputed[0].after).toBeUndefined(); // halef kural yok
+    expect(preview.data.confirmRequired).toBe(true);
     const del = await removeFeeRuleTool(admin, { ruleId: "fee-t1", mode: "delete", reason: "Artık geçersiz", criticalPassword: "x" });
     expect(del.ok).toBe(false);
+    if (del.ok) return;
+    expect(del.error.message).toContain("onay");
+  });
+
+  it("onaylı silme: kural gider, donmuş defter aynen kalır", async () => {
+    await setupCriticalPassword();
+    const id = await seedNovember();
+    const del = await removeFeeRuleTool(admin, {
+      ruleId: "fee-t1",
+      mode: "delete",
+      reason: "Eski tarife kalktı",
+      criticalPassword: TEST_CRITICAL_PASSWORD,
+      confirmedImpact: true,
+    });
+    expect(del.ok).toBe(true);
+    const data = await readData();
+    expect(data.teacherFeeRules.some((r) => r.id === "fee-t1")).toBe(false);
+    const p = data.teacherPayouts.find((x) => x.id === id)!;
+    // Donmuş kalemler (tutar + kural izi) silmeden etkilenmez.
+    expect(p.totalAmount).toBe(700);
+    expect(p.lineSnapshot?.map((l) => [l.feeRuleId, l.amount])).toEqual([["fee-t1", 400], ["fee-t1", 300]]);
+    // Bekleyen kayıt halef kural olmadığı için yeniden hesaplanamadı (kayıt aynen durur).
+    if (!del.ok) return;
+    expect(del.data.failed).toHaveLength(1);
+    expect(del.data.pendingRecalculated).toBe(0);
+  });
+
+  it("ödemeli kayıt silmede değişmez", async () => {
+    await setupCriticalPassword();
+    const id = await seedNovember();
+    await addTeacherPayoutPaymentTool(admin, { payoutId: id });
+    const del = await removeFeeRuleTool(admin, {
+      ruleId: "fee-t1",
+      mode: "delete",
+      reason: "Eski tarife kalktı",
+      criticalPassword: TEST_CRITICAL_PASSWORD,
+      confirmedImpact: true,
+    });
+    expect(del.ok).toBe(true);
+    const p = await payoutOf(id);
+    expect(p.status).toBe("paid");
+    expect(p.totalAmount).toBe(700);
+    expect(payoutPaidAmount(p)).toBe(700);
+  });
+
+  it("tarihten itibaren devre dışı bırakma çalışır; bekleyen kayıt yenilenir", async () => {
+    await seedNovember();
     const off = await removeFeeRuleTool(admin, { ruleId: "fee-t1", mode: "deactivate", fromDate: "2026-12-01", reason: "Yeni tarife" });
     expect(off.ok && off.data.effectiveTo).toBe("2026-11-30");
     const rule = (await readData()).teacherFeeRules.find((r) => r.id === "fee-t1")!;
     expect(rule.deactivationReason).toBe("Yeni tarife");
+    // Kasım dersleri bitişten önce → aynı kural; bekleyen kayıt yeniden hesaplandı (tutar aynı).
+    if (!off.ok) return;
+    expect(off.data.pendingRecalculated).toBe(1);
+    const data = await readData();
+    expect(data.teacherPayouts[0].totalAmount).toBe(700);
+  });
+
+  it("devre dışı tarihi kuralın başlangıcından önce olamaz (gerçek neden mesajda)", async () => {
+    await seedNovember();
+    const off = await removeFeeRuleTool(admin, { ruleId: "fee-t1", mode: "deactivate", fromDate: "2020-01-01", reason: "Hatalı tarih" });
+    expect(off.ok).toBe(false);
+    if (off.ok) return;
+    expect(off.error.message).toContain("2020-01-01");
   });
 });

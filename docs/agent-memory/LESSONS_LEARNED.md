@@ -1618,3 +1618,14 @@ yönergesi havada kalıyordu (sunucu uzatmayı destekliyordu, düğme yoktu).
 **Ders:** süre üreten TÜM yazım yolları tek çapayı (`makeupExpiresAtFromSource`) kullanmalı; hata mesajının
 vadettiği eylem aynı kartta erişilebilir olmalı; kalan-gün kartı sunucu diliminde değil kurum diliminde
 (`makeupDaysLeft`) hesaplanmalı — yoksa gece yarısına yakın kart "bugün son gün" derken yazım reddeder.
+
+## 2026-10-25 — Eski ücret kuralı "kullanılıyor" diye hiç silinemiyordu; yapılandırma ile defter birbirine karışmıştı
+
+`removeFeeRuleTool` kayıtlı hakedişte VEYA açık derste izi olan kuralın silinmesini koşulsuz reddedip yalnız
+devre-dışı bırakmayı öneriyordu; devre-dışı sonrası silme yine aynı mesajla reddediliyordu (çıkmaz akış, Şevval
+vakası). Oysa `TeacherPayoutSnapshotLine` tutarı ve `feeRuleId` izini donmuş taşır, şemada kurala FK yoktur ve
+`feeRuleId` ekranda hiçbir yerde dereference edilmez — yani fiziksel silme defteri bozmaz.
+**Ders:** "geçmiş iz kaybolmasın" gerekçesi silmeyi yasaklamaz, denetim izine dondurmayı gerektirir
+(silinen kuralın parametreleri `teacher_fee.delete` audit metasına yazılır); etki sayılarıyla önizleme + açık onay,
+ölü bir engel mesajından her zaman üstündür. Ayrıca kullanım sayaçları politika-bilinçli olmalı: sabit-ücret
+ayındaki ders kurala "çözümlense" bile tutarı ondan almaz (eski `feeRuleUsage` politika körü sayıyordu).

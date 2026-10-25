@@ -60,6 +60,7 @@ export {
   settleTeacherPayoutDriftTool,
   setLessonPayoutExclusionTool,
   removeFeeRuleTool,
+  previewFeeRuleRemovalTool,
   computeTeacherPayoutTool,
   createTeacherPayoutTool,
   markTeacherPayoutPaidTool,

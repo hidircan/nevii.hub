@@ -256,13 +256,16 @@ import {
   payoutBaseEarnings,
   payoutDrift,
   recomputePayoutData,
-  resolveFeeRule,
+  resolvePayoutPolicySources,
+  previewFeeRuleRemovalData,
   setPayoutPolicyForMonthData,
   payoutPeriodDayKey,
   payoutsOverlappingMonth,
   findPayoutCoveringLesson,
+  type FeeRuleRemovalPreview,
   type TeacherEarningsResult,
   type TeacherPayoutPaymentMethodInfo,
+  type PayoutPolicyResolution,
 } from "../teacher-payout";
 import {
   activeAdjustments,
@@ -9658,6 +9661,8 @@ export async function computeTeacherPayoutTool(
       cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
       /** Kalemin kaynağı: gerçek program dersi mi, silinmiş/işlenmemiş/demo mu. */
       lineSources: Record<string, PayoutLineSource>;
+      /** Dönemin kapsadığı aylarda hangi politika ne kaynaktan yönetiyor (explicit/inherited/default). */
+      policySources: Record<string, PayoutPolicyResolution>;
     }
   >
 > {
@@ -9746,7 +9751,8 @@ export async function computeTeacherPayoutTool(
     ? { id: cancelled.id, cancelledAt: cancelled.cancelledAt, cancelReason: cancelled.cancelReason, hadPayments: (cancelled.payments ?? []).length > 0 }
     : null;
 
-  return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources });
+  const policySources = resolvePayoutPolicySources(data, v.data.teacherId, v.data.periodStart, v.data.periodEnd);
+  return ok({ ...shown, paymentMethodInfo, existingPayout, cancelledPayout, lineSources, policySources });
 }
 
 /**
@@ -10600,30 +10606,60 @@ export async function setTeacherPayoutPolicyTool(
   }
 }
 
-/** Ücret kuralının kullanımı: kayıtlı hakedişler (donmuş kalem) + kayda geçmemiş işlenmiş dersler. */
-function feeRuleUsage(data: AppData, rule: TeacherFeeRule): { recordedPayouts: number; openLessons: number } {
-  const active = data.teacherPayouts.filter((p) => p.status !== "cancelled" && p.teacherId === rule.teacherId);
-  const recordedPayouts = active.filter((p) => payoutBaseEarnings(data, p).lines.some((l) => l.feeRuleId === rule.id)).length;
-  const inRecord = (day: string) => active.some((p) => payoutPeriodDayKey(p.periodStart) <= day && payoutPeriodDayKey(p.periodEnd) >= day);
-  const openLessons = data.lessons.filter(
-    (l) =>
-      l.teacherId === rule.teacherId &&
-      isLessonProcessedForPayout(l) &&
-      !inRecord(l.startAt.slice(0, 10)) &&
-      resolveFeeRule(data.teacherFeeRules, { teacherId: l.teacherId, branchId: l.branchId, instrument: l.instrument, lessonDateIso: l.startAt })?.id === rule.id
-  ).length;
-  return { recordedPayouts, openLessons };
+/**
+ * Ücret kuralı kaldırma ÖNİZLEMESİ (salt-okunur — yazmaz). Popup açılışında ve
+ * mod/tarih değişiminde çağrılır; silme/deaktivasyonun gerçek etkisini sayılarla
+ * döner (değişmeyecek kayıtlı hakedişler, yeniden hesaplanacak bekleyen kayıtlar
+ * önce/sonra, açık dersler önce/sonra + halef kural).
+ */
+export async function previewFeeRuleRemovalTool(
+  ctx: ServiceContext,
+  input: unknown
+): Promise<ServiceResult<FeeRuleRemovalPreview>> {
+  const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const earnings = await assertTeacherEarningsAccess(ctx);
+  if (!earnings.ok) return earnings;
+  const v = parseOrFail(
+    z.object({
+      ruleId: z.string().min(1),
+      mode: z.enum(["delete", "deactivate"]),
+      fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Devre dışı tarihi geçersiz.").optional(),
+    }),
+    input
+  );
+  if (!v.ok) return v;
+  const data = await readData();
+  const preview = previewFeeRuleRemovalData(data, v.data.ruleId, v.data.mode, v.data.fromDate);
+  if (!preview.ok) return fail(preview.code === "NOT_FOUND" ? "NOT_FOUND" : "VALIDATION_ERROR", preview.message);
+  return ok(preview.preview);
 }
 
 /**
- * Ücret kuralını kaldırma: hiç kullanılmadıysa kalıcı silinir (kritik şifre); kullanıldıysa
- * `fromDate`'ten itibaren devre dışı kalır (öncesi ve kayıtlı hakedişler aynen). Kayıtlı hakediş,
- * kalemlerinde hangi kuralla hesaplandığını saklar.
+ * Ücret kuralını kaldırma — iki mod, aynı popup:
+ * - "delete": kural kalıcı silinir (kritik şifre + etki onayı). Kayıtlı
+ *   hakedişler DEĞİŞMEZ (donmuş kalem tutarı/kuralı taşır); canlı hesabı bu
+ *   kurala dayanan bekleyen kayıtlar otomatik yeniden hesaplanır; açık
+ *   dersler halef kurala düşer (yoksa "ücret kuralı eksik" olur — mevcut yol).
+ * - "deactivate": `fromDate`'ten itibaren devre dışı kalır (öncesi ve kayıtlı
+ *   hakedişler aynen); bekleyen kayıtlar aynı şekilde yenilenir.
+ * Onay anında etki TAZE veriyle yeniden hesaplanır (önizleme sonrası değişim
+ * varsa sayılar güncel karara göre işler).
  */
 export async function removeFeeRuleTool(
   ctx: ServiceContext,
   input: unknown
-): Promise<ServiceResult<{ mode: "deleted" | "deactivated"; effectiveTo?: string; affectedOpenLessons: number }>> {
+): Promise<
+  ServiceResult<{
+    mode: "deleted" | "deactivated";
+    effectiveTo?: string;
+    affectedOpenLessons: number;
+    recordedUnchanged: number;
+    pendingRecalculated: number;
+    needsAdjustment: { teacherName: string; drift: number }[];
+    failed: string[];
+  }>
+> {
   const auth = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok) return fail("FORBIDDEN", auth.message);
   const earnings = await assertTeacherEarningsAccess(ctx);
@@ -10635,6 +10671,8 @@ export async function removeFeeRuleTool(
       fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Devre dışı tarihi geçersiz.").optional(),
       reason: reasonField,
       criticalPassword: z.string().max(200).optional(),
+      /** Silmede etki görüldü onayı (kural kullanılıyorsa zorunlu). */
+      confirmedImpact: z.boolean().optional(),
     }),
     input
   );
@@ -10642,13 +10680,18 @@ export async function removeFeeRuleTool(
   const data = await readData();
   const rule = data.teacherFeeRules.find((r) => r.id === v.data.ruleId);
   if (!rule) return fail("NOT_FOUND", "Ücret kuralı bulunamadı. Sayfayı yenileyip tekrar deneyin.");
-  const usage = feeRuleUsage(data, rule);
-  const teacherName = data.teachers.find((t) => t.id === rule.teacherId)?.name ?? "Öğretmen";
+  // Onay anında taze etki (önizlemeden sonra veri değişmiş olabilir).
+  const fresh = previewFeeRuleRemovalData(data, v.data.ruleId, v.data.mode, v.data.fromDate);
+  if (!fresh.ok) return fail(fresh.code === "NOT_FOUND" ? "NOT_FOUND" : "VALIDATION_ERROR", fresh.message);
+  const preview = fresh.preview;
+  const teacherName = preview.rule.teacherName;
+  const affectedIds = new Set(preview.pendingRecomputed.map((p) => p.payoutId));
+
   if (v.data.mode === "delete") {
-    if (usage.recordedPayouts > 0 || usage.openLessons > 0) {
+    if (preview.confirmRequired && v.data.confirmedImpact !== true) {
       return fail(
         "VALIDATION_ERROR",
-        `Bu kural kullanılıyor (${usage.recordedPayouts} kayıtlı hakediş, ${usage.openLessons} kayda geçmemiş ders); geçmiş hesabın izi kaybolmasın diye silinemez. Bunun yerine bir tarihten itibaren devre dışı bırakın.`
+        `Bu kural ${preview.recordedUnchanged.length} kayıtlı hakedişte ve ${preview.openLessons.total} açık derste (${preview.pendingRecomputed.length} bekleyen kayıt yeniden hesaplanacak) kullanılıyor. Silmeden önce etkiyi inceleyip onay kutusunu işaretleyin.`
       );
     }
     const denied = await guardCriticalDelete(
@@ -10658,33 +10701,53 @@ export async function removeFeeRuleTool(
     );
     if (denied) return denied;
     if (!(await deleteTeacherFeeRule(rule.id))) return fail("CONFLICT", "Kural silinemedi; sayfayı yenileyip tekrar deneyin.");
-    audit(ctx, "teacher_fee.delete", "TeacherFeeRule", rule.id, { teacherId: rule.teacherId, perMinuteRate: rule.perMinuteRate, reason: v.data.reason });
-    return ok({ mode: "deleted", affectedOpenLessons: 0 });
+    // Kuralın parametreleri denetim izine donar (geçmiş hesabın izi: kayıtlı kalemler + bu iz).
+    audit(ctx, "teacher_fee.delete", "TeacherFeeRule", rule.id, {
+      teacherId: rule.teacherId,
+      perMinuteRate: rule.perMinuteRate,
+      branchId: rule.branchId,
+      instrument: rule.instrument,
+      effectiveFrom: rule.effectiveFrom,
+      effectiveTo: rule.effectiveTo,
+      reason: v.data.reason,
+      recordedUnchanged: preview.recordedUnchanged.length,
+      openLessons: preview.openLessons.total,
+    });
+  } else {
+    const res = await updateTeacherFeeRule(rule.id, {
+      effectiveTo: preview.effectiveTo,
+      deactivatedAt: new Date().toISOString(),
+      deactivatedByUserId: ctx.userId,
+      deactivationReason: v.data.reason,
+    });
+    if (!res.ok) return fail(mapFeeRuleErrorCode(res.code), res.message);
+    audit(ctx, "teacher_fee.deactivate", "TeacherFeeRule", rule.id, {
+      teacherId: rule.teacherId,
+      from: preview.fromDate,
+      reason: v.data.reason,
+      affectedOpenLessons: preview.openLessons.total,
+      recordedUnchanged: preview.recordedUnchanged.length,
+    });
   }
-  const from = v.data.fromDate ?? new Date().toISOString().slice(0, 10);
-  const effectiveTo = new Date(Date.parse(`${from}T12:00:00.000Z`) - 86_400_000).toISOString().slice(0, 10);
-  if (effectiveTo < rule.effectiveFrom.slice(0, 10)) {
-    return fail(
-      "VALIDATION_ERROR",
-      `Devre dışı tarihi, kuralın başlangıcından (${rule.effectiveFrom.slice(0, 10)}) sonra olmalı. Kural hiç kullanılmadıysa “Sil” seçeneğini kullanın.`
-    );
-  }
-  const affectedOpenLessons = data.lessons.filter(
-    (l) =>
-      l.teacherId === rule.teacherId &&
-      isLessonProcessedForPayout(l) &&
-      l.startAt.slice(0, 10) >= from &&
-      resolveFeeRule(data.teacherFeeRules, { teacherId: l.teacherId, branchId: l.branchId, instrument: l.instrument, lessonDateIso: l.startAt })?.id === rule.id
-  ).length;
-  const res = await updateTeacherFeeRule(rule.id, {
-    effectiveTo,
-    deactivatedAt: new Date().toISOString(),
-    deactivatedByUserId: ctx.userId,
-    deactivationReason: v.data.reason,
+  // Açık hesaplar mevcut yolla yenilenir: etkilenen bekleyen kayıtlar yeniden hesaplanır
+  // (ödemeli/ödemesiz ayrımı refreshPendingPayouts'un mevcut kuralıyla; kayıtlı defter yazılmaz).
+  const afterData = await readData();
+  const affected = afterData.teacherPayouts.filter((p) => affectedIds.has(p.id));
+  const r = await refreshPendingPayouts(
+    ctx,
+    afterData,
+    affected,
+    v.data.mode === "delete" ? `Ücret kuralı silindi: ${v.data.reason}` : `Ücret kuralı devre dışı bırakıldı: ${v.data.reason}`
+  );
+  return ok({
+    mode: v.data.mode === "delete" ? "deleted" : "deactivated",
+    effectiveTo: preview.effectiveTo,
+    affectedOpenLessons: preview.openLessons.total,
+    recordedUnchanged: preview.recordedUnchanged.length,
+    pendingRecalculated: r.recalculated,
+    needsAdjustment: r.needsAdjustment,
+    failed: r.failed,
   });
-  if (!res.ok) return fail(mapFeeRuleErrorCode(res.code), res.message);
-  audit(ctx, "teacher_fee.deactivate", "TeacherFeeRule", rule.id, { teacherId: rule.teacherId, from, reason: v.data.reason, affectedOpenLessons });
-  return ok({ mode: "deactivated", effectiveTo, affectedOpenLessons });
 }
 
 /**

@@ -136,6 +136,7 @@ import {
   settleTeacherPayoutDriftTool,
   setLessonPayoutExclusionTool,
   removeFeeRuleTool,
+  previewFeeRuleRemovalTool,
   type PayoutPolicyImpactRow,
   type PayoutLineSource,
   type ExistingPayoutSummary,
@@ -240,7 +241,13 @@ import { readData, readReferenceData } from "./store";
 import { withEgressLabel } from "./egress-label";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
-import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
+import type {
+  FeeRuleRemovalPreview,
+  RevisedEarningsLine,
+  TeacherEarningsResult,
+  TeacherPayoutPaymentMethodInfo,
+  PayoutPolicyResolution,
+} from "./teacher-payout";
 import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory, PaymentDueRange, StudentType } from "./types";
 import type { ImportPreview } from "./import/types";
 import type { ImportCommitResult } from "./import/commit-result";
@@ -4153,8 +4160,21 @@ export async function actionSettleTeacherPayoutDrift(input: { payoutId: string; 
 export async function actionSetLessonPayoutExclusion(input: { lessonId: string; exclude: boolean; reason: string }) {
   return runPayoutLedgerAction("actionSetLessonPayoutExclusion", (ctx) => setLessonPayoutExclusionTool(ctx, input));
 }
-export async function actionRemoveFeeRule(input: { ruleId: string; mode: "delete" | "deactivate"; fromDate?: string; reason: string; criticalPassword?: string }) {
+export async function actionRemoveFeeRule(input: { ruleId: string; mode: "delete" | "deactivate"; fromDate?: string; reason: string; criticalPassword?: string; confirmedImpact?: boolean }) {
   return runPayoutLedgerAction("actionRemoveFeeRule", (ctx) => removeFeeRuleTool(ctx, input));
+}
+
+/** Ücret kuralı kaldırma etkisi (salt-okunur önizleme — hiçbir kayıt yazmaz). */
+export async function actionPreviewFeeRuleRemoval(input: {
+  ruleId: string;
+  mode: "delete" | "deactivate";
+  fromDate?: string;
+}): Promise<SimpleActionResult<FeeRuleRemovalPreview>> {
+  return runSimpleAction(
+    "actionPreviewFeeRuleRemoval",
+    (ctx) => previewFeeRuleRemovalTool(ctx, input),
+    "Kural etkisi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
 }
 
 export type ComputeTeacherPayoutActionResult =
@@ -4164,6 +4184,7 @@ export type ComputeTeacherPayoutActionResult =
       existingPayout: ExistingPayoutSummary | null;
       cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
       lineSources: Record<string, PayoutLineSource>;
+      policySources: Record<string, PayoutPolicyResolution>;
     } & Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] })
   | { ok: false; message: string };
 
