@@ -20,6 +20,16 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 function planAmount(plan: CalendarMonthPlan) {
+  const prior = plan.state === "no_installment_for_month" ? plan.coveredByPriorVersion : undefined;
+  if (prior) {
+    // 2026-10-25 — revizyonda mahsup edilen ay: tahsilat önceki sözleşme sürümünde.
+    return {
+      planned: formatMoney(prior.paidAmount),
+      paid: formatMoney(prior.paidAmount),
+      remaining: formatMoney(0),
+      status: `${PAYMENT_STATUS_TEXT.paid ?? "Ödendi"} (önceki sürüm ${prior.contractNumbers.join(", ")})`,
+    };
+  }
   if (!planHasRows(plan)) {
     return { planned: "—", paid: "—", remaining: "—", status: plan.message ?? "Bu ay için aktif ödeme planı bulunmuyor." };
   }
@@ -81,6 +91,9 @@ export default async function StudentStatementPrintPage({
   const countedPlanRows = new Set<string>();
   const planTotals = s.months.reduce(
     (acc, m) => {
+      // Önceki sürümde tahsil edilen ay: yalnız bu aya düşen tahsilat payı (ay başına ayrı, çift sayım yok).
+      const prior = m.plan.state === "no_installment_for_month" ? m.plan.coveredByPriorVersion : undefined;
+      if (prior) return { planned: acc.planned + prior.paidAmount, paid: acc.paid + prior.paidAmount, remaining: acc.remaining };
       if (!planHasRows(m.plan)) return acc;
       const key = m.plan.paymentIds.join(",");
       if (countedPlanRows.has(key)) return acc;

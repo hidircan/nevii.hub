@@ -51,6 +51,9 @@ export interface CalendarPlanContract {
   /** ISO tarih ya da tam ISO datetime — yalnız "yyyy-MM" kısmı kullanılır. */
   enrollmentStartDate: string;
   enrollmentEndDate: string;
+  /** 2026-10-25 — revizyon zinciri (önceki sürümde tahsil edilmiş ayı göstermek için). */
+  contractType?: string;
+  previousContractId?: string;
 }
 
 /** Çözümleyicinin taksit satırından ihtiyaç duyduğu minimal alanlar (Payment). */
@@ -64,6 +67,8 @@ export interface CalendarPlanInstallment {
   dueDate: string;
   status: string;
   kind?: ContractInstallmentKind;
+  /** `Payment.installmentKind` — sözleşmenin bu satırı hangi tür taksit olarak planladığı. */
+  installmentKind?: ContractInstallmentKind;
   periodLabel?: string;
   /** `Payment` satırındaki adları — çağıranlar doğrudan `Payment` geçirir. */
   installmentPeriodLabel?: string;
@@ -132,6 +137,8 @@ export type CalendarMonthPlan =
       /** Bu aya düşen plan satırlarının 1-tabanlı sıraları. */
       installmentSequences: number[];
       paymentIds: string[];
+      /** Bu ayda hâlâ tahsil edilecek kalanı olan satırlar — tahsilat adayı yalnız bunlardır. */
+      openPaymentIds: string[];
       /** Sözleşmede DONDURULMUŞ ödenecek tutar (birden fazla satır varsa toplamı). */
       amount: number;
       paidAmount: number;
@@ -171,6 +178,12 @@ export type CalendarMonthPlan =
       contractId: string;
       contractNumber: string;
       message: string;
+      /**
+       * 2026-10-25 — ay, revizyonda önceki sürümde FİİLEN tahsil edilen parayla tamamen mahsup edildiği için güncel
+       * sürümde taksit satırı yok (`createContract` kapanan dönemi yazmaz). Tahsilat önceki sürümün satırındadır;
+       * ay kapanmıştır, yeni tahsilat istenmez ve bu satırlara yazılmaz.
+       */
+      coveredByPriorVersion?: { contractNumbers: string[]; paidAmount: number; collections: CalendarMonthCollection[] };
     }
   | {
       state: "multiple_active_contracts";
@@ -213,7 +226,8 @@ export function installmentMonthKeys(p: CalendarPlanInstallment): string[] {
  * - `amount`: satırın o döneme düşen BORCU; `paidAmount`: o döneme MAHSUP edilen tahsilat. Toplamlar satırın kendi
  *   `amount`/`paidAmount`'ına eşittir — aynı para iki ayda sayılmaz, mahsup tahsilatı aşmaz.
  * - Dönem kırılımı (`installmentBreakdown`) varsa borç, kırılım tutarları sırayla doldurularak dağıtılır; satır tutarı
- *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer. Tahsilat en eski dönemden başlayarak
+ *   kırılım toplamından farklıysa (manuel tutar) fark/eksik SON döneme düşer — ilk tahsilatta ise İLK döneme (elle
+ *   tutar kayıt ayını değiştirir, takip eden ayın tam ücreti korunur). Tahsilat en eski dönemden başlayarak
  *   mahsup edilir (kısmi ödeme / iade sonrası eksik kalan, en yeni dönemdir).
  * - Kırılımı OLMAYAN eski kayıtta "takip eden ayı da ekle" seçiliyse (alanın kendisi; kaynak veya sözleşme bağı
  *   aranmaz), sonraki ay KARŞILANMIŞ sayılır ama tutarı kayda işlenmemiştir: o ayın payı 0'dır ve `unsplit`
@@ -266,6 +280,18 @@ function withUnsplitNextMonth(own: InstallmentMonthShare, includeNext: boolean |
   return [own, { month: nextMonthKeyOf(own.month), amount: 0, paidAmount: 0, unsplit: true }];
 }
 
+/**
+ * 2026-10-24 — "takip eden ayı da ekle" işareti bu satıra sonraki ayı ekler mi? Sözleşme taksidinde satırın türünü
+ * SÖZLEŞME belirler: tek dönem (`first_collection`/`period_fee`/`deposit`) olarak planlanmış satırda işaret ay
+ * eklemez — sözleşme o ayı ayrı taksitle borçlandırmıştır (ilk tahsilat sonradan tek aya düzeltilip işaret açık
+ * kalmış olabilir). Gerçek iki aylık satır `first_collection_combined`'dır ve tutarlı kırılımla gelir. Türü bilinmeyen
+ * (eski) satırda ve sözleşmesiz satırda işaret aynen geçerlidir.
+ */
+function flagAddsNextMonth(p: CalendarPlanInstallment): boolean {
+  if (!p.firstCollectionIncludesNextMonth) return false;
+  return !(p.contractId && p.installmentKind && p.installmentKind !== "first_collection_combined");
+}
+
 export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentMonthShare[] {
   const amount = Math.trunc(p.amount);
   const paid = Math.trunc(p.paidAmount);
@@ -273,7 +299,14 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
     .map((b) => ({ month: monthKeyOfPeriodLabel(b.periodLabel), cap: b.amount, label: b.periodLabel }))
     .filter((b): b is { month: string; cap: number; label: string } => !!b.month);
   if (parts.length >= 2) {
-    const amounts = allocateInOrder(amount, parts.map((b) => b.cap));
+    // 2026-10-24 — ilk tahsilatta (kayıt / birleşik ilk taksit) elle girilen tutar YALNIZ kayıt ayı bileşenini
+    // değiştirir; takip eden ayın tam ücreti korunur (contracts.ts `buildPerLessonInstallmentSchedule` kuralı). Kırılım
+    // otomatik bileşenleri taşıdığı için fark İLK döneme düşer — eskiden son döneme düşüyordu (Seres K.: 10.425 TL
+    // elle, kırılım 1.737 + 6.950 → ekranda Ekim 1.737 / Kasım 8.688; doğrusu 3.475 / 6.950).
+    const firstCollection = p.installmentKind === "first_collection_combined" || p.source === "registration_first_payment";
+    const amounts = firstCollection
+      ? allocateInOrder(amount, parts.map((b) => b.cap).reverse()).reverse()
+      : allocateInOrder(amount, parts.map((b) => b.cap));
     const paids = allocateInOrder(paid, amounts);
     return parts.map((b, i) => ({ month: b.month, amount: amounts[i]!, paidAmount: paids[i]!, periodLabel: b.label }));
   }
@@ -281,7 +314,7 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
     const amounts = allocateInOrder(amount, [parts[0]!.cap]);
     const paids = allocateInOrder(paid, amounts);
     const own: InstallmentMonthShare = { month: parts[0]!.month, amount: amounts[0]!, paidAmount: paids[0]!, periodLabel: parts[0]!.label };
-    return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+    return withUnsplitNextMonth(own, flagAddsNextMonth(p));
   }
   const label = p.installmentPeriodLabel ?? p.periodLabel;
   const labeled = combinedPeriodMonths(label);
@@ -299,7 +332,7 @@ export function installmentMonthShares(p: CalendarPlanInstallment): InstallmentM
   const fromDescription = p.source === "monthly_plan" ? monthlyPlanMonthOfDescription(p.description) : undefined;
   const month = fromLabel ?? fromDescription ?? monthKeyOf(p.dueDate);
   const own: InstallmentMonthShare = { month, amount, paidAmount: paid, ...(label ? { periodLabel: label } : {}) };
-  return withUnsplitNextMonth(own, p.firstCollectionIncludesNextMonth);
+  return withUnsplitNextMonth(own, flagAddsNextMonth(p));
 }
 
 /** Satırın tamamen tahsil edilip edilmediği. `unsplit` ayın sayaçta görünmesi buna bağlıdır. */
@@ -309,17 +342,53 @@ function parentFullyCollected(p: CalendarPlanInstallment): boolean {
   return p.status === "paid" || (amount > 0 && paid >= amount);
 }
 
+/** Sözleşme → o sözleşmenin İPTAL EDİLMEMİŞ satırlarının kendi (tutarlı, `unsplit` olmayan) payı olan aylar. */
+export type ContractOwnMonths = ReadonlyMap<string, ReadonlySet<string>>;
+
+export function contractOwnInstallmentMonths(rows: readonly CalendarPlanInstallment[]): ContractOwnMonths {
+  const out = new Map<string, Set<string>>();
+  for (const p of rows) {
+    if (!p.contractId || p.status === "voided") continue;
+    for (const s of installmentMonthShares(p)) {
+      if (s.unsplit) continue;
+      const set = out.get(p.contractId) ?? new Set<string>();
+      set.add(s.month);
+      out.set(p.contractId, set);
+    }
+  }
+  return out;
+}
+
+/**
+ * 2026-10-24 — "takip eden ayı da ekle" işaretinin ürettiği tutarsız (`unsplit`) ay, AYNI sözleşmenin o ay için kendi
+ * taksiti varsa geçersizdir: sözleşme planı o ayı ayrı taksitle borçlandırmış, ilk tahsilat o ayı kapsamıyor (ilk
+ * tahsilat sonradan tek aya düzeltilip işaret açık kalmıştı — Ediz A. H.: Ekim'de 0 TL'lik ikinci "aday" tahsilatı
+ * engelliyor, sayaç Ekim'i ödenmiş sayıyordu). Sözleşmesiz satırda ve ayın kendi taksiti olmayan eski kayıtta işaret
+ * aynen geçerlidir.
+ */
+export function isStaleUnsplitShare(
+  p: CalendarPlanInstallment,
+  share: InstallmentMonthShare,
+  ownMonths: ContractOwnMonths
+): boolean {
+  // Sözleşmenin AÇIKÇA iki dönemlik saydığı satır (birleşik ilk tahsilat) elenmez: aynı ayın ayrı taksiti de varsa
+  // durum belirsizdir ve seçim kullanıcıya kalır (iki aday).
+  if (p.installmentKind === "first_collection_combined") return false;
+  return !!share.unsplit && !!p.contractId && !!ownMonths.get(p.contractId)?.has(share.month);
+}
+
 /**
  * Bu satırın fiilen kapattığı dönem/taksit sayısı. Satır adedi değildir: iki dönemlik tek tahsilat 2'dir.
  * Paralı bir pay yalnız kendi tutarı tam karşılanınca sayılır (kısmi ödeme en eski dönemi kapatır).
- * Tutarı yazılmamış (`unsplit`) ay, satırın kendisi tam tahsil edildiyse sayılır.
+ * Tutarı yazılmamış (`unsplit`) ay, satırın kendisi tam tahsil edildiyse sayılır — sözleşmenin o ay için kendi
+ * taksiti yoksa (`ownMonths` verilirse bayat işaret sayılmaz; bkz. `isStaleUnsplitShare`).
  */
-export function coveredInstallmentCount(p: CalendarPlanInstallment): number {
+export function coveredInstallmentCount(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): number {
   if (p.status === "voided") return 0;
   let n = 0;
   for (const share of installmentMonthShares(p)) {
     if (share.unsplit) {
-      if (parentFullyCollected(p)) n += 1;
+      if (parentFullyCollected(p) && !(ownMonths && isStaleUnsplitShare(p, share, ownMonths))) n += 1;
       continue;
     }
     if (share.amount > 0 && share.paidAmount >= share.amount) n += 1;
@@ -327,8 +396,13 @@ export function coveredInstallmentCount(p: CalendarPlanInstallment): number {
   return n;
 }
 
+/**
+ * Öğrencinin TÜM geçmişinde tam kapanmış benzersiz dönem sayısı (revize/iptal edilmiş sözleşmelerde fiilen ödenmiş
+ * dönemler dahil — gerçek tahsilattır). Tahsilat işlemi sayısı değildir: iki kısmi ödeme tek dönemi kapatır.
+ */
 export function paidInstallmentCount(payments: readonly CalendarPlanInstallment[]): number {
-  return payments.reduce((n, p) => n + coveredInstallmentCount(p), 0);
+  const ownMonths = contractOwnInstallmentMonths(payments);
+  return payments.reduce((n, p) => n + coveredInstallmentCount(p, ownMonths), 0);
 }
 
 const CONTRACT_INSTALLMENT_DESC = /^(Sözleşme taksiti )(\d+)\/(\d+)/;
@@ -339,13 +413,13 @@ const CONTRACT_INSTALLMENT_DESC = /^(Sözleşme taksiti )(\d+)\/(\d+)/;
  * kapanan dönem kadar ilerler: iki dönem tam kapanmışsa 2, yalnız ilki tamsa 1.
  * Hiç dönem kapanmamışsa planlanan sıra durur.
  */
-export function contractInstallmentProgressIndex(p: CalendarPlanInstallment): number | undefined {
+export function contractInstallmentProgressIndex(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): number | undefined {
   const match = p.description?.match(CONTRACT_INSTALLMENT_DESC);
   const start = p.installmentSequence != null && p.installmentSequence > 0
     ? p.installmentSequence
     : match ? Number(match[2]) : undefined;
   if (start == null) return undefined;
-  const covered = coveredInstallmentCount(p);
+  const covered = coveredInstallmentCount(p, ownMonths);
   if (covered <= 1) return start;
   const total = match ? Number(match[3]) : undefined;
   const reached = start + covered - 1;
@@ -353,11 +427,11 @@ export function contractInstallmentProgressIndex(p: CalendarPlanInstallment): nu
 }
 
 /** Saklanan açıklamadaki "Sözleşme taksiti X/N" payını dönem ilerlemesiyle değiştirir. Tutar/tarih yazılmaz. */
-export function contractInstallmentProgressDescription(p: CalendarPlanInstallment): string {
+export function contractInstallmentProgressDescription(p: CalendarPlanInstallment, ownMonths?: ContractOwnMonths): string {
   const description = p.description ?? "";
   const match = description.match(CONTRACT_INSTALLMENT_DESC);
   if (!match) return description;
-  const index = contractInstallmentProgressIndex(p);
+  const index = contractInstallmentProgressIndex(p, ownMonths);
   if (index == null || index === Number(match[2])) return description;
   return description.replace(CONTRACT_INSTALLMENT_DESC, `$1${index}/${match[3]}`);
 }
@@ -459,12 +533,27 @@ export function resolveContractPlanForMonth(input: {
   }
 
   const contract = covering[0]!;
-  const rows = sharesForMonth(
-    input.installments.filter((p) => p.contractId === contract.id && p.installmentSequence != null),
-    monthKey
-  ).sort((a, b) => (a.row.installmentSequence ?? 0) - (b.row.installmentSequence ?? 0));
+  // 2026-10-24 — aday satırlar: yalnız bu sözleşmenin İPTAL EDİLMEMİŞ taksitleri; aynı ayın kendi taksiti varken
+  // önceki satırın bayat "takip eden ay" payı aday sayılmaz (bkz. `isStaleUnsplitShare`).
+  const contractRows = input.installments.filter(
+    (p) => p.contractId === contract.id && p.installmentSequence != null && p.status !== "voided"
+  );
+  const ownMonths = contractOwnInstallmentMonths(contractRows);
+  const rows = sharesForMonth(contractRows, monthKey)
+    .filter((r) => !isStaleUnsplitShare(r.row, r.share, ownMonths))
+    .sort((a, b) => (a.row.installmentSequence ?? 0) - (b.row.installmentSequence ?? 0));
 
   if (rows.length === 0) {
+    const prior = priorVersionCollections(contract, input.contracts, input.installments, monthKey);
+    if (prior) {
+      return {
+        state: "no_installment_for_month",
+        contractId: contract.id,
+        contractNumber: contract.contractNumber,
+        message: `Bu ay ${prior.contractNumbers.join(", ")} sürümünde tahsil edildi (${prior.paidAmount.toLocaleString("tr-TR")} TL); revizyonda mahsup edildiği için ${contract.contractNumber} planında ayrı taksit yok. Kalan borç yok, yeni tahsilat gerekmez.`,
+        coveredByPriorVersion: prior,
+      };
+    }
     return {
       state: "no_installment_for_month",
       contractId: contract.id,
@@ -486,6 +575,7 @@ export function resolveContractPlanForMonth(input: {
     contractNumber: contract.contractNumber,
     installmentSequences: rows.map((r) => r.row.installmentSequence!),
     paymentIds: rows.map((r) => r.row.id),
+    openPaymentIds: rows.filter((r) => remainingAmount(r.share.amount, r.share.paidAmount) > 0).map((r) => r.row.id),
     amount,
     paidAmount,
     remaining: remainingAmount(amount, paidAmount),
@@ -493,6 +583,34 @@ export function resolveContractPlanForMonth(input: {
     periodLabel: rows.length === 1 ? rows[0]!.share.periodLabel : undefined,
     collections: collectionsOf(rows),
   };
+}
+
+/**
+ * Revizyon zincirinde (`amendment` bağı; yenileme/ilk sözleşmede durur) önceki sürümlerin bu aya FİİLEN mahsup edilen
+ * tahsilatları. Mahsup tutarları tahsilat değildir — yalnız satırın gerçek `paidAmount`'ının bu aya düşen payı sayılır.
+ */
+function priorVersionCollections(
+  contract: CalendarPlanContract,
+  contracts: readonly CalendarPlanContract[],
+  installments: readonly CalendarPlanInstallment[],
+  monthKey: string
+): { contractNumbers: string[]; paidAmount: number; collections: CalendarMonthCollection[] } | undefined {
+  const chain: CalendarPlanContract[] = [];
+  let current: CalendarPlanContract | undefined = contract;
+  while (current?.contractType === "amendment" && current.previousContractId) {
+    const prev = contracts.find((c) => c.id === current!.previousContractId);
+    if (!prev || chain.includes(prev)) break;
+    chain.push(prev);
+    current = prev;
+  }
+  if (chain.length === 0) return undefined;
+  const ids = new Set(chain.map((c) => c.id));
+  const rows = installments.filter((p) => p.contractId && ids.has(p.contractId) && p.status !== "voided");
+  const ownMonths = contractOwnInstallmentMonths(rows);
+  const paid = sharesForMonth(rows, monthKey).filter((r) => r.share.paidAmount > 0 && !isStaleUnsplitShare(r.row, r.share, ownMonths));
+  if (paid.length === 0) return undefined;
+  const contractNumbers = chain.filter((c) => paid.some((r) => r.row.contractId === c.id)).map((c) => c.contractNumber);
+  return { contractNumbers, paidAmount: paid.reduce((s, r) => s + r.share.paidAmount, 0), collections: collectionsOf(paid) };
 }
 
 /**

@@ -2047,6 +2047,19 @@ export async function createPaymentTool(
     if (existing.status === "paid") {
       return ok({ paymentId: v.data.paymentId, status: "paid" });
     }
+    // 2026-10-24 — revize/iptal edilmiş sözleşmenin ödenmemiş taksiti artık borç değildir (`isLiveObligation`);
+    // ona tahsilat yazmak parayı yanlış sözleşmeye bağlar. Web ve mobil aynı uca gelir.
+    if (existing.contractId) {
+      const { getContract } = await import("../contracts");
+      const { isTerminalContractStatus } = await import("../contract-list-helpers");
+      const contract = await getContract(ctx.tenantId, existing.contractId);
+      if (contract && isTerminalContractStatus(contract.status)) {
+        return fail(
+          "VALIDATION_ERROR",
+          `Bu taksit ${contract.contractNumber} numaralı sözleşmeye ait ve o sözleşme ${contract.status === "superseded" ? "revize edildi" : "iptal edildi"}; tahsilat yazılmadı. Tahsilatı öğrencinin güncel sözleşmesinin ilgili taksitinden yapın.`
+        );
+      }
+    }
     // paidAt bilinçli verilmezse fiili tahsil anı = şimdi (vade/createdAt kullanılmaz).
     let paidAt = v.data.paidAt;
     if (!paidAt) paidAt = new Date().toISOString();
@@ -16631,9 +16644,15 @@ export async function previewContractInstallmentPlanTool(
       // kullandığı AYNI kaynak ve AYNI koşul (yalnız FORMAL — >=3 ay — süre).
       // Bu olmadan/koşulsuz kullanılırsa önizleme her zaman otomatik tutarı
       // gösterir ya da informal (Tanışma) sürede create'ten FARKLI davranır.
-      const registrationFirstPayment = isFormalContractDuration(v.data.durationMonths)
-        ? await getRegistrationFirstPayment(student.id, firstPaymentScope)
-        : null;
+      const { registrationFirstPaymentForPlan } = await import("../contracts");
+      const registrationFirstPayment = await registrationFirstPaymentForPlan({
+        tenantId: ctx.tenantId,
+        studentId: student.id,
+        contractType: v.data.contractType,
+        previousContractId: v.data.previousContractId,
+        durationMonths: v.data.durationMonths,
+        scope: firstPaymentScope,
+      });
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
         firstPeriodManualNetAmount:
@@ -16674,11 +16693,12 @@ export async function previewContractInstallmentPlanTool(
     const firstDueDateInWindow = firstDueDay >= rule.windowStartDay && firstDueDay <= rule.windowEndDay;
     let amendmentCredit: { collected: number; applied: number; leftover: number; remainingDue: number } | undefined;
     if (v.data.contractType === "amendment" && v.data.previousContractId) {
-      const { computePriorContractCollected, allocatePriorCollections, getContract } = await import("../contracts");
+      const { computePriorContractCollections, allocatePriorCollections, getContract } = await import("../contracts");
       const previous = await getContract(ctx.tenantId, v.data.previousContractId);
       if (previous && (!v.data.studentId || previous.studentId === v.data.studentId)) {
-        const collected = await computePriorContractCollected(ctx.tenantId, previous.id);
-        const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+        const prior = await computePriorContractCollections(ctx.tenantId, previous.id);
+        const collected = prior.reduce((sum, c) => sum + c.amount, 0);
+        const allocated = allocatePriorCollections(installments, prior, previous.contractNumber);
         amendmentCredit = {
           collected,
           applied: allocated.applied,
@@ -18502,6 +18522,8 @@ async function loadCalendarPlanContracts(tenantId: string, studentId: string): P
     status: c.status,
     enrollmentStartDate: c.enrollmentStartDate,
     enrollmentEndDate: c.enrollmentEndDate,
+    contractType: c.contractType,
+    previousContractId: c.previousContractId,
   }));
 }
 
@@ -18955,7 +18977,10 @@ export async function collectAttendanceCalendarPaymentTool(
     if (plan.state === "multiple_active_contracts") {
       return fail("VALIDATION_ERROR", plan.message);
     }
-    if (plan.state === "ok" && plan.paymentIds.length > 1) {
+    // 2026-10-24 — aday = bu ayda kalanı olan taksit(ler). Tamamen ödenmiş satır aday değildir; iki AÇIK taksit
+    // varsa (ya da ay tamamen ödenmiş ve birden çok satır varsa) seçim kullanıcıya bırakılır.
+    const contractTargetId = plan.state === "ok" ? (plan.openPaymentIds[0] ?? plan.paymentIds[0]!) : undefined;
+    if (plan.state === "ok" && (plan.openPaymentIds.length > 1 || (plan.openPaymentIds.length === 0 && plan.paymentIds.length > 1))) {
       // Sessizce satırlara bölüştürmek yerine AÇIK hata — hangi taksitin
       // ödendiği finansal olarak belirsiz kalamaz.
       return fail(
@@ -18964,6 +18989,10 @@ export async function collectAttendanceCalendarPaymentTool(
       );
     }
 
+    if (plan.state === "no_installment_for_month" && plan.coveredByPriorVersion) {
+      // Ay önceki sürümde tahsil edilip revizyonda mahsup edildi — önceki sürümün satırına ASLA yazılmaz.
+      return fail("CONFLICT", `${monthlyPlanPeriodLabel(v.data.month)}: ${plan.message} Tahsilat yazılmadı; ek ödeme için Ödemeler ekranını kullanın.`);
+    }
     if (plan.state === "no_installment_for_month") {
       // UAT 2026-09-25 — öğrencinin bu ayı kapsayan sözleşmesi var ama bu aya düşen taksiti yok:
       // serbest "aylık plan" satırı açmak sözleşmenin yanında İKİNCİ bir ödeme planı üretir.
@@ -19051,7 +19080,7 @@ export async function collectAttendanceCalendarPaymentTool(
       : fee > 0 ? fee : Infinity;
     const targets: CollectTarget[] = [
       plan.state === "ok"
-        ? { month: v.data.month, paymentId: plan.paymentIds[0]!, take: Math.min(entered, capacityOfSelected) }
+        ? { month: v.data.month, paymentId: contractTargetId!, take: Math.min(entered, capacityOfSelected) }
         : openStudentRow
           ? { month: v.data.month, paymentId: openStudentRow, take: Math.min(entered, capacityOfSelected) }
           : {
@@ -19079,13 +19108,15 @@ export async function collectAttendanceCalendarPaymentTool(
           );
         const [ny, nm] = cursor.split("-").map(Number) as [number, number];
         const next = resolveContractPlanForMonth({ contracts: scopedContracts, installments: scopedPayments, year: ny, month: nm, studentMonthlyFee: branchFee });
+        if (next.state === "no_installment_for_month" && next.coveredByPriorVersion) continue; // önceki sürümde ödenmiş dönem
         if (next.state === "multiple_active_contracts" || next.state === "no_installment_for_month") return notDistributable(next.message);
         if (next.state === "no_active_contract") return notDistributable("bu ay için ödeme planı yok.");
         if (next.remaining <= 0 && next.paymentIds.length > 0) continue; // zaten ödenmiş/karşılanmış dönem
-        if (next.paymentIds.length > 1) return notDistributable("bu ayda birden fazla açık ödeme satırı var.");
-        if (next.paymentIds.length === 1) {
+        const nextOpen = next.state === "ok" ? next.openPaymentIds : next.paymentIds;
+        if (nextOpen.length > 1) return notDistributable("bu ayda birden fazla açık ödeme satırı var.");
+        if (nextOpen.length === 1) {
           const take = Math.min(excess, next.remaining);
-          targets.push({ month: cursor, paymentId: next.paymentIds[0]!, take });
+          targets.push({ month: cursor, paymentId: nextOpen[0]!, take });
           excess -= take;
           continue;
         }

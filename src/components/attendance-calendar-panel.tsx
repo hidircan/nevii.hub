@@ -246,11 +246,14 @@ const PLAN_STATUS_LABEL: Record<string, string> = {
  * gösterilir. Plan yoksa tutar UYDURULMAZ, açık durum yazılır.
  */
 /** 2026-10-05 — ayın tahsilatı sabit görünür: "Ödendi · 05.10.2026 · Nakit" (birden çok tahsilatta her biri). */
-function MonthCollections({ plan, onCorrected }: { plan: CalendarMonthPlan; onCorrected?: (paymentId: string) => void }) {
+function MonthCollections({ plan: monthPlan, onCorrected }: { plan: CalendarMonthPlan; onCorrected?: (paymentId: string) => void }) {
   // 2026-10-20 — "Düzelt" MEVCUT tahsilat satırını açar (PATCH); "Yeni tahsilat" formundan ayrıdır.
   const [editing, setEditing] = useState<string | null>(null);
-  if (plan.state !== "ok" && plan.state !== "student_plan") return null;
-  if (plan.collections.length === 0) return null;
+  // 2026-10-25 — revizyonda mahsup edilen ay: tahsilat önceki sürümün satırındadır; burada gösterilir, düzeltme oradan.
+  const prior = monthPlan.state === "no_installment_for_month" ? monthPlan.coveredByPriorVersion : undefined;
+  const plan = prior ? { collections: prior.collections, remaining: 0 } : monthPlan.state === "ok" || monthPlan.state === "student_plan" ? monthPlan : null;
+  if (!plan || plan.collections.length === 0) return null;
+  const correct = prior ? undefined : onCorrected;
   const fullyPaid = plan.remaining <= 0;
   return (
     <ul className="mt-1 space-y-0.5" aria-label="Bu ayın tahsilatları">
@@ -270,7 +273,7 @@ function MonthCollections({ plan, onCorrected }: { plan: CalendarMonthPlan; onCo
           </span>
           <span>· {c.method ? PAYMENT_METHOD_LABEL[c.method] ?? c.method : "Şekil belirtilmemiş"}</span>
           {plan.collections.length > 1 || !fullyPaid ? <span className="ml-auto">{formatMoneyTL(c.amount)}</span> : null}
-          {onCorrected && editing !== c.paymentId ? (
+          {correct && editing !== c.paymentId ? (
             <button
               type="button"
               onClick={() => setEditing(c.paymentId)}
@@ -282,13 +285,13 @@ function MonthCollections({ plan, onCorrected }: { plan: CalendarMonthPlan; onCo
           ) : null}
           {c.note ? <span className="basis-full truncate font-normal" title={c.note}>Not: {c.note}</span> : null}
         </div>
-        {onCorrected && editing === c.paymentId ? (
+        {correct && editing === c.paymentId ? (
           <PaymentCorrectionForm
             payment={{ paymentId: c.paymentId, paidAmount: c.rowPaidAmount, paidAt: c.paidAt, method: c.method, note: c.note }}
             onCancel={() => setEditing(null)}
             onSaved={() => {
               setEditing(null);
-              onCorrected(c.paymentId);
+              correct(c.paymentId);
             }}
           />
         ) : null}
@@ -392,6 +395,19 @@ function MonthPlanSummary({ plan }: { plan: CalendarMonthPlan }) {
           </>
         ) : null}
         {DEBT_SOURCE_LABEL.monthly_plan}
+      </p>
+    );
+  }
+  if (plan.state === "no_installment_for_month" && plan.coveredByPriorVersion) {
+    const prior = plan.coveredByPriorVersion;
+    return (
+      <p className="text-[10px] text-[var(--color-text-muted)]">
+        <span className="font-medium text-[var(--color-text)]">{formatMoneyTL(prior.paidAmount)}</span>
+        {" · ödenen "}
+        {formatMoneyTL(prior.paidAmount)}
+        {" · kalan "}
+        {formatMoneyTL(0)}
+        {` · ${PLAN_STATUS_LABEL.paid ?? "Ödendi"} · önceki sözleşme sürümünde tahsil edildi (${prior.contractNumbers.join(", ")})`}
       </p>
     );
   }
@@ -988,6 +1004,7 @@ export function AttendanceCalendarPanel({
                   <PaidMonthEntry
                     collapsed={
                       emptyFinance ||
+                      (data?.plan.state === "no_installment_for_month" && !!data.plan.coveredByPriorVersion) ||
                       ((data?.plan.state === "ok" || data?.plan.state === "student_plan") &&
                       (data.plan.collections.length > 0 ||
                         (data.plan.state === "student_plan" && !!data.plan.coveredByCombinedFirstCollection)) &&

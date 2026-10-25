@@ -31,10 +31,12 @@ import {
 } from "./contract-template-schema";
 import { formatDateTr } from "./timezone";
 import { logger } from "./logger";
+import { installmentMonthShares, monthlyPlanPeriodLabel, type CalendarPlanInstallment } from "./attendance-calendar-plan";
 import type {
   CollectionsSettings,
   ContractAnnexSnapshot,
   ContractDataSnapshot,
+  ContractInstallmentKind,
   ContractInstallmentSnapshot,
   ContractInstallmentView,
   ContractStatus,
@@ -408,43 +410,160 @@ export function applyInstallmentAmountOverrides(
   });
 }
 
+/** Revizyon zincirinde fiilen tahsil edilmiş para, tahsil edildiği DÖNEM (yyyy-MM) başına. */
+export type PriorCollection = { month: string; amount: number };
+
 /**
- * 2026-10-04 — REVİZYON MAHSUBU. Revize edilen sürümün taksitlerinde FİİLEN tahsil edilmiş para
- * (`collectedAmountOf` toplamı) yeni sürümün Payment satırlarına sıra sırasıyla mahsup edilir:
- * ödenmiş ilk aylar yeniden borç yazılmaz, eski tahsilat satırları değişmeden (yenilenmiş sözleşme
- * altında) tahsilat toplamında kalır. Sözleşme belgesi/snapshot TAM planı gösterir; yalnız ödenecek
- * kalan (Payment.amount) azalır ve satıra mahsup notu düşer. Mahsup sonrası 0 kalan satır yazılmaz.
- * Kalan kredi (yeni plan, tahsil edilenden azsa) `leftover` olarak döner — iade otomatik YAPILMAZ.
+ * 2026-10-04 — REVİZYON MAHSUBU. Önceki sürümlerde FİİLEN tahsil edilmiş para yeni sürümün Payment satırlarına
+ * mahsup edilir: ödenmiş aylar yeniden borç yazılmaz, eski tahsilat satırları değişmeden (yenilenmiş sözleşme
+ * altında) tahsilat toplamında kalır. Sözleşme belgesi/snapshot TAM planı gösterir; yalnız ödenecek kalan
+ * (Payment.amount) azalır ve satıra mahsup notu düşer. Mahsup sonrası 0 kalan satır yazılmaz.
+ *
+ * 2026-10-24 — DÖNEM BAZLI: tahsilat önce yeni planda KENDİ dönemine düşer (Eylül için alınan para Eylül taksitine);
+ * yeni planda o dönemin tutarı tahsilattan azsa fazlası, tahsilattaki fazlalık kuralıyla aynı şekilde SONRAKİ
+ * dönemlere sırayla mahsup edilir (önceki dönemlere asla geri yazılmaz). Dönemi bilinmeyen tutar (`month: ""`) eski
+ * davranışla ilk taksitten başlar. Dağıtılamayan kredi `leftover` olarak döner — iade otomatik YAPILMAZ.
  */
 export function allocatePriorCollections(
   rows: ContractInstallmentSnapshot[],
-  priorCollected: number,
+  prior: number | PriorCollection[],
   previousContractNumber: string
 ): { rows: ContractInstallmentSnapshot[]; applied: number; leftover: number } {
-  let remaining = Math.max(0, Math.trunc(priorCollected));
-  const out: ContractInstallmentSnapshot[] = [];
-  for (const row of [...rows].sort((a, b) => a.sequence - b.sequence)) {
-    const take = Math.min(row.amount, remaining);
-    remaining -= take;
-    if (take === 0) {
-      out.push(row);
-      continue;
+  const credits = (typeof prior === "number" ? [{ month: "", amount: prior }] : [...prior])
+    .map((c) => ({ month: c.month, left: Math.max(0, Math.trunc(c.amount)) }))
+    .filter((c) => c.left > 0)
+    .sort((a, b) => a.month.localeCompare(b.month));
+  const total = credits.reduce((s, c) => s + c.left, 0);
+  const sorted = [...rows].sort((a, b) => a.sequence - b.sequence);
+  // Her taksitin dönem payları (birleşik ilk tahsilat iki dönemdir) ve kalan kapasitesi.
+  const slots = sorted.flatMap((row, index) =>
+    installmentMonthShares({
+      id: String(row.sequence),
+      amount: row.amount,
+      paidAmount: 0,
+      dueDate: row.dueDate,
+      status: "pending",
+      installmentKind: row.kind,
+      installmentPeriodLabel: row.periodLabel,
+      installmentBreakdown: row.breakdown,
+    }).map((share) => ({ index, month: share.month, cap: share.amount }))
+  );
+  const taken = sorted.map(() => new Map<string, number>());
+  const take = (credit: (typeof credits)[number], match: (month: string) => boolean) => {
+    for (const slot of slots) {
+      if (credit.left === 0) return;
+      if (!match(slot.month) || slot.cap === 0) continue;
+      const t = Math.min(slot.cap, credit.left);
+      slot.cap -= t;
+      credit.left -= t;
+      taken[slot.index]!.set(credit.month, (taken[slot.index]!.get(credit.month) ?? 0) + t);
     }
-    const note = `${previousContractNumber} sürümünde tahsil edilen ${new Intl.NumberFormat("tr-TR").format(take)} TL mahsup edildi`;
-    out.push({ ...row, amount: row.amount - take, note: row.note ? `${row.note} · ${note}` : note });
-  }
-  const applied = Math.max(0, Math.trunc(priorCollected)) - remaining;
-  return { rows: out, applied, leftover: remaining };
+  };
+  for (const c of credits) take(c, (m) => m === c.month);
+  for (const c of credits) take(c, (m) => m > c.month);
+  const fmt = (n: number) => new Intl.NumberFormat("tr-TR").format(n);
+  const out = sorted.map((row, i) => {
+    const parts = [...taken[i]!.entries()];
+    if (parts.length === 0) return row;
+    const sum = parts.reduce((s, [, n]) => s + n, 0);
+    const from = parts.map(([m, n]) => (m ? `${monthlyPlanPeriodLabel(m)} dönemi için ${fmt(n)} TL` : `${fmt(n)} TL`)).join(", ");
+    const note = `${previousContractNumber} ve önceki sürümlerde tahsil edilen ${from} mahsup edildi`;
+    return { ...row, amount: row.amount - sum, note: row.note ? `${row.note} · ${note}` : note };
+  });
+  const leftover = credits.reduce((s, c) => s + c.left, 0);
+  return { rows: out, applied: total - leftover, leftover };
 }
 
-/** Revize edilen sürümün taksit satırlarında fiilen tahsil edilmiş toplam (iptal satırı hariç). */
+/** Sözleşmenin taksit satırları — dönem bilgisiyle (mahsup dönem bazlı yapılır). */
+async function loadContractPeriodRows(tenantId: string, contractId: string): Promise<CalendarPlanInstallment[]> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.payment.findMany({
+      where: { tenantId, contractId },
+      select: {
+        id: true, contractId: true, installmentSequence: true, amount: true, paidAmount: true, status: true, dueDate: true,
+        installmentKind: true, installmentPeriodLabel: true, installmentBreakdown: true, firstCollectionIncludesNextMonth: true,
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      contractId: r.contractId ?? undefined,
+      installmentSequence: r.installmentSequence ?? undefined,
+      amount: r.amount,
+      paidAmount: r.paidAmount,
+      status: r.status,
+      dueDate: r.dueDate.toISOString(),
+      installmentKind: (r.installmentKind as ContractInstallmentKind | null) ?? undefined,
+      installmentPeriodLabel: r.installmentPeriodLabel ?? undefined,
+      installmentBreakdown: (r.installmentBreakdown as { periodLabel: string; amount: number }[] | null) ?? undefined,
+      firstCollectionIncludesNextMonth: r.firstCollectionIncludesNextMonth ?? undefined,
+    }));
+  }
+  const { readData } = await import("./store-json");
+  return (await readData()).payments.filter((p) => p.contractId === contractId);
+}
+
+/**
+ * Revize edilen sürümde VE onun revizyon zincirindeki önceki sürümlerde fiilen tahsil edilmiş para, DÖNEM başına
+ * (iptal satırı hariç; geri alınmış tahsilat `paidAmount` 0 olduğundan sayılmaz). 2026-10-24 — mahsup tahsilat
+ * sayılmadığı için (yalnız taksit tutarını düşürür) ikinci revizyon yalnız bir önceki sürüme bakınca ilk sürümdeki
+ * gerçek tahsilat kayboluyordu: v1'de tahsil → v2 mahsup etti → v3 hiç mahsup etmedi. Mahsup tutarları tahsilat
+ * değildir; zincirde aynı para yalnız bir kez (tahsil edildiği satırda) sayılır. Zincir `amendment` bağı boyunca
+ * yürür; yenileme/ilk sözleşmede durur (yenileme yeni dönemdir, önceki dönemin tahsilatı mahsup edilmez).
+ */
+export async function computePriorContractCollections(tenantId: string, contractId: string): Promise<PriorCollection[]> {
+  const byMonth = new Map<string, number>();
+  for (const id of await amendmentChainIds(tenantId, contractId)) {
+    for (const r of await loadContractPeriodRows(tenantId, id)) {
+      if (r.status === "voided") continue;
+      // Eski "ödendi" satırında paidAmount boş kalmışsa tutarın tamamı tahsil edilmiştir (`collectedAmountOf`).
+      const row = r.status === "paid" && r.paidAmount <= 0 ? { ...r, paidAmount: r.amount } : r;
+      for (const share of installmentMonthShares(row)) {
+        if (share.paidAmount > 0) byMonth.set(share.month, (byMonth.get(share.month) ?? 0) + share.paidAmount);
+      }
+    }
+  }
+  return [...byMonth.entries()].map(([month, amount]) => ({ month, amount })).sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/** Revize edilen sürüm + `amendment` bağıyla ondan önceki sürümler (yenileme/ilk sözleşmede durur). */
+async function amendmentChainIds(tenantId: string, contractId: string | undefined): Promise<string[]> {
+  const ids: string[] = [];
+  let id = contractId;
+  while (id && !ids.includes(id)) {
+    ids.push(id);
+    const contract = await getContract(tenantId, id);
+    id = contract?.contractType === "amendment" ? contract.previousContractId : undefined;
+  }
+  return ids;
+}
+
+/**
+ * Taksit planının İLK DÖNEM tutarı için kayıtta onaylanmış ilk tahsilat (önizleme ve kayıt AYNI kaynağı okur).
+ * - İlk sözleşme: kayıt ilk tahsilatı (formal süre).
+ * - Revizyon: aynı dönemin yeni sürümüdür — yalnız bu revizyon zincirine bağlı kayıt ilk tahsilatı. 2026-10-25:
+ *   eskiden yalnız ilk sözleşmede okunuyordu; revizyon ilk dönemi ders sayısından yeniden hesaplayıp onaylanmış tutarı
+ *   eziyordu (Ediz A. H.: Eylül 7.950 → 3.975), önizleme ise 7.950 gösteriyordu.
+ * - Yenileme: yeni dönemdir; önceki dönemin kayıt tahsilatı kullanılmaz (formdaki tahsilat geçerlidir).
+ * Revizyonda bilinçli bir ilk dönem değişikliği önizlemede tutar düzenlemesiyle (`installmentAmountOverrides`) yapılır.
+ */
+export async function registrationFirstPaymentForPlan(input: {
+  tenantId: string;
+  studentId: string;
+  contractType?: ContractType;
+  previousContractId?: string;
+  durationMonths: number;
+  scope?: import("./student-enrollments").EnrollmentScope;
+}): Promise<Payment | null> {
+  if (!isFormalContractDuration(input.durationMonths) || input.contractType === "renewal") return null;
+  const { getRegistrationFirstPayment } = await import("./store");
+  const p = await getRegistrationFirstPayment(input.studentId, input.scope);
+  if (!p || input.contractType !== "amendment") return p;
+  return p.contractId && (await amendmentChainIds(input.tenantId, input.previousContractId)).includes(p.contractId) ? p : null;
+}
+
 export async function computePriorContractCollected(tenantId: string, contractId: string): Promise<number> {
-  const rows = await listInstallmentsForContract(tenantId, contractId);
-  return rows.reduce((sum, r) => {
-    if (r.status === "voided") return sum;
-    if (r.status === "paid") return sum + (r.paidAmount > 0 ? r.paidAmount : r.amount);
-    return sum + Math.max(0, r.paidAmount);
-  }, 0);
+  return (await computePriorContractCollections(tenantId, contractId)).reduce((s, c) => s + c.amount, 0);
 }
 
 /**
@@ -969,7 +1088,19 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // Gerçek tahsil edilen ilk ödeme tutarı DOĞRUDAN motora verilir — eski
   // eşitlik kontrolü (aşağıdaki `else` dalı) burada GEREKSİZDİR: motor zaten
   // fiili tutarı satıra yazar, "eşleşmiyor" diye reddetmez.
-  const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount;
+  // Revizyonda kayıt ilk tahsilatı YALNIZ ilk dönem tutarı için okunur (satır yeniden bağlanmaz, eşitlik kontrolü yok).
+  const amendmentFirstPayment =
+    input.contractType === "amendment"
+      ? await registrationFirstPaymentForPlan({
+          tenantId: input.tenantId,
+          studentId: input.studentId,
+          contractType: input.contractType,
+          previousContractId: previous?.id,
+          durationMonths: input.durationMonths,
+          scope: input.registrationPaymentScope,
+        })
+      : null;
+  const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount ?? amendmentFirstPayment?.amount;
   const builtInstallments = input.perLessonBillingLines
     ? buildPerLessonInstallmentSchedule({
         billingLines: input.perLessonBillingLines,
@@ -1416,8 +1547,9 @@ export async function createContract(input: CreateContractInput): Promise<Create
   let amendmentCredit: { collected: number; applied: number; leftover: number } | undefined;
   try {
   if (input.contractType === "amendment" && previous) {
-    const collected = await computePriorContractCollected(input.tenantId, previous.id);
-    const allocated = allocatePriorCollections(installments, collected, previous.contractNumber);
+    const prior = await computePriorContractCollections(input.tenantId, previous.id);
+    const collected = prior.reduce((sum, c) => sum + c.amount, 0);
+    const allocated = allocatePriorCollections(installments, prior, previous.contractNumber);
     // Mahsupla tamamen kapanan satır yazılmaz (0 TL "bekliyor" borcu üretilmez).
     paymentRows = allocated.rows.filter((r) => r.amount > 0);
     amendmentCredit = { collected, applied: allocated.applied, leftover: allocated.leftover };

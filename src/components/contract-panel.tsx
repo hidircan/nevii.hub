@@ -34,6 +34,7 @@ import { friendlyApiErrorMessage } from "@/lib/api/friendly-error";
 import { actionUpdateStudentProfile } from "@/lib/actions";
 import { contractDateGuidance } from "@/lib/contract-date-guidance";
 import { clearContractDraft, hasContractDraft, useContractDraft } from "@/lib/contract-draft";
+import { installmentMonthShares } from "@/lib/attendance-calendar-plan";
 
 /** 2026-2027 sözleşme kaynağı — Fotoğraf/Video Açık Rıza Formu'nun 5 kanalı, HER BİRİ ayrı değerlendirilir. */
 const PHOTO_VIDEO_CONSENT_CHANNELS: { value: string; label: string }[] = [
@@ -92,6 +93,21 @@ type InstallmentPreviewRow = {
   computationSource?: "auto" | "manual";
   dueDateSource?: "auto" | "manual";
 };
+
+/** Birleşik ilk tahsilatın dönem tutarları — `installmentMonthShares` (elle tutar kayıt ayını değiştirir). */
+function breakdownShares(row: InstallmentPreviewRow): { periodLabel: string; amount: number; auto: number }[] {
+  const shares = installmentMonthShares({
+    id: String(row.sequence),
+    amount: row.amount,
+    paidAmount: 0,
+    dueDate: row.dueDate,
+    status: "pending",
+    installmentKind: row.kind,
+    installmentPeriodLabel: row.periodLabel,
+    installmentBreakdown: row.breakdown,
+  });
+  return (row.breakdown ?? []).map((b, i) => ({ periodLabel: b.periodLabel, auto: b.amount, amount: shares[i]?.amount ?? b.amount }));
+}
 
 const INSTALLMENT_KIND_LABELS: Record<string, string> = {
   deposit: "Kaparo",
@@ -2053,9 +2069,11 @@ function ContractForm({
                     {row.periodLabel ?? "—"}
                     {row.breakdown ? (
                       <ul className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
-                        {row.breakdown.map((b) => (
+                        {/* Dönem tutarı kayıt/takvim/ödeme ekranlarıyla AYNI kuraldan; elle tutarda otomatik bileşen ayrıca görünür. */}
+                        {breakdownShares(row).map((b) => (
                           <li key={b.periodLabel}>
                             {b.periodLabel}: {formatTL(b.amount)}
+                            {b.amount !== b.auto ? ` (otomatik ${formatTL(b.auto)})` : ""}
                           </li>
                         ))}
                       </ul>
