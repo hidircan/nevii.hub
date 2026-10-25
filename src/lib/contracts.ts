@@ -513,10 +513,7 @@ async function loadContractPeriodRows(tenantId: string, contractId: string): Pro
  */
 export async function computePriorContractCollections(tenantId: string, contractId: string): Promise<PriorCollection[]> {
   const byMonth = new Map<string, number>();
-  const visited = new Set<string>();
-  let id: string | undefined = contractId;
-  while (id && !visited.has(id)) {
-    visited.add(id);
+  for (const id of await amendmentChainIds(tenantId, contractId)) {
     for (const r of await loadContractPeriodRows(tenantId, id)) {
       if (r.status === "voided") continue;
       // Eski "ödendi" satırında paidAmount boş kalmışsa tutarın tamamı tahsil edilmiştir (`collectedAmountOf`).
@@ -525,10 +522,44 @@ export async function computePriorContractCollections(tenantId: string, contract
         if (share.paidAmount > 0) byMonth.set(share.month, (byMonth.get(share.month) ?? 0) + share.paidAmount);
       }
     }
+  }
+  return [...byMonth.entries()].map(([month, amount]) => ({ month, amount })).sort((a, b) => a.month.localeCompare(b.month));
+}
+
+/** Revize edilen sürüm + `amendment` bağıyla ondan önceki sürümler (yenileme/ilk sözleşmede durur). */
+async function amendmentChainIds(tenantId: string, contractId: string | undefined): Promise<string[]> {
+  const ids: string[] = [];
+  let id = contractId;
+  while (id && !ids.includes(id)) {
+    ids.push(id);
     const contract = await getContract(tenantId, id);
     id = contract?.contractType === "amendment" ? contract.previousContractId : undefined;
   }
-  return [...byMonth.entries()].map(([month, amount]) => ({ month, amount })).sort((a, b) => a.month.localeCompare(b.month));
+  return ids;
+}
+
+/**
+ * Taksit planının İLK DÖNEM tutarı için kayıtta onaylanmış ilk tahsilat (önizleme ve kayıt AYNI kaynağı okur).
+ * - İlk sözleşme: kayıt ilk tahsilatı (formal süre).
+ * - Revizyon: aynı dönemin yeni sürümüdür — yalnız bu revizyon zincirine bağlı kayıt ilk tahsilatı. 2026-10-25:
+ *   eskiden yalnız ilk sözleşmede okunuyordu; revizyon ilk dönemi ders sayısından yeniden hesaplayıp onaylanmış tutarı
+ *   eziyordu (Ediz A. H.: Eylül 7.950 → 3.975), önizleme ise 7.950 gösteriyordu.
+ * - Yenileme: yeni dönemdir; önceki dönemin kayıt tahsilatı kullanılmaz (formdaki tahsilat geçerlidir).
+ * Revizyonda bilinçli bir ilk dönem değişikliği önizlemede tutar düzenlemesiyle (`installmentAmountOverrides`) yapılır.
+ */
+export async function registrationFirstPaymentForPlan(input: {
+  tenantId: string;
+  studentId: string;
+  contractType?: ContractType;
+  previousContractId?: string;
+  durationMonths: number;
+  scope?: import("./student-enrollments").EnrollmentScope;
+}): Promise<Payment | null> {
+  if (!isFormalContractDuration(input.durationMonths) || input.contractType === "renewal") return null;
+  const { getRegistrationFirstPayment } = await import("./store");
+  const p = await getRegistrationFirstPayment(input.studentId, input.scope);
+  if (!p || input.contractType !== "amendment") return p;
+  return p.contractId && (await amendmentChainIds(input.tenantId, input.previousContractId)).includes(p.contractId) ? p : null;
 }
 
 export async function computePriorContractCollected(tenantId: string, contractId: string): Promise<number> {
@@ -1057,7 +1088,19 @@ export async function createContract(input: CreateContractInput): Promise<Create
   // Gerçek tahsil edilen ilk ödeme tutarı DOĞRUDAN motora verilir — eski
   // eşitlik kontrolü (aşağıdaki `else` dalı) burada GEREKSİZDİR: motor zaten
   // fiili tutarı satıra yazar, "eşleşmiyor" diye reddetmez.
-  const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount;
+  // Revizyonda kayıt ilk tahsilatı YALNIZ ilk dönem tutarı için okunur (satır yeniden bağlanmaz, eşitlik kontrolü yok).
+  const amendmentFirstPayment =
+    input.contractType === "amendment"
+      ? await registrationFirstPaymentForPlan({
+          tenantId: input.tenantId,
+          studentId: input.studentId,
+          contractType: input.contractType,
+          previousContractId: previous?.id,
+          durationMonths: input.durationMonths,
+          scope: input.registrationPaymentScope,
+        })
+      : null;
+  const firstPaymentActualAmount = registrationFirstPayment?.amount ?? input.firstPaymentCollected?.amount ?? amendmentFirstPayment?.amount;
   const builtInstallments = input.perLessonBillingLines
     ? buildPerLessonInstallmentSchedule({
         billingLines: input.perLessonBillingLines,

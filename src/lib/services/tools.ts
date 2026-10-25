@@ -16635,9 +16635,15 @@ export async function previewContractInstallmentPlanTool(
       // kullandığı AYNI kaynak ve AYNI koşul (yalnız FORMAL — >=3 ay — süre).
       // Bu olmadan/koşulsuz kullanılırsa önizleme her zaman otomatik tutarı
       // gösterir ya da informal (Tanışma) sürede create'ten FARKLI davranır.
-      const registrationFirstPayment = isFormalContractDuration(v.data.durationMonths)
-        ? await getRegistrationFirstPayment(student.id, firstPaymentScope)
-        : null;
+      const { registrationFirstPaymentForPlan } = await import("../contracts");
+      const registrationFirstPayment = await registrationFirstPaymentForPlan({
+        tenantId: ctx.tenantId,
+        studentId: student.id,
+        contractType: v.data.contractType,
+        previousContractId: v.data.previousContractId,
+        durationMonths: v.data.durationMonths,
+        scope: firstPaymentScope,
+      });
       installments = buildPerLessonInstallmentSchedule({
         billingLines,
         firstPeriodManualNetAmount:

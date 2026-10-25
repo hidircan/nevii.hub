@@ -273,6 +273,15 @@ describe("createStudentContractTool — revizyon (amendment)", () => {
     expect(amended.data.amendmentCredit?.collected).toBe(3000);
   });
 
+  it("2026-10-25: ilk dönem tutarı — önizleme ve kayıt aynı kaynağı okur; revizyon kayıtta onaylanan tutarı ezmez, yenileme kullanmaz", async () => {
+    const initial = await createInitial();
+    const { registrationFirstPaymentForPlan } = await import("../contracts");
+    const base = { tenantId: DEFAULT_TENANT_ID, studentId: "s1", durationMonths: 3 };
+    expect((await registrationFirstPaymentForPlan({ ...base, contractType: "amendment", previousContractId: initial.contract.id }))?.amount).toBe(3000);
+    expect(await registrationFirstPaymentForPlan({ ...base, contractType: "renewal", previousContractId: initial.contract.id })).toBeNull();
+    expect(await registrationFirstPaymentForPlan({ ...base, contractType: "amendment", previousContractId: "baska-zincir" })).toBeNull();
+  });
+
   it("2026-10-24: revize edilmiş sözleşmenin açık taksidine tahsilat yazılmaz (güncel sözleşmeye yönlendirir)", async () => {
     const initial = await createInitial();
     const v2 = await createStudentContractTool(adminCtx(), amendInput(initial.contract.id));
