@@ -18513,6 +18513,8 @@ async function loadCalendarPlanContracts(tenantId: string, studentId: string): P
     status: c.status,
     enrollmentStartDate: c.enrollmentStartDate,
     enrollmentEndDate: c.enrollmentEndDate,
+    contractType: c.contractType,
+    previousContractId: c.previousContractId,
   }));
 }
 
@@ -18978,6 +18980,10 @@ export async function collectAttendanceCalendarPaymentTool(
       );
     }
 
+    if (plan.state === "no_installment_for_month" && plan.coveredByPriorVersion) {
+      // Ay önceki sürümde tahsil edilip revizyonda mahsup edildi — önceki sürümün satırına ASLA yazılmaz.
+      return fail("CONFLICT", `${monthlyPlanPeriodLabel(v.data.month)}: ${plan.message} Tahsilat yazılmadı; ek ödeme için Ödemeler ekranını kullanın.`);
+    }
     if (plan.state === "no_installment_for_month") {
       // UAT 2026-09-25 — öğrencinin bu ayı kapsayan sözleşmesi var ama bu aya düşen taksiti yok:
       // serbest "aylık plan" satırı açmak sözleşmenin yanında İKİNCİ bir ödeme planı üretir.
@@ -19093,6 +19099,7 @@ export async function collectAttendanceCalendarPaymentTool(
           );
         const [ny, nm] = cursor.split("-").map(Number) as [number, number];
         const next = resolveContractPlanForMonth({ contracts: scopedContracts, installments: scopedPayments, year: ny, month: nm, studentMonthlyFee: branchFee });
+        if (next.state === "no_installment_for_month" && next.coveredByPriorVersion) continue; // önceki sürümde ödenmiş dönem
         if (next.state === "multiple_active_contracts" || next.state === "no_installment_for_month") return notDistributable(next.message);
         if (next.state === "no_active_contract") return notDistributable("bu ay için ödeme planı yok.");
         if (next.remaining <= 0 && next.paymentIds.length > 0) continue; // zaten ödenmiş/karşılanmış dönem

@@ -228,3 +228,25 @@ describe("2026-10-24 — ilk tahsilatın dönem dağılımı (Seres K. vakası, 
     );
   });
 });
+
+describe("2026-10-25 — revizyonda mahsupla kapanan ay önceki sürüm tahsilatını gösterir", () => {
+  it("v3'te Eylül satırı yok/iptal; v1 Eylül tahsilatı gösterilir, kalan 0; yenileme zincirinde gösterilmez", () => {
+    const chain = [
+      { ...ctr("v1", "superseded", "2026-09-19"), contractType: "initial" },
+      { ...ctr("v3", "generated"), contractType: "amendment", previousContractId: "v1" },
+    ];
+    const v1Paid = { ...staleFirst(), installmentKind: "first_collection" as const, paidAt: "2026-09-01T00:00:00.000Z", method: "transfer" };
+    const v3Sept = { ...v3Rows[0]!, status: "voided" };
+    const p = plan(chain, [v1Paid, v1Ekim, v3Sept, v3Rows[1]!], 9);
+    expect(p.state).toBe("no_installment_for_month");
+    if (p.state !== "no_installment_for_month") return;
+    expect(p.coveredByPriorVersion?.paidAmount).toBe(7950);
+    expect(p.coveredByPriorVersion?.collections.map((c) => c.paymentId)).toEqual(["first"]);
+    // Ekim kendi taksitinden okunur (aktarım yok).
+    const ekim = plan(chain, [v1Paid, v1Ekim, v3Sept, v3Rows[1]!], 10);
+    expect(ekim.state === "ok" && [ekim.paymentIds, ekim.remaining]).toEqual([["v3-ekim"], 7950]);
+    const renewal = chain.map((c) => (c.id === "v3" ? { ...c, contractType: "renewal" } : c));
+    const r = plan(renewal, [v1Paid, v3Sept], 9);
+    expect(r.state === "no_installment_for_month" && r.coveredByPriorVersion).toBeFalsy();
+  });
+});
