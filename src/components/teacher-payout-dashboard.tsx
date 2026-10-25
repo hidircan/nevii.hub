@@ -7,12 +7,13 @@
  * Kurallar sunucuda (payout-ledger.ts, teacher-payout.ts): ödenmiş kayıt yeniden yazılmaz, yanlış
  * ödeme/düzeltme ters kayıtla geri alınır, iptal yalnız ödemesiz kayıtta.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "@/components/link";
 import { Loader2 } from "lucide-react";
 import { startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";
 import { ModalShell, modalButton } from "@/components/modal-shell";
+import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import {
   actionAddTeacherPayoutAdjustment,
   actionAddTeacherPayoutPayment,
@@ -31,10 +32,40 @@ import {
 } from "@/lib/actions";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
+import {
+  filterPayoutLines,
+  sortPayoutLines,
+  type PayoutLineExcludeState,
+  type PayoutLineFilterStatus,
+  type PayoutLineSortKey,
+} from "@/lib/payout-line-filter";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Nakit", transfer: "Havale" };
 const STATUS_LABEL: Record<string, string> = { pending: "Bekliyor", partial: "Kısmi ödendi", paid: "Ödendi", cancelled: "İptal" };
 const MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+/** Ders kalemleri listesi: sayfa boyutları + varsayılan (25). */
+const PAYOUT_PAGE_SIZES = [10, 25, 50, 100] as const;
+/** Ders türü etiketleri — dökümdeki kanonik sınıflandırma (`regular` grup oturum temsilcisini de kapsar). */
+const LESSON_TYPE_LABEL: Record<string, string> = { regular: "Bireysel", makeup: "Telafi", trial: "Deneme", group: "Kulüp" };
+const WEEKDAY_LABEL = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
+const WEEKDAY_OPTIONS = [1, 2, 3, 4, 5, 6, 0];
+const LINE_SORT_OPTIONS: { value: PayoutLineSortKey; label: string }[] = [
+  { value: "date-asc", label: "Tarih (eski → yeni)" },
+  { value: "date-desc", label: "Tarih (yeni → eski)" },
+  { value: "student", label: "Öğrenci adı" },
+  { value: "duration", label: "Süre" },
+  { value: "amount", label: "Hakediş tutarı" },
+];
+const LINE_STATUS_OPTIONS: { value: PayoutLineFilterStatus; label: string }[] = [
+  { value: "all", label: "Tüm durumlar" },
+  { value: "clean", label: "Sorunsuz" },
+  { value: "duration-exception", label: "Süre istisnası" },
+  { value: "missing-fee-rule", label: "Ücret kuralı eksik" },
+  { value: "missing-student", label: "Öğrenci eksik" },
+  { value: "missing-branch", label: "Şube eksik" },
+  { value: "revised", label: "Revize" },
+];
 
 function periodFor(year: number, month: number) {
   const anchor = new Date(year, month - 1, 1);
@@ -82,6 +113,20 @@ export function TeacherPayoutDashboard({
   const [createMethod, setCreateMethod] = useState<"" | "cash" | "transfer">("");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, Draft>>({});
+  // Ders kalemleri liste kontrolleri (local state — veri zaten yüklü, sunucuya gidilmez).
+  const [lineQuery, setLineQuery] = useState("");
+  const [lineFrom, setLineFrom] = useState("");
+  const [lineTo, setLineTo] = useState("");
+  const [lineWeekday, setLineWeekday] = useState("");
+  const [lineBranch, setLineBranch] = useState("");
+  const [lineInstrument, setLineInstrument] = useState("");
+  const [lineAttendance, setLineAttendance] = useState("");
+  const [lineLessonType, setLineLessonType] = useState("");
+  const [lineStatus, setLineStatus] = useState<PayoutLineFilterStatus>("all");
+  const [lineExceptionsOnly, setLineExceptionsOnly] = useState(false);
+  const [lineExcludeState, setLineExcludeState] = useState<PayoutLineExcludeState>("all");
+  const [lineSort, setLineSort] = useState<PayoutLineSortKey>("date-asc");
+  const [showLineFilters, setShowLineFilters] = useState(true);
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [form, setForm] = useState({ reason: "", password: "", amount: "", date: "", method: "" as "" | "cash" | "transfer", note: "" });
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -91,11 +136,137 @@ export function TeacherPayoutDashboard({
   const hasPayments = (existing?.paidAmount ?? 0) > 0.005;
   const periodLabel = format(new Date(year, month - 1, 1), "MMMM yyyy", { locale: tr });
 
+  // ─── Ders kalemleri: filtre + sıralama TÜM kümeye, sayfalama en son ───
+  const allLines = useMemo(() => (result.ok ? result.lines : []), [result]);
+  const lineSources = useMemo(() => (result.ok ? result.lineSources : {}), [result]);
+  const { periodStart: linePeriodStart, periodEnd: linePeriodEnd } = periodFor(year, month);
+  // Seçenekler yüklenen veriden üretilir — veride geçmeyen sahte seçenek olmaz.
+  const lineBranchOptions = useMemo(
+    () =>
+      Array.from(new Set(allLines.map((l) => l.branchName).filter((b): b is string => Boolean(b)))).sort((a, b) =>
+        a.localeCompare(b, "tr")
+      ),
+    [allLines]
+  );
+  const lineInstrumentOptions = useMemo(
+    () => Array.from(new Set(allLines.map((l) => l.instrument))).sort((a, b) => a.localeCompare(b, "tr")),
+    [allLines]
+  );
+  const lineAttendanceOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(allLines.map((l) => lineSources[l.lessonId]?.attendanceLabel).filter((a): a is string => Boolean(a)))
+      ).sort((a, b) => a.localeCompare(b, "tr")),
+    [allLines, lineSources]
+  );
+  const lineLessonTypeOptions = useMemo(
+    () => Array.from(new Set(allLines.map((l) => lineSources[l.lessonId]?.lessonType).filter((t): t is string => Boolean(t)))).sort(),
+    [allLines, lineSources]
+  );
+  const filteredLines = useMemo(
+    () =>
+      filterPayoutLines(allLines, lineSources, {
+        query: lineQuery,
+        from: lineFrom || undefined,
+        to: lineTo || undefined,
+        weekday: lineWeekday === "" ? undefined : Number(lineWeekday),
+        branch: lineBranch || undefined,
+        instrument: lineInstrument || undefined,
+        attendance: lineAttendance || undefined,
+        lessonType: lineLessonType || undefined,
+        status: lineStatus,
+        exceptionsOnly: lineExceptionsOnly,
+        excludeState: lineExcludeState,
+      }),
+    [
+      allLines,
+      lineSources,
+      lineQuery,
+      lineFrom,
+      lineTo,
+      lineWeekday,
+      lineBranch,
+      lineInstrument,
+      lineAttendance,
+      lineLessonType,
+      lineStatus,
+      lineExceptionsOnly,
+      lineExcludeState,
+    ]
+  );
+  const sortedLines = useMemo(() => sortPayoutLines(filteredLines, lineSort), [filteredLines, lineSort]);
+  const {
+    pageItems: visibleLines,
+    page: linePage,
+    setPage: setLinePage,
+    pageSize: linePageSize,
+    setPageSize: setLinePageSize,
+    totalPages: lineTotalPages,
+    totalCount: lineTotalCount,
+  } = usePagination(sortedLines, 25);
+  const activeLineFilterCount = [
+    lineQuery.trim() !== "",
+    lineFrom !== "",
+    lineTo !== "",
+    lineWeekday !== "",
+    lineBranch !== "",
+    lineInstrument !== "",
+    lineAttendance !== "",
+    lineLessonType !== "",
+    lineStatus !== "all",
+    lineExceptionsOnly,
+    lineExcludeState !== "all",
+  ].filter(Boolean).length;
+  const lineFiltersActive = activeLineFilterCount > 0;
+  // Dönem toplamı DEĞİŞMEZ — bu yalnızca filtrelenen satırların bilgi amaçlı toplamıdır.
+  const filteredLineTotal = Math.round(filteredLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+
+  function clearLineFilters() {
+    setLineQuery("");
+    setLineFrom("");
+    setLineTo("");
+    setLineWeekday("");
+    setLineBranch("");
+    setLineInstrument("");
+    setLineAttendance("");
+    setLineLessonType("");
+    setLineStatus("all");
+    setLineExceptionsOnly(false);
+    setLineExcludeState("all");
+    setLinePage(1);
+  }
+
+  function lineEmptyReason(): string {
+    if (lineFrom && lineTo && lineFrom > lineTo) {
+      return "Başlangıç tarihi bitiş tarihinden sonra; bu aralıkta ders olamaz.";
+    }
+    if ((lineFrom && lineFrom > linePeriodEnd) || (lineTo && lineTo < linePeriodStart)) {
+      return `Tarih aralığı seçili dönemin (${periodLabel}) dışında; bu dönemden ders içermez.`;
+    }
+    const parts: string[] = [];
+    if (lineQuery.trim()) parts.push(`"${lineQuery.trim()}" araması`);
+    if (lineFrom || lineTo) parts.push(`${lineFrom || "…"} – ${lineTo || "…"} aralığı`);
+    if (lineWeekday !== "") parts.push(`${WEEKDAY_LABEL[Number(lineWeekday)]} günleri`);
+    if (lineBranch) parts.push(`${lineBranch} şubesi`);
+    if (lineInstrument) parts.push(`${lineInstrument} branşı`);
+    if (lineAttendance) parts.push(`"${lineAttendance}" yoklaması`);
+    if (lineLessonType) parts.push(`${LESSON_TYPE_LABEL[lineLessonType] ?? lineLessonType} dersleri`);
+    if (lineStatus !== "all") parts.push(`"${LINE_STATUS_OPTIONS.find((o) => o.value === lineStatus)?.label ?? lineStatus}" durumu`);
+    if (lineExceptionsOnly) parts.push("yalnız istisnalılar");
+    if (lineExcludeState !== "all") parts.push(lineExcludeState === "included" ? "yalnız dahil olanlar" : "yalnız hariç tutulanlar");
+    return parts.length > 0
+      ? `Bu filtrelerle (${parts.join(" · ")}) eşleşen ders yok (${periodLabel} dönemi, ${allLines.length} ders içinden).`
+      : "Bu filtrelerle eşleşen ders yok.";
+  }
+
   async function load(y = year, m = month, keepMessage = false) {
     setLoading(true);
     if (!keepMessage) setMessage(null);
     setEditing(false);
     setDraft({});
+    // Ay/öğretmen bağlamı değiştiğinde ilk sayfaya dönülür; filtreler korunur
+    // (satır işlemleri sonrası liste yenilenince kullanıcının seçimi kaybolmaz).
+    setLinePage(1);
     const { periodStart, periodEnd } = periodFor(y, m);
     setResult(await actionComputeTeacherPayout({ teacherId, periodStart, periodEnd }));
     setLoading(false);
@@ -464,14 +635,260 @@ export function TeacherPayoutDashboard({
 
           {/* Ders kalemleri */}
           <Card className="overflow-x-auto p-0">
-            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] px-4 py-2.5">
               <h3 className="text-sm font-semibold">Ders kalemleri</h3>
-              <span className="text-xs text-[var(--color-text-muted)]">{existing?.hasSnapshot ? "Kayıttaki (donmuş) döküm" : "Canlı hesap"}</span>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {lineFiltersActive ? `${filteredLines.length}/${allLines.length} ders · ` : ""}
+                {existing?.hasSnapshot ? "Kayıttaki (donmuş) döküm" : "Canlı hesap"}
+              </span>
             </div>
+            {allLines.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-2.5">
+                <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                  Sıralama
+                  <Select
+                    value={lineSort}
+                    onChange={(e) => {
+                      setLineSort(e.target.value as PayoutLineSortKey);
+                      setLinePage(1);
+                    }}
+                    className="w-auto !py-1.5 text-sm"
+                    aria-label="Ders kalemleri sıralaması"
+                  >
+                    {LINE_SORT_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowLineFilters((v) => !v)}
+                  aria-expanded={showLineFilters}
+                  className="inline-flex items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+                >
+                  {showLineFilters ? "Filtreleri gizle" : "Filtreler"}
+                  {activeLineFilterCount > 0 ? ` (${activeLineFilterCount})` : ""}
+                </button>
+                {lineFiltersActive ? (
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    Filtrelenen sonuçların toplamı: <strong className="text-[var(--color-text)]">{formatMoney(filteredLineTotal)}</strong>
+                  </span>
+                ) : null}
+                {lineFiltersActive ? (
+                  <button type="button" onClick={clearLineFilters} className="ml-auto text-xs font-medium text-[var(--color-text-muted)] hover:text-rose-600">
+                    Tüm filtreleri temizle
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {allLines.length > 0 && showLineFilters ? (
+              <div className="space-y-2 border-b border-[var(--color-border)] px-4 py-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="search"
+                    value={lineQuery}
+                    onChange={(e) => {
+                      setLineQuery(e.target.value);
+                      setLinePage(1);
+                    }}
+                    placeholder="Öğrenci, şube veya branş ara"
+                    aria-label="Ders kalemlerinde ara"
+                    className="min-w-[180px] flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text)]"
+                  />
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Başlangıç
+                    <input
+                      type="date"
+                      value={lineFrom}
+                      min={linePeriodStart}
+                      max={linePeriodEnd}
+                      title={`Tarih aralığı seçili dönem içindedir (${periodLabel})`}
+                      onChange={(e) => {
+                        setLineFrom(e.target.value);
+                        setLinePage(1);
+                      }}
+                      aria-label="Başlangıç tarihi"
+                      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-muted)]"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Bitiş
+                    <input
+                      type="date"
+                      value={lineTo}
+                      min={linePeriodStart}
+                      max={linePeriodEnd}
+                      title={`Tarih aralığı seçili dönem içindedir (${periodLabel})`}
+                      onChange={(e) => {
+                        setLineTo(e.target.value);
+                        setLinePage(1);
+                      }}
+                      aria-label="Bitiş tarihi"
+                      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-muted)]"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Gün
+                    <Select
+                      value={lineWeekday}
+                      onChange={(e) => {
+                        setLineWeekday(e.target.value);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Haftanın gününe göre süz"
+                    >
+                      <option value="">Tümü</option>
+                      {WEEKDAY_OPTIONS.map((d) => (
+                        <option key={d} value={d}>
+                          {WEEKDAY_LABEL[d]}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Şube
+                    <Select
+                      value={lineBranch}
+                      onChange={(e) => {
+                        setLineBranch(e.target.value);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Şubeye göre süz"
+                    >
+                      <option value="">Tümü</option>
+                      {lineBranchOptions.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Branş
+                    <Select
+                      value={lineInstrument}
+                      onChange={(e) => {
+                        setLineInstrument(e.target.value);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Branşa göre süz"
+                    >
+                      <option value="">Tümü</option>
+                      {lineInstrumentOptions.map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Yoklama
+                    <Select
+                      value={lineAttendance}
+                      onChange={(e) => {
+                        setLineAttendance(e.target.value);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Yoklama durumuna göre süz"
+                    >
+                      <option value="">Tümü</option>
+                      {lineAttendanceOptions.map((a) => (
+                        <option key={a} value={a}>
+                          {a}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Ders türü
+                    <Select
+                      value={lineLessonType}
+                      onChange={(e) => {
+                        setLineLessonType(e.target.value);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Ders türüne göre süz"
+                    >
+                      <option value="">Tümü</option>
+                      {lineLessonTypeOptions.map((t) => (
+                        <option key={t} value={t}>
+                          {LESSON_TYPE_LABEL[t] ?? t}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Durum
+                    <Select
+                      value={lineStatus}
+                      onChange={(e) => {
+                        setLineStatus(e.target.value as PayoutLineFilterStatus);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Duruma göre süz"
+                    >
+                      {LINE_STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+                    Kapsam
+                    <Select
+                      value={lineExcludeState}
+                      onChange={(e) => {
+                        setLineExcludeState(e.target.value as PayoutLineExcludeState);
+                        setLinePage(1);
+                      }}
+                      className="w-auto !py-1.5 text-sm"
+                      aria-label="Dahil/hariç durumuna göre süz"
+                    >
+                      <option value="all">Dahil + hariç</option>
+                      <option value="included">Yalnız dahil olanlar</option>
+                      <option value="excluded">Yalnız hariç tutulanlar</option>
+                    </Select>
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-muted)]">
+                    <input
+                      type="checkbox"
+                      checked={lineExceptionsOnly}
+                      onChange={(e) => {
+                        setLineExceptionsOnly(e.target.checked);
+                        setLinePage(1);
+                      }}
+                    />
+                    Yalnız istisnalılar
+                  </label>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-muted)]">
+                  Filtreler seçili dönem içindedir ({periodLabel}); aralık girişleri dönem dışına taşarsa sonuç bulunamaz.
+                </p>
+              </div>
+            ) : null}
             {result.lines.length === 0 ? (
               <p className="p-6 text-center text-sm text-[var(--color-text-muted)]">{periodLabel} döneminde hakedişe konu ders yok.</p>
+            ) : visibleLines.length === 0 ? (
+              <div className="p-6 text-center">
+                <p className="text-sm text-[var(--color-text-muted)]">{lineEmptyReason()}</p>
+                <button type="button" onClick={clearLineFilters} className="mt-2 text-sm font-medium text-amber-700 hover:underline">
+                  Tüm filtreleri temizle
+                </button>
+              </div>
             ) : (
-              <table className="w-full min-w-[720px] text-left text-sm">
+              <>
+                <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
                   <tr>
                     <th className="px-3 py-2">Tarih</th>
@@ -483,7 +900,7 @@ export function TeacherPayoutDashboard({
                   </tr>
                 </thead>
                 <tbody>
-                  {result.lines.map((line) => {
+                  {visibleLines.map((line) => {
                     const src = result.lineSources[line.lessonId];
                     return (
                       <tr key={line.lessonId} className="border-t border-[var(--color-border)]">
@@ -576,6 +993,18 @@ export function TeacherPayoutDashboard({
                   })}
                 </tbody>
               </table>
+              <PaginationControls
+                page={linePage}
+                totalPages={lineTotalPages}
+                totalCount={lineTotalCount}
+                pageSize={linePageSize}
+                onPageChange={setLinePage}
+                onPageSizeChange={setLinePageSize}
+                pageSizeOptions={PAYOUT_PAGE_SIZES}
+                showPageNumbers
+                showRange
+              />
+              </>
             )}
             {(result.excludedLessons ?? []).length > 0 ? (
               <div className="border-t border-[var(--color-border)] px-4 py-3">
