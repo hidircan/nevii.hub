@@ -33,7 +33,7 @@ function scoreTone(score: number) {
 }
 
 const iconLinkClass =
-  "inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] text-[var(--color-text-muted)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]";
+  "inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] text-[var(--color-text-muted)] transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] lg:h-8 lg:w-8";
 
 export default async function OgretmenlerPage() {
   let session;
@@ -208,7 +208,7 @@ export default async function OgretmenlerPage() {
                   </span>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link href={href} className="truncate font-semibold text-[var(--color-text)] hover:text-[var(--color-primary)]">
+                      <Link href={href} className="min-w-0 truncate font-semibold text-[var(--color-text)] hover:text-[var(--color-primary)]">
                         {t.name}
                       </Link>
                       {t.displayId ? <span className="text-xs tabular-nums text-[var(--color-text-muted)]">{t.displayId}</span> : null}
@@ -222,7 +222,7 @@ export default async function OgretmenlerPage() {
                       ) : null}
                       {t.email ? (
                         <a href={`mailto:${t.email}`} className="inline-flex min-w-0 items-center gap-1 hover:text-[var(--color-primary)]">
-                          <Mail className="h-3 w-3 shrink-0" /> <span className="truncate">{t.email}</span>
+                          <Mail className="h-3 w-3 shrink-0" /> <span className="min-w-0 truncate">{t.email}</span>
                         </a>
                       ) : null}
                     </div>

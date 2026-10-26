@@ -1062,7 +1062,13 @@ export function StudentsTable({
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-left text-sm">
+        {/*
+         * Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar
+         * (documents-table / student-payment-history ile AYNI kalıp).
+         * Kolon gizlenmez, veri kaybı yok.
+         */}
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
               {canBulk ? (
@@ -1132,7 +1138,7 @@ export function StudentsTable({
                       href={`/panel/ogrenciler/${s.id}`}
                       className="block px-4 py-3 hover:bg-[var(--color-surface-muted)] focus-visible:bg-[var(--color-surface-muted)] focus-visible:outline-none"
                     >
-                      <p className="font-medium text-[var(--color-text)]">{s.name}</p>
+                      <p className="break-words font-medium text-[var(--color-text)]">{s.name}</p>
                       {!s.active ? <span className="text-xs font-medium text-[var(--color-danger)]">Pasif</span> : null}
                     </Link>
                   </td>
@@ -1248,6 +1254,7 @@ export function StudentsTable({
             )}
           </tbody>
         </table>
+        </div>
         <PaginationControls
           page={page}
           totalPages={totalPages}
