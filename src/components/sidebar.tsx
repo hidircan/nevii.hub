@@ -207,6 +207,7 @@ function SidebarNavBody({
   initialNavOrder,
   canViewFinanceAndStaffSummary,
   canViewTeacherEarnings,
+  layout = "docked",
 }: {
   pathname: string;
   role?: SessionRole;
@@ -215,34 +216,62 @@ function SidebarNavBody({
   initialNavOrder?: Record<string, string[]>;
   canViewFinanceAndStaffSummary: boolean;
   canViewTeacherEarnings: boolean;
+  /**
+   * `docked` (masaüstü): bölümler kayar, Sistem + Çıkış altta sabit kalır
+   * (mevcut davranış, değişmez). `scroll` (mobil drawer): Sistem + Çıkış
+   * dahil TÜM gövde tek kaydırıcıdadır — 8+ kalemlik Sistem bloğu kısa
+   * telefonda menünün yarısını sabit kaplamaz, en alttaki işlemler
+   * kaydırarak ulaşılır.
+   */
+  layout?: "docked" | "scroll";
 }) {
+  const mainSections = (
+    <>
+      <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.main} />
+      <NavSection sectionKey="finance" title="Finans" items={canViewTeacherEarnings ? PANEL_FINANCE_NAV : PANEL_FINANCE_NAV.filter((item) => item.href !== "/panel/hakedisler")} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.finance} />
+      <NavSection
+        sectionKey="ops"
+        title="Operasyonlar"
+        items={
+          canViewFinanceAndStaffSummary
+            ? PANEL_OPS_NAV
+            : PANEL_OPS_NAV.filter((item) => item.href !== "/panel/personel" && item.href !== "/panel/finans-ozeti")
+        }
+        pathname={pathname}
+        role={role}
+        collapsed={collapsed}
+        userKey={userKey}
+        serverOrder={initialNavOrder?.ops}
+      />
+      <NavSection sectionKey="ai" title="Yapay Zeka" items={PANEL_AI_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.ai} />
+    </>
+  );
+  const systemFooter = (
+    <>
+      <NavSection sectionKey="system" title="Sistem" items={PANEL_SYSTEM_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.system} />
+      <div className={cn("pt-1", collapsed ? "px-0 text-center" : "px-3")}>
+        <LogoutButton className="!text-xs" />
+      </div>
+    </>
+  );
+  if (layout === "scroll") {
+    return (
+      <nav aria-label="Panel bölümleri" className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-3 py-4">
+        {mainSections}
+        <div className="space-y-3 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+          {systemFooter}
+        </div>
+      </nav>
+    );
+  }
   return (
     <>
       <nav aria-label="Panel bölümleri" className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-3 py-4">
-        <NavSection sectionKey="main" items={PANEL_MAIN_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.main} />
-        <NavSection sectionKey="finance" title="Finans" items={canViewTeacherEarnings ? PANEL_FINANCE_NAV : PANEL_FINANCE_NAV.filter((item) => item.href !== "/panel/hakedisler")} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.finance} />
-        <NavSection
-          sectionKey="ops"
-          title="Operasyonlar"
-          items={
-            canViewFinanceAndStaffSummary
-              ? PANEL_OPS_NAV
-              : PANEL_OPS_NAV.filter((item) => item.href !== "/panel/personel" && item.href !== "/panel/finans-ozeti")
-          }
-          pathname={pathname}
-          role={role}
-          collapsed={collapsed}
-          userKey={userKey}
-          serverOrder={initialNavOrder?.ops}
-        />
-        <NavSection sectionKey="ai" title="Yapay Zeka" items={PANEL_AI_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.ai} />
+        {mainSections}
       </nav>
 
-      <div className="space-y-3 border-t px-3 py-4" style={{ borderColor: "var(--color-border)" }}>
-        <NavSection sectionKey="system" title="Sistem" items={PANEL_SYSTEM_NAV} pathname={pathname} role={role} collapsed={collapsed} userKey={userKey} serverOrder={initialNavOrder?.system} />
-        <div className={cn("pt-1", collapsed ? "px-0 text-center" : "px-3")}>
-          <LogoutButton className="!text-xs" />
-        </div>
+      <div className="shrink-0 space-y-3 border-t px-3 py-4" style={{ borderColor: "var(--color-border)" }}>
+        {systemFooter}
       </div>
     </>
   );
@@ -594,6 +623,7 @@ export function Sidebar({
           initialNavOrder={initialNavOrder}
           canViewFinanceAndStaffSummary={canViewFinanceAndStaffSummary}
           canViewTeacherEarnings={canViewTeacherEarnings}
+          layout="scroll"
         />
       </div>
     </aside>
