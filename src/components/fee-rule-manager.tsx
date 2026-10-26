@@ -236,7 +236,9 @@ export function FeeRuleManager({
             Henüz hiçbir öğretmen için ücret kuralı tanımlanmadı.
           </p>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+            {/* Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar (kolon gizlenmez). */}
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
               <tr>
                 <th className="px-4 py-3">Öğretmen</th>
@@ -287,6 +289,7 @@ export function FeeRuleManager({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 

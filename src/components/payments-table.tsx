@@ -175,7 +175,9 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
       </div>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-left text-sm">
+        {/* Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar (kolon gizlenmez). */}
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
             <tr>
               <th className="px-4 py-3">Öğrenci</th>
@@ -201,7 +203,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
                 const sourceLabel = paymentSourceLabel(p);
                 return (
                 <tr key={p.id} className="border-b border-[var(--color-border)]">
-                  <td className="px-4 py-3 font-medium text-[var(--color-text)]">
+                  <td className="break-words px-4 py-3 font-medium text-[var(--color-text)]">
                     <Link
                       href={`/panel/odemeler/${p.studentId}`}
                       className="hover:text-[var(--color-primary)] hover:underline"
@@ -302,6 +304,7 @@ export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: Pay
             )}
           </tbody>
         </table>
+        </div>
         <PaginationControls
           page={page}
           totalPages={totalPages}

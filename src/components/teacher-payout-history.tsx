@@ -23,7 +23,9 @@ export function TeacherPayoutHistory({ payouts }: { payouts: TeacherPayout[] }) 
           </Card>
         ) : (
           <Card className="overflow-hidden p-0">
-            <table className="w-full text-left text-sm">
+            {/* Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar (kolon gizlenmez). */}
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
               <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
                 <tr>
                   <th className="px-4 py-3">Ödeme tarihi</th>
@@ -47,6 +49,7 @@ export function TeacherPayoutHistory({ payouts }: { payouts: TeacherPayout[] }) 
                 ))}
               </tbody>
             </table>
+            </div>
           </Card>
         )}
       </div>
