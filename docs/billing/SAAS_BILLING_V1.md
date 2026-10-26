@@ -84,5 +84,8 @@ bekliyor. Mock testler gerçek tahsilat kanıtı DEĞİLDİR.**
 
 - iyzico kodu henüz sandbox görmedi; kart-güncelleme ve retrieve yanıt şekilleri E2E'de doğrulanmalı.
 - Trial rate-limit süreç-içi (V2: dağıtık).
+- Deneme bitiş uyarılarının zamanlanmış gönderimi yok (bilinçli: yeni cron
+  açılmadı; `shouldSendTrialReminder` + `sendTrialReminderEmail` hazır,
+  zamanlama SMTP kararıyla birlikte owner onayı bekler).
 - Offline mobil hakkı: istemci en fazla 24 saat önbellekler (istemci sürümüyle duyurulur).
 - `apps/mobile` lint hatası pre-existing (dokunulmadı).
