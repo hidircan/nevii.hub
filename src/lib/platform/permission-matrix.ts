@@ -35,6 +35,7 @@ export const PERM_RESOURCES = {
   appearance: "Appearance",
   integrations: "Entegrasyonlar",
   packages: "Paketler",
+  saas_billing: "SaaS abonelik tahsilatı",
   entitlements: "Entitlement",
   feature_flags: "Feature flag",
   audit: "Audit",
@@ -57,6 +58,7 @@ export type Grant = { resource: PermResource; action: PermAction; scope: PermSco
 /** Yalnız platform kapsamında anlamlı kaynaklar — tenant rolleri/özel roller alamaz. */
 export const PLATFORM_ONLY_RESOURCES: readonly PermResource[] = [
   "packages",
+  "saas_billing",
   "entitlements",
   "feature_flags",
   "support_access",
@@ -256,6 +258,7 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
   { id: "platform.ops.sessions", label: "Canlı operasyon", area: "platform", path: "/platform/operasyon/aktif-oturumlar", requires: P("users", "manage"), keywords: ["oturum", "session", "canlı", "aktif"] },
   { id: "platform.ops.retention", label: "Log saklama", area: "platform", path: "/platform/operasyon/log-politikasi", requires: P("audit", "configure"), keywords: ["log", "retention", "temizlik"] },
   { id: "platform.packages", label: "Paketler ve fiyat", area: "platform", path: "/platform/paketler", requires: P("packages", "manage"), keywords: ["paket", "fiyat", "addon", "modül"] },
+  { id: "platform.billing", label: "Abonelik tahsilatı", area: "platform", path: "/platform/fatura", requires: P("saas_billing", "manage"), keywords: ["abonelik", "tahsilat", "fatura", "deneme", "kampanya", "webhook"] },
   { id: "platform.release", label: "Release merkezi", area: "platform", path: "/platform/release-merkezi", requires: P("audit"), keywords: ["release", "sürüm", "deploy"] },
   { id: "platform.release.versions", label: "Sürümler", area: "platform", path: "/platform/surumler", requires: P("audit"), hiddenInNav: true, keywords: ["sürüm", "version", "commit"] },
   { id: "platform.release.deployments", label: "Deploymentlar", area: "platform", path: "/platform/deploymentlar", requires: P("audit"), hiddenInNav: true, keywords: ["deployment", "vercel"] },

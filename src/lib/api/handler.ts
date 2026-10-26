@@ -132,6 +132,31 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
         }
 
         ctx = buildServiceContext(auth.user, request, requestId);
+
+        // SaaS abonelik enforcement (V1): ödeme hakkı bitmiş + enforcement
+        // açık kurumlarda işlevsel API'ler kısıtlanır. Ödeme/kart/destek/
+        // hesap yolları + HYPER_ADMIN muaftır (bkz. isBillingExemptPath).
+        // Varsayılan KAPALI (legacy/managed) → mevcut davranış değişmez.
+        // Mobil istemci aynı API'yi kullandığı için otomatik kapsanır.
+        const { assertSaasAccess } = await import("../saas-billing/enforcement");
+        const saasGate = await assertSaasAccess({
+          role: auth.user.role,
+          tenantId: auth.user.tenantId,
+          path: new URL(request.url).pathname,
+        });
+        if (!saasGate.ok) {
+          auditLog({
+            action: "saas.access_denied",
+            requestId,
+            userId: auth.user.userId,
+            tenantId: auth.user.tenantId,
+            role: auth.user.role,
+            path: new URL(request.url).pathname,
+            method: request.method,
+            outcome: "denied",
+          });
+          return fromServiceResult(saasGate);
+        }
       }
 
       const url = new URL(request.url);

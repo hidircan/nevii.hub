@@ -162,6 +162,11 @@ export function HeroSection() {
             {SITE_HERO.secondaryCta.label}
           </a>
         </div>
+        <p className="mt-4 text-sm">
+          <a href="#platform" className={`font-medium text-amber-700 hover:text-amber-800 ${FOCUS_RING}`}>
+            Platformu tanıyın →
+          </a>
+        </p>
       </div>
     </section>
   );

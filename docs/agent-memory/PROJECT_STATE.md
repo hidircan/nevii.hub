@@ -11,6 +11,20 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
+## Güncel snapshot — 2026-10-26 (SaaS abonelik V1)
+
+- **Dal:** `feat/saas-billing-v1` (HEAD `fbe6f63`, local commit bekliyor). **Migration (additive, UYGULANMADI):**
+  `20261026090000_saas_billing_v1` — 6 yeni tablo; Payment/Contract/Payout'a dokunulmaz.
+- Kapsam: katalog genişletme + iyzico Abonelik sandbox istemcisi (mock etiketli) + durum
+  makinesi + webhook inbox/mutabakat + enforcement (varsayılan KAPALI) + trial + pilot
+  kampanya + NeviiAds köprüsü (varsayılan KAPALI) + `/abonelik`, `/deneme`, `/platform/fatura`.
+- Doğrulama: 51 yeni test geçti; typecheck/prisma validate/build geçti; kapsam lint temiz.
+  Gerçek iyzico sandbox E2E YAPILMADI (merchant anahtarları owner'da). Detay:
+  `docs/billing/SAAS_BILLING_V1.md` (UAT 15 adım + go-live listesi).
+- KRİTİK: `test.neviihub.com` prod'a 307 redirect (2026-10-25 ölçüm) — test hedefi
+  olarak KULLANILMAZ. Deploy yok; izole Preview/test-DB owner onayıyla doğrulanacak.
+- NeviiAds'e dokunulmadı (local); yeni cron/polling/senkron yok.
+
 ## Güncel snapshot — 2026-09-28 (NeviiOS Control Center)
 - **Dal:** `feat/neviios-control-recovery` → `test` (`e73aee9`). **Migration yok.**
   6 commit: mobil kontrol matrisi + marka doğrulama; Expo policy kapısı;

@@ -20,6 +20,7 @@ export const SITE_NAV: NavItem[] = [
   { label: "Özellikler", href: "#ozellikler" },
   { label: "Referanslar", href: "#referanslar" },
   { label: "Fiyatlandırma", href: "#fiyatlandirma" },
+  { label: "Ücretsiz Dene", href: "/deneme" },
   { label: "İletişim", href: "#iletisim" },
 ];
 
@@ -28,7 +29,7 @@ export const SITE_HERO = {
   subline:
     "Program, yoklama, telafi, sözleşme ve tahsilat yönetimi; öğretmen ve veli portallarıyla birlikte. Kuruma özel, çok şubeli ve güvenli.",
   primaryCta: { label: "Giriş Yap", href: "/login" },
-  secondaryCta: { label: "Platformu Tanıyın", href: "#platform" },
+  secondaryCta: { label: "30 gün ücretsiz dene", href: "/deneme" },
 };
 
 export type FeatureItem = { title: string; description: string };

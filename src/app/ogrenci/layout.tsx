@@ -21,6 +21,17 @@ export default async function OgrenciLayout({ children }: { children: React.Reac
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
 
+  // SaaS enforcement: kısıtlı kurumda güvenli bilgi ekranı (finansal detay yok).
+  const { decideSaasAccess } = await import("@/lib/saas-billing/enforcement");
+  if (!(await decideSaasAccess(session.tenantId)).allowed) {
+    const { SubscriptionInactive } = await import("@/components/billing/subscription-inactive");
+    return (
+      <div className="min-h-screen bg-white">
+        <SubscriptionInactive canManageBilling={false} />
+      </div>
+    );
+  }
+
   const [user, jar] = await Promise.all([getUserById(session.userId), cookies()]);
   const density = normalizeDensity(jar.get(DENSITY_COOKIE)?.value);
   const presentation = normalizePortalPresentation(jar.get(PORTAL_PRESENTATION_COOKIE)?.value);

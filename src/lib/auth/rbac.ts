@@ -14,6 +14,8 @@ export type Permission =
   | "students:write"
   | "payments:write"
   | "payments:checkout"
+  | "billing:read"
+  | "billing:write"
   | "messages:send"
   | "tools:catalog"
   | "demo:reset"
@@ -124,6 +126,8 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "tasks:write",
     "contracts:read",
     "contracts:write",
+    "billing:read",
+    "billing:write",
   ],
   SCHOOL_ADMIN: [
     "attendance:write",
@@ -168,6 +172,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "tasks:write",
     "contracts:read",
     "contracts:write",
+    "billing:read",
   ],
   TEACHER: [
     "attendance:write",

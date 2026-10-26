@@ -87,6 +87,14 @@ model Tenant {
   profilePhotos               ProfilePhoto[]
   passwordResetTokens         PasswordResetToken[]
   emailChangeTokens           EmailChangeToken[]
+  /// SaaS abonelik katmanı (kurum→NeviiHub). Öğrenci sözleşme/taksit/
+  /// tahsilat (`Payment`) ve öğretmen hakediş (`TeacherPayout`) tablolarından
+  /// TAMAMEN AYRI — bu ilişki dışında o tablolara dokunulmaz.
+  saasSubscription            SaasSubscription?
+  saasCollectionAttempts      SaasCollectionAttempt[]
+  saasWebhookEvents           SaasWebhookEvent[]
+  saasCampaigns               SaasCampaign[]
+  saasCheckoutInvitations     SaasCheckoutInvitation[]
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
 }
@@ -2619,4 +2627,185 @@ model PlatformDeployment {
   createdAt   DateTime @default(now())
 
   @@index([product, environment, createdAt])
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// SaaS abonelik katmanı (kurum→NeviiHub V1).
+/// Öğrenci finansmanından (Payment/StudentContract/TeacherPayout) ayrıdır;
+/// bu modeller o tablolara FK taşımaz ve onları değiştirmez.
+/// Para: minor-unit Int (TRY kuruş). Float YOK.
+/// ─────────────────────────────────────────────────────────────
+
+/// Kurum başına TEK satır (tenantId unique). Geçmiş: collection attempts +
+/// webhook inbox + PlatformAuditEvent üzerinden izlenir, satır silinmez.
+/// status: pending | trialing | active | past_due | suspended | canceled | expired
+/// billingInterval: monthly | yearly
+model SaasSubscription {
+  id                   String    @id
+  tenantId             String    @unique
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planKey              String
+  catalogVersion       Int?
+  status               String    @default("pending")
+  billingInterval      String    @default("monthly")
+  currency             String    @default("TRY")
+  /// Kabul edilen fiyat/koşul snapshot'ı (katalog değişimi bunu değiştirmez).
+  priceSnapshot        Json
+  trialStartsAt        DateTime?
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  paidThrough          DateTime?
+  canceledAt           DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  provider             String    @default("iyzico")
+  providerCustomerRef  String?
+  providerSubscriptionRef String?
+  lastWebhookAt        DateTime?
+  lastReconciledAt     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  attempts SaasCollectionAttempt[]
+
+  @@index([status])
+  @@index([trialEndsAt])
+  @@index([currentPeriodEnd])
+}
+
+/// Dönem tahsilat denemesi. Tek dönem/tek başarılı tahsilat:
+/// idempotencyKey unique + (subscriptionId, periodStart, periodEnd, attemptNo).
+/// status: pending | succeeded | failed | voided
+/// İade/chargeback AYRI kayıttır (kind), geçmiş satır silinmez/değişmez.
+model SaasCollectionAttempt {
+  id             String   @id
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription   SaasSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  periodStart    DateTime
+  periodEnd      DateTime
+  amountMinor    Int
+  currency       String   @default("TRY")
+  status         String   @default("pending")
+  /// charge | refund | chargeback
+  kind           String   @default("charge")
+  attemptNo      Int      @default(1)
+  idempotencyKey String   @unique
+  providerRef    String?
+  providerEventId String?
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId, subscriptionId])
+  @@index([subscriptionId, periodStart, periodEnd])
+  @@index([status])
+}
+
+/// Sağlayıcı webhook inbox'u. eventId unique → yinelenen teslimat tek etki.
+/// status: received | processed | failed | ignored
+model SaasWebhookEvent {
+  id             String    @id
+  provider       String
+  eventId        String    @unique
+  eventType      String
+  tenantId       String?
+  tenant         Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  /// Sınırlı payload (kart/PAN asla yok; gereksiz alanlar atılır).
+  payload        Json
+  signatureValid Boolean
+  status         String    @default("received")
+  processedAt    DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@index([provider, eventType])
+  @@index([status])
+  @@index([tenantId])
+}
+
+/// Pilot/özel kampanya. Public kupon YOK — yalnız sunucu doğrular ve pilot
+/// kurum bağını (tenantId) şart koşar. Ömür boyu indirim varsayılmaz:
+/// maxRenewals + validTo + postCampaignNote zorunlu alanlardır.
+model SaasCampaign {
+  id             String    @id
+  name           String
+  /// Pilot kurum bağı (null = henüz atanmamış, kullanılamaz).
+  tenantId       String?
+  tenant         Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Sunucu-içi referans (public kupon değildir, URL'ye konmaz).
+  code           String    @unique
+  /// fixed_minor | percent
+  discountType   String
+  amountMinor    Int?
+  percent        Int?
+  /// monthly | yearly | both
+  intervalScope  String    @default("both")
+  validFrom      DateTime?
+  validTo        DateTime?
+  maxRenewals    Int?
+  maxRedemptions Int?
+  redeemedCount  Int       @default(0)
+  /// Kampanya sonrası uygulanacak fiyatın açıklaması (örn. "liste fiyatı").
+  postCampaignNote String
+  active         Boolean   @default(true)
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  invitations SaasCheckoutInvitation[]
+
+  @@index([tenantId])
+  @@index([active])
+}
+
+/// Güvenli checkout daveti (NeviiAds kabulünden aboneliğe köprü).
+/// URL'de sır/kişisel veri taşınmaz — token rastgele, DB'de hash'li.
+/// Aynı tekliften çift abonelik yok: servis katmanı (proposalId,
+/// proposalVersion) ikilisini idempotent işler.
+model SaasCheckoutInvitation {
+  id              String    @id
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  proposalId      String?
+  proposalVersion Int?
+  campaignId      String?
+  campaign        SaasCampaign? @relation(fields: [campaignId], references: [id])
+  planKey         String
+  billingInterval String    @default("monthly")
+  currency        String    @default("TRY")
+  /// Yalnız görüntüleme; tahsilat tutarı sunucuda yeniden hesaplanır.
+  displayAmountMinor Int
+  tokenHash       String    @unique
+  /// pending | consumed | expired | revoked
+  status          String    @default("pending")
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedBy      String?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+
+  @@index([tenantId, status])
+  @@index([proposalId, proposalVersion])
+  @@index([expiresAt])
+}
+
+/// Herkese açık deneme başvurusu (/deneme). Tenant FK YOK: kurum henüz
+/// açılmamış olabilir. Onay → güvenli tenant açılışı (mevcut davet akışı) →
+/// deneme başlatma. status: pending | approved | rejected | converted
+model SaasTrialRequest {
+  id              String    @id
+  institutionName String
+  ownerName       String
+  ownerEmail      String
+  ownerPhone      String?
+  status          String    @default("pending")
+  tenantId        String?
+  decidedBy       String?
+  decidedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([status])
+  @@index([ownerEmail])
 }

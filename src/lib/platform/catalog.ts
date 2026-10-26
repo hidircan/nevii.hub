@@ -196,6 +196,24 @@ export const SETTING_CATALOG: SettingDefinition[] = [
     platformOnly: true,
     critical: true,
   }),
+
+  // ── SaaS abonelik enforcement (V1) ──
+  s("billing.enforcement", "subscription", "boolean", false, "SaaS abonelik enforcement (kapalı = legacy/managed kapsam, erişim kısıtlanmaz; açık = ödeme yoksa işlevsel erişim kısıtlanır)", {
+    platformOnly: true,
+    critical: true,
+  }),
+  s("billing.graceDays", "subscription", "number", 0, "Ödenmiş süre sonrası ek tolerans (gün); varsayılan 0, NeviiOS'tan ayarlanır", {
+    min: 0,
+    max: 30,
+    platformOnly: true,
+  }),
+  s("billing.trialPlanKey", "subscription", "string", "core", "Deneme paketi (NeviiOS'tan yapılandırılır)", {
+    platformOnly: true,
+  }),
+  s("billing.exception", "subscription", "json", null, "HYPER_ADMIN manuel süre/istisna — {until, reason, by}; ödenmiş kaydı taklit etmez", {
+    platformOnly: true,
+    critical: true,
+  }),
   s("forms.studentRegistration", "forms", "json", { fields: [] }, "Yeni Öğrenci Kaydı alan konfigürasyonu", {
     critical: true,
   }),
@@ -307,6 +325,13 @@ const JSON_SETTING_SCHEMAS: Record<string, z.ZodType<unknown>> = {
   "communication.inviteTemplate": messageTemplateSchema,
   "communication.quietHours": quietHoursSchema,
   "subscription.snapshot": subscriptionSnapshotSchema,
+  "billing.exception": z
+    .object({
+      until: z.iso.datetime({ message: "İstisna bitiş zamanı ISO formatında olmalı" }),
+      reason: z.string().trim().min(10, "İstisna gerekçesi en az 10 karakter olmalı").max(300),
+      by: z.string().min(1),
+    })
+    .nullable(),
   "retention.days": z.partialRecord(z.enum(DELETABLE_RETENTION_CATEGORIES), z.number().int().min(7).max(3650)),
   "mobile.minVersion": z.object({
     ios: z.string().regex(/^\d+\.\d+\.\d+$/, "Sürüm x.y.z olmalı"),
