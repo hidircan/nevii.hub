@@ -36,6 +36,8 @@ export async function getBillingOverview() {
       canceledAt: s.canceledAt,
       cancelAtPeriodEnd: s.cancelAtPeriodEnd,
       provider: s.provider,
+      executionModel: s.executionModel,
+      merchantAccount: s.merchantAccount,
       providerSubscriptionRef: s.providerSubscriptionRef,
       lastWebhookAt: s.lastWebhookAt,
       lastReconciledAt: s.lastReconciledAt,

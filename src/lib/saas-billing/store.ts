@@ -121,6 +121,61 @@ async function writeState(next: SaasBillingFile): Promise<void> {
   });
 }
 
+/**
+ * Kilit ZATEN alınmış bölümlerde kullanılır (withFileLock içi).
+ * writeState çağrılırsa aynı anahtarda özyinelemeli kilitlenme olur.
+ */
+async function commitLockedState(next: SaasBillingFile): Promise<void> {
+  if (isMemoryMode) {
+    memoryState = next;
+    return;
+  }
+  await writeJsonFileAtomic(SAAS_BILLING_STORE_FILE, next);
+}
+
+/**
+ * DB satır → kayıt eşlemesi. Prisma DateTime'ları Date döner; kayıt
+ * sözleşmesi ISO string'dir. Eşleme yapılmazsa dönem karşılaştırmaları
+ * (`===`) db modunda sessizce yanlış sonuç verir.
+ */
+function iso(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+function isoOrNull(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+function mapSubscriptionRow(row: Record<string, unknown>): SaasSubscriptionRecord {
+  return {
+    ...(row as unknown as SaasSubscriptionRecord),
+    priceSnapshot: row.priceSnapshot as SaasSubscriptionRecord["priceSnapshot"],
+    providerLinks: (row.providerLinks as SaasSubscriptionRecord["providerLinks"]) ?? [],
+    trialStartsAt: isoOrNull(row.trialStartsAt),
+    trialEndsAt: isoOrNull(row.trialEndsAt),
+    currentPeriodStart: isoOrNull(row.currentPeriodStart),
+    currentPeriodEnd: isoOrNull(row.currentPeriodEnd),
+    paidThrough: isoOrNull(row.paidThrough),
+    canceledAt: isoOrNull(row.canceledAt),
+    lastWebhookAt: isoOrNull(row.lastWebhookAt),
+    lastReconciledAt: isoOrNull(row.lastReconciledAt),
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  };
+}
+
+function mapAttemptRow(row: Record<string, unknown>): SaasCollectionAttemptRecord {
+  return {
+    ...(row as unknown as SaasCollectionAttemptRecord),
+    periodStart: iso(row.periodStart),
+    periodEnd: iso(row.periodEnd),
+    sentAt: isoOrNull(row.sentAt),
+    retryable: (row.retryable as boolean | null) ?? null,
+    createdAt: iso(row.createdAt),
+  };
+}
+
 /** Test izolasyonu: dosya/bellek deposunu sıfırlar (yalnız testlerde çağrılır). */
 export async function __resetSaasBillingStoreForTests(): Promise<void> {
   if (isDbMode) {
@@ -146,7 +201,7 @@ export async function getSaasSubscription(
   if (isDbMode) {
     try {
       const row = await prisma.saasSubscription.findUnique({ where: { tenantId } });
-      return row ? (row as unknown as SaasSubscriptionRecord) : null;
+      return row ? mapSubscriptionRow(row as unknown as Record<string, unknown>) : null;
     } catch (e) {
       dbFailClosed(e);
     }
@@ -175,8 +230,15 @@ export async function upsertSaasSubscription(
         canceledAt: record.canceledAt ? new Date(record.canceledAt) : null,
         cancelAtPeriodEnd: record.cancelAtPeriodEnd,
         provider: record.provider,
+        executionModel: record.executionModel,
+        merchantAccount: record.merchantAccount,
         providerCustomerRef: record.providerCustomerRef,
         providerSubscriptionRef: record.providerSubscriptionRef,
+        providerCardRef: record.providerCardRef,
+        providerLinks: (record.providerLinks ?? []) as object,
+        billingTimeZone: record.billingTimeZone || "UTC",
+        billingEmail: record.billingEmail || "",
+        billingUserIp: record.billingUserIp || "",
         lastWebhookAt: record.lastWebhookAt ? new Date(record.lastWebhookAt) : null,
         lastReconciledAt: record.lastReconciledAt ? new Date(record.lastReconciledAt) : null,
       };
@@ -185,7 +247,7 @@ export async function upsertSaasSubscription(
         create: { id: record.id, tenantId: record.tenantId, ...data },
         update: data,
       });
-      return row as unknown as SaasSubscriptionRecord;
+      return mapSubscriptionRow(row as unknown as Record<string, unknown>);
     } catch (e) {
       dbFailClosed(e);
     }
@@ -205,7 +267,7 @@ export async function getSaasSubscriptionById(
   if (isDbMode) {
     try {
       const row = await prisma.saasSubscription.findUnique({ where: { id } });
-      return row ? (row as unknown as SaasSubscriptionRecord) : null;
+      return row ? mapSubscriptionRow(row as unknown as Record<string, unknown>) : null;
     } catch (e) {
       dbFailClosed(e);
     }
@@ -223,7 +285,7 @@ export async function listSaasSubscriptions(limit = 100): Promise<SaasSubscripti
         take: n,
         orderBy: { updatedAt: "desc" },
       });
-      return rows as unknown as SaasSubscriptionRecord[];
+      return rows.map((r) => mapSubscriptionRow(r as unknown as Record<string, unknown>));
     } catch (e) {
       dbFailClosed(e);
     }
@@ -242,13 +304,17 @@ export async function getAttemptByIdempotencyKey(
   if (isDbMode) {
     try {
       const row = await prisma.saasCollectionAttempt.findUnique({ where: { idempotencyKey } });
-      return row ? (row as unknown as SaasCollectionAttemptRecord) : null;
+      return row ? mapAttemptRow(row as unknown as Record<string, unknown>) : null;
     } catch (e) {
       dbFailClosed(e);
     }
   }
   const s = await readState();
   return s.attempts.find((x) => x.idempotencyKey === idempotencyKey) ?? null;
+}
+
+function isOpenClaimStatus(s: string): boolean {
+  return s === "pending" || s === "uncertain";
 }
 
 /** Idempotent kayıt: aynı key varsa mevcut döner, ikinci satır yazılmaz. */
@@ -266,34 +332,276 @@ export async function recordSaasAttempt(
           subscriptionId: attempt.subscriptionId,
           periodStart: new Date(attempt.periodStart),
           periodEnd: new Date(attempt.periodEnd),
+          debtKey: attempt.debtKey,
           amountMinor: attempt.amountMinor,
           currency: attempt.currency,
           status: attempt.status,
           kind: attempt.kind,
           attemptNo: attempt.attemptNo,
           idempotencyKey: attempt.idempotencyKey,
+          provider: attempt.provider,
+          merchantAccount: attempt.merchantAccount,
           providerRef: attempt.providerRef,
           providerEventId: attempt.providerEventId,
           error: attempt.error,
+          sentAt: attempt.sentAt ? new Date(attempt.sentAt) : null,
+          retryable: attempt.retryable,
         },
       });
-      return { record: row as unknown as SaasCollectionAttemptRecord, duplicate: false };
+      return { record: mapAttemptRow(row as unknown as Record<string, unknown>), duplicate: false };
     } catch (e: unknown) {
-      // Yarışta unique ihlali → mevcut kaydı dön (idempotent).
+      // Yarışta unique ihlali (idempotency / açık-claim / dönem-success) →
+      // mevcut kaydı dön (idempotent, ikinci etki yok).
       if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
         const row = await prisma.saasCollectionAttempt.findUnique({
           where: { idempotencyKey: attempt.idempotencyKey },
         });
-        if (row) return { record: row as unknown as SaasCollectionAttemptRecord, duplicate: true };
+        if (row) return { record: mapAttemptRow(row as unknown as Record<string, unknown>), duplicate: true };
+        const clash = await prisma.saasCollectionAttempt.findFirst({
+          where: {
+            subscriptionId: attempt.subscriptionId,
+            periodStart: new Date(attempt.periodStart),
+            kind: "charge",
+            status: attempt.status === "succeeded" ? "succeeded" : { in: ["pending", "uncertain"] },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        if (clash) return { record: mapAttemptRow(clash as unknown as Record<string, unknown>), duplicate: true };
       }
       dbFailClosed(e);
     }
   }
-  const s = await readState();
-  const next = clone(s);
-  next.attempts.push(clone(attempt));
-  await writeState(next);
-  return { record: attempt, duplicate: false };
+  // JSON modu: kontrol + yazım dosya kilidi altında (süreç-içi atomiklik;
+  // JSON zaten yalnızca local/test içindir, üretim db modudur).
+  return withFileLock(SAAS_BILLING_STORE_FILE, async () => {
+    const s = await readState();
+    const dup = s.attempts.find((x) => x.idempotencyKey === attempt.idempotencyKey);
+    if (dup) return { record: dup, duplicate: true };
+    if (attempt.kind === "charge" && isOpenClaimStatus(attempt.status)) {
+      const open = s.attempts.find(
+        (x) =>
+          x.subscriptionId === attempt.subscriptionId &&
+          x.periodStart === attempt.periodStart &&
+          x.kind === "charge" &&
+          isOpenClaimStatus(x.status)
+      );
+      if (open) return { record: open, duplicate: true };
+    }
+    if (attempt.kind === "charge" && attempt.status === "succeeded") {
+      const paid = s.attempts.find(
+        (x) =>
+          x.subscriptionId === attempt.subscriptionId &&
+          x.periodStart === attempt.periodStart &&
+          x.periodEnd === attempt.periodEnd &&
+          x.kind === "charge" &&
+          x.status === "succeeded"
+      );
+      if (paid) return { record: paid, duplicate: true };
+    }
+    const next = clone(s);
+    next.attempts.push(clone(attempt));
+    await commitLockedState(next);
+    return { record: attempt, duplicate: false };
+  });
+}
+
+export type ChargeClaimResult =
+  | { status: "claimed"; record: SaasCollectionAttemptRecord }
+  | { status: "busy"; record: SaasCollectionAttemptRecord }
+  | { status: "paid"; record: SaasCollectionAttemptRecord };
+
+/**
+ * Dış API çağrısından ÖNCE atomik iş sahiplenme (claim).
+ *
+ * - db: abonelik satırı `FOR UPDATE` ile kilitlenir; dönem ödenmişse "paid",
+ *   açık claim varsa "busy", yoksa pending claim yazılır ("claimed").
+ *   Kısmi unique index ikinci bir açık claim'i P2002 ile düşürür (backstop).
+ * - json: dosya kilidi altında aynı karar (süreç-içi; üretim db modudur).
+ *
+ * Dönen "claimed" kaydın `providerRef`i bu denemenin merchant karşılığıdır;
+ * crash sonrası uzlaştırma bu referansla yapılır.
+ */
+export async function claimChargeAttempt(args: {
+  id: string;
+  tenantId: string;
+  subscriptionId: string;
+  periodStart: string;
+  periodEnd: string;
+  debtKey: string;
+  amountMinor: number;
+  currency: SaasCollectionAttemptRecord["currency"];
+  attemptNo: number;
+  idempotencyKey: string;
+  provider: SaasCollectionAttemptRecord["provider"];
+  merchantAccount: string;
+  providerRef: string;
+  nowIso: string;
+}): Promise<ChargeClaimResult> {
+  if (isDbMode) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "SaasSubscription" WHERE "id" = ${args.subscriptionId} FOR UPDATE`;
+        const existing = await tx.saasCollectionAttempt.findMany({
+          where: { subscriptionId: args.subscriptionId, periodStart: new Date(args.periodStart), kind: "charge" },
+        });
+        const paid = existing.find((a) => a.status === "succeeded");
+        if (paid) return { status: "paid", record: mapAttemptRow(paid as unknown as Record<string, unknown>) };
+        const open = existing.find((a) => isOpenClaimStatus(a.status));
+        if (open) return { status: "busy", record: mapAttemptRow(open as unknown as Record<string, unknown>) };
+        const row = await tx.saasCollectionAttempt.create({
+          data: {
+            id: args.id,
+            tenantId: args.tenantId,
+            subscriptionId: args.subscriptionId,
+            periodStart: new Date(args.periodStart),
+            periodEnd: new Date(args.periodEnd),
+            debtKey: args.debtKey,
+            amountMinor: args.amountMinor,
+            currency: args.currency,
+            status: "pending",
+            kind: "charge",
+            attemptNo: args.attemptNo,
+            idempotencyKey: args.idempotencyKey,
+            provider: args.provider,
+            merchantAccount: args.merchantAccount,
+            providerRef: args.providerRef,
+            providerEventId: null,
+            error: null,
+            sentAt: null,
+            retryable: null,
+          },
+        });
+        return { status: "claimed", record: mapAttemptRow(row as unknown as Record<string, unknown>) };
+      });
+    } catch (e: unknown) {
+      if (typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "P2002") {
+        const row = await prisma.saasCollectionAttempt.findFirst({
+          where: {
+            subscriptionId: args.subscriptionId,
+            periodStart: new Date(args.periodStart),
+            kind: "charge",
+            status: { in: ["pending", "uncertain", "succeeded"] },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+        const record =
+          row != null
+            ? mapAttemptRow(row as unknown as Record<string, unknown>)
+            : ({ id: "", status: "pending" }) as unknown as SaasCollectionAttemptRecord;
+        return { status: row?.status === "succeeded" ? "paid" : "busy", record };
+      }
+      dbFailClosed(e);
+    }
+  }
+  return withFileLock(SAAS_BILLING_STORE_FILE, async () => {
+    const s = await readState();
+    const debt = s.attempts.filter(
+      (x) => x.subscriptionId === args.subscriptionId && x.periodStart === args.periodStart && x.kind === "charge"
+    );
+    const paid = debt.find((x) => x.status === "succeeded");
+    if (paid) return { status: "paid", record: paid };
+    const open = debt.find((x) => isOpenClaimStatus(x.status));
+    if (open) return { status: "busy", record: open };
+    const dup = s.attempts.find((x) => x.idempotencyKey === args.idempotencyKey);
+    if (dup) return { status: "busy", record: dup };
+    const record: SaasCollectionAttemptRecord = {
+      id: args.id,
+      tenantId: args.tenantId,
+      subscriptionId: args.subscriptionId,
+      periodStart: args.periodStart,
+      periodEnd: args.periodEnd,
+      debtKey: args.debtKey,
+      amountMinor: args.amountMinor,
+      currency: args.currency,
+      status: "pending",
+      kind: "charge",
+      attemptNo: args.attemptNo,
+      idempotencyKey: args.idempotencyKey,
+      provider: args.provider,
+      merchantAccount: args.merchantAccount,
+      providerRef: args.providerRef,
+      providerEventId: null,
+      error: null,
+      sentAt: null,
+      retryable: null,
+      createdAt: args.nowIso,
+    };
+    const next = clone(s);
+    next.attempts.push(record);
+    await commitLockedState(next);
+    return { status: "claimed", record };
+  });
+}
+
+/**
+ * Takılı kalmış BELİRSİZ denemeyi operatör kararıyla kapatır (serbest bırakma).
+ * YALNIZCA `uncertain` satırlar kapanır (uçuşan pending'e dokunulmaz).
+ * Çağıran (HYPER_ADMIN route): dış doğrulama (sağlayıcı panel kaydı) +
+ * gerekçe + audit ZORUNLU. Yeni çekim izni = bu kayıt + denetim izi.
+ */
+export async function releaseStuckClaim(args: {
+  attemptId: string;
+  reason: string;
+  actorUserId: string;
+  externalRef: string;
+}): Promise<boolean> {
+  const error = `operator_released by ${args.actorUserId}: ${args.reason} (dış kayıt: ${args.externalRef})`;
+  if (isDbMode) {
+    try {
+      const r = await prisma.saasCollectionAttempt.updateMany({
+        where: { id: args.attemptId, status: "uncertain" },
+        data: { status: "failed", error },
+      });
+      return r.count === 1;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  return withFileLock(SAAS_BILLING_STORE_FILE, async () => {
+    const s = await readState();
+    const idx = s.attempts.findIndex((x) => x.id === args.attemptId && x.status === "uncertain");
+    if (idx < 0) return false;
+    const next = clone(s);
+    next.attempts[idx] = { ...next.attempts[idx], status: "failed", error };
+    await commitLockedState(next);
+    return true;
+  });
+}
+
+/**
+ * Gönderilmeden çöken claim'i koşullu kapatır (expire). Koşul sağlanmazsa
+ * false döner — başkası sahiplendi/çözdü demektir, üzerine yazılmaz.
+ * Çağıran, expire ÖNCESİ sağlayıcı sorgusuyla "gönderilmedi" hükmünü
+ * doğrulamak zorundadır (claim penceresindeki ms-crash'e karşı).
+ */
+export async function expireStaleClaim(args: {
+  attemptId: string;
+  providerRef: string;
+  reason: string;
+  nowIso: string;
+}): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const r = await prisma.saasCollectionAttempt.updateMany({
+        where: { id: args.attemptId, status: "pending", sentAt: null, providerRef: args.providerRef },
+        data: { status: "failed", error: args.reason },
+      });
+      return r.count === 1;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  return withFileLock(SAAS_BILLING_STORE_FILE, async () => {
+    const s = await readState();
+    const idx = s.attempts.findIndex(
+      (x) => x.id === args.attemptId && x.status === "pending" && x.sentAt === null && x.providerRef === args.providerRef
+    );
+    if (idx < 0) return false;
+    const next = clone(s);
+    next.attempts[idx] = { ...next.attempts[idx], status: "failed", error: args.reason };
+    await commitLockedState(next);
+    return true;
+  });
 }
 
 export async function updateSaasAttempt(
@@ -309,9 +617,11 @@ export async function updateSaasAttempt(
           ...(patch.providerRef !== undefined ? { providerRef: patch.providerRef } : {}),
           ...(patch.providerEventId !== undefined ? { providerEventId: patch.providerEventId } : {}),
           ...(patch.error !== undefined ? { error: patch.error } : {}),
+          ...(patch.sentAt !== undefined ? { sentAt: patch.sentAt ? new Date(patch.sentAt) : null } : {}),
+          ...(patch.retryable !== undefined ? { retryable: patch.retryable } : {}),
         },
       });
-      return row as unknown as SaasCollectionAttemptRecord;
+      return mapAttemptRow(row as unknown as Record<string, unknown>);
     } catch (e) {
       dbFailClosed(e);
     }
@@ -323,6 +633,81 @@ export async function updateSaasAttempt(
   next.attempts[idx] = { ...next.attempts[idx], ...clone(patch), id };
   await writeState(next);
   return next.attempts[idx];
+}
+
+export async function getSaasAttemptById(
+  id: string
+): Promise<SaasCollectionAttemptRecord | null> {
+  if (isDbMode) {
+    try {
+      const row = await prisma.saasCollectionAttempt.findUnique({ where: { id } });
+      return row ? mapAttemptRow(row as unknown as Record<string, unknown>) : null;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const s = await readState();
+  return s.attempts.find((x) => x.id === id) ?? null;
+}
+
+/** Callback çözümlemesi: sağlayıcı referansından deneme bulunur. */
+export async function findAttemptByProviderRef(
+  provider: string,
+  providerRef: string
+): Promise<SaasCollectionAttemptRecord | null> {
+  if (isDbMode) {
+    try {
+      const row = await prisma.saasCollectionAttempt.findFirst({
+        where: { provider, providerRef },
+        orderBy: { createdAt: "desc" },
+      });
+      return row ? mapAttemptRow(row as unknown as Record<string, unknown>) : null;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const s = await readState();
+  const matches = s.attempts.filter((x) => x.provider === provider && x.providerRef === providerRef);
+  return matches.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0] ?? null;
+}
+
+/**
+ * Vadesi gelmiş MERCHANT_SCHEDULED abonelikler (indeksli, sınırlı batch).
+ * Sadece dönem sonu geçmiş + aktif borçlu durumlar döner.
+ */
+export async function listMerchantScheduledDue(
+  nowIso: string,
+  limit = 25
+): Promise<SaasSubscriptionRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 100);
+  if (isDbMode) {
+    try {
+      const rows = await prisma.saasSubscription.findMany({
+        where: {
+          executionModel: "MERCHANT_SCHEDULED",
+          status: { in: ["active", "past_due"] },
+          currentPeriodEnd: { lte: new Date(nowIso) },
+        },
+        take: n,
+        orderBy: { currentPeriodEnd: "asc" },
+      });
+      return rows.map((r) => mapSubscriptionRow(r as unknown as Record<string, unknown>));
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const s = await readState();
+  const nowMs = new Date(nowIso).getTime();
+  return s.subscriptions
+    .filter(
+      (x) =>
+        x.executionModel === "MERCHANT_SCHEDULED" &&
+        (x.status === "active" || x.status === "past_due") &&
+        x.currentPeriodEnd !== null &&
+        new Date(x.currentPeriodEnd).getTime() <= nowMs
+    )
+    .sort((a, b) => (a.currentPeriodEnd! < b.currentPeriodEnd! ? -1 : 1))
+    .slice(0, n);
 }
 
 export async function listSaasAttempts(
@@ -337,7 +722,7 @@ export async function listSaasAttempts(
         take: n,
         orderBy: { createdAt: "desc" },
       });
-      return rows as unknown as SaasCollectionAttemptRecord[];
+      return rows.map((r) => mapAttemptRow(r as unknown as Record<string, unknown>));
     } catch (e) {
       dbFailClosed(e);
     }

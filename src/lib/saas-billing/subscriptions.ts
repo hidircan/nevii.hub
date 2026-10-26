@@ -31,6 +31,7 @@ import {
   updateSaasAttempt,
   upsertSaasSubscription,
 } from "./store";
+import { getSaasProvider } from "./provider-adapter";
 
 /** Durum önceliği — düşük öncelikli olay yüksek öncelikli durumu geri alamaz. */
 const STATUS_RANK: Record<SaasSubscriptionStatus, number> = {
@@ -44,38 +45,15 @@ const STATUS_RANK: Record<SaasSubscriptionStatus, number> = {
 };
 
 /**
- * Sağlayıcı durum eşlemesi (iyzico Abonelik → yerel). Bilinmeyen değer
- * fail-closed: eşleşme yoksa durum değişmez, olay "ignored" işaretlenir.
+ * Sağlayıcı durum eşlemesi — HER SAĞLAYICI kendi eşlemesini verir, domain
+ * dosyasında sağlayıcı adı geçmez. Bilinmeyen değer fail-closed: eşleşme
+ * yoksa durum değişmez, olay "ignored" işaretlenir.
  */
-export function mapProviderStatus(providerStatus: string): SaasSubscriptionStatus | null {
-  const v = providerStatus.trim().toLowerCase();
-  switch (v) {
-    case "pending":
-    case "incomplete":
-    case "initialized":
-      return "pending";
-    case "trialing":
-    case "trial":
-      return "trialing";
-    case "active":
-    case "subscribed":
-    case "upgraded":
-      return "active";
-    case "past_due":
-    case "pastdue":
-    case "payment_failed":
-      return "past_due";
-    case "suspended":
-    case "unpaid":
-      return "suspended";
-    case "canceled":
-    case "cancelled":
-      return "canceled";
-    case "expired":
-      return "expired";
-    default:
-      return null;
-  }
+export function mapProviderStatus(
+  providerId: import("./types").SaasProviderId,
+  providerStatus: string
+): SaasSubscriptionStatus | null {
+  return getSaasProvider(providerId).mapStatus(providerStatus);
 }
 
 /** Geçişe izin var mı? (sırası bozuk olay koruması dahil) */
@@ -106,15 +84,9 @@ export function canTransition(
   return true;
 }
 
-/** Dönem uzunluğu — sunucu takvimi (ay/yıl ekleme, UTC). */
-export function addPeriod(fromIso: string, interval: SaasBillingInterval): string {
-  const d = new Date(fromIso);
-  if (Number.isNaN(d.getTime())) throw new Error("Geçersiz dönem tarihi.");
-  const next = new Date(d);
-  if (interval === "yearly") next.setUTCFullYear(next.getUTCFullYear() + 1);
-  else next.setUTCMonth(next.getUTCMonth() + 1);
-  return next.toISOString();
-}
+/** Dönem matematiği periods.ts'tedir (döngüsel bağımlılık yok). */
+import { addPeriod } from "./periods";
+export { addPeriod, addPeriodInTz } from "./periods";
 
 export function newSubscriptionId(): string {
   return uid("saas_sub");
@@ -127,7 +99,13 @@ export function buildPendingSubscription(args: {
   catalogVersion: number | null;
   billingInterval: SaasBillingInterval;
   priceSnapshot: SaasPriceSnapshot;
-  provider?: string;
+  /** Sağlayıcı ZORUNLU seçimdir — sessiz varsayılan yok. */
+  provider: import("./types").SaasProviderId;
+  executionModel?: import("./types").SaasExecutionModel | null;
+  merchantAccount?: string;
+  billingTimeZone?: string;
+  billingEmail?: string;
+  billingUserIp?: string;
   nowIso?: string;
 }): SaasSubscriptionRecord {
   const now = args.nowIso ?? new Date().toISOString();
@@ -147,9 +125,16 @@ export function buildPendingSubscription(args: {
     paidThrough: null,
     canceledAt: null,
     cancelAtPeriodEnd: false,
-    provider: args.provider ?? "iyzico",
+    provider: args.provider,
+    executionModel: args.executionModel ?? null,
+    merchantAccount: args.merchantAccount ?? "",
     providerCustomerRef: null,
     providerSubscriptionRef: null,
+    providerCardRef: null,
+    providerLinks: [],
+    billingTimeZone: args.billingTimeZone || "UTC",
+    billingEmail: args.billingEmail || "",
+    billingUserIp: args.billingUserIp || "",
     lastWebhookAt: null,
     lastReconciledAt: null,
     createdAt: now,
@@ -157,9 +142,20 @@ export function buildPendingSubscription(args: {
   };
 }
 
+/** Sağlayıcı bağlantısı ekler (geçiş/rollback/audit izi korunur, silinmez). */
+export function addProviderLink(
+  sub: SaasSubscriptionRecord,
+  link: Omit<import("./types").SaasProviderLink, "at">,
+  nowIso?: string
+): SaasSubscriptionRecord {
+  const at = nowIso ?? new Date().toISOString();
+  return { ...sub, providerLinks: [...(sub.providerLinks ?? []), { ...link, at }], updatedAt: at };
+}
+
 /**
- * Doğrulanmış ödeme sonrası dönem ilerletme. Tek dönem/tek başarılı tahsilat:
- * aynı dönem için ikinci "succeeded" yazılmaz (idempotencyKey + durum kontrolü).
+ * Doğrulanmış ödeme sonrası dönem ilerletme — sağlayıcı-bağımsız çekirdeğe
+ * delege eder (collections.applyCollectionSuccess). Sağlayıcı/merchant/para
+ * birimi belirtilmezse abonelik kaydındaki değerler kullanılır.
  */
 export async function applyVerifiedPayment(args: {
   tenantId: string;
@@ -167,74 +163,25 @@ export async function applyVerifiedPayment(args: {
   providerRef: string;
   providerEventId: string;
   idempotencyKey: string;
+  provider?: import("./types").SaasProviderId;
+  merchantAccount?: string;
+  currency?: import("./types").SaasCurrency;
   nowIso?: string;
 }): Promise<ServiceResult<{ subscription: SaasSubscriptionRecord; duplicate: boolean }>> {
   const sub = await getSaasSubscription(args.tenantId);
   if (!sub) return fail("NOT_FOUND", "Abonelik bulunamadı.");
-  const now = args.nowIso ?? new Date().toISOString();
-
-  // Dönem: mevcut dönem sonu gelecekteyse uzat, yoksa şimdi başlat.
-  const periodStart =
-    sub.currentPeriodEnd && new Date(sub.currentPeriodEnd).getTime() > new Date(now).getTime()
-      ? sub.currentPeriodEnd
-      : now;
-  const periodEnd = addPeriod(periodStart, sub.billingInterval);
-
-  const existingAttempts = await listSaasAttempts(sub.id, 200);
-  // Aynı sağlayıcı siparişi (order ref) daha önce başarıldıysa çift teslimattır
-  // (ör. retry sonrası aynı order ref ile yeni event) → tek etki.
-  const sameOrderSucceeded = existingAttempts.some(
-    (a) => a.kind === "charge" && a.status === "succeeded" && a.providerRef === args.providerRef
-  );
-  if (sameOrderSucceeded) {
-    return ok({ subscription: sub, duplicate: true });
-  }
-  const alreadySucceeded = existingAttempts.some(
-    (a) =>
-      a.kind === "charge" &&
-      a.status === "succeeded" &&
-      a.periodStart === periodStart &&
-      a.periodEnd === periodEnd
-  );
-  if (alreadySucceeded) {
-    return ok({ subscription: sub, duplicate: true });
-  }
-
-  const attemptNo =
-    existingAttempts.filter((a) => a.periodStart === periodStart && a.periodEnd === periodEnd)
-      .length + 1;
-  const attempt: SaasCollectionAttemptRecord = {
-    id: uid("saas_att"),
-    tenantId: sub.tenantId,
-    subscriptionId: sub.id,
-    periodStart,
-    periodEnd,
+  const { applyCollectionSuccess } = await import("./collections");
+  return applyCollectionSuccess({
+    tenantId: args.tenantId,
     amountMinor: args.amountMinor,
-    currency: "TRY",
-    status: "succeeded",
-    kind: "charge",
-    attemptNo,
-    idempotencyKey: args.idempotencyKey,
+    currency: args.currency ?? sub.currency,
+    provider: args.provider ?? sub.provider,
+    merchantAccount: args.merchantAccount ?? sub.merchantAccount,
     providerRef: args.providerRef,
     providerEventId: args.providerEventId,
-    error: null,
-    createdAt: now,
-  };
-  const { duplicate } = await recordSaasAttempt(attempt);
-  if (duplicate) return ok({ subscription: sub, duplicate: true });
-
-  const next: SaasSubscriptionRecord = {
-    ...sub,
-    status: "active",
-    currentPeriodStart: periodStart,
-    currentPeriodEnd: periodEnd,
-    paidThrough: periodEnd,
-    cancelAtPeriodEnd: false,
-    lastWebhookAt: now,
-    updatedAt: now,
-  };
-  await upsertSaasSubscription(next);
-  return ok({ subscription: next, duplicate: false });
+    idempotencyKey: args.idempotencyKey,
+    nowIso: args.nowIso,
+  });
 }
 
 /** Başarısız ödeme kaydı → past_due (tek başına erişim kesmez; enforcement karar verir). */
@@ -243,6 +190,10 @@ export async function applyFailedPayment(args: {
   error: string;
   providerEventId: string;
   idempotencyKey: string;
+  provider?: import("./types").SaasProviderId;
+  merchantAccount?: string;
+  providerRef?: string | null;
+  retryable?: boolean | null;
   nowIso?: string;
 }): Promise<ServiceResult<SaasSubscriptionRecord>> {
   const sub = await getSaasSubscription(args.tenantId);
@@ -254,21 +205,27 @@ export async function applyFailedPayment(args: {
   const attemptNo =
     existingAttempts.filter((a) => a.periodStart === periodStart && a.periodEnd === periodEnd)
       .length + 1;
+  const { debtKeyFor } = await import("./collections");
   await recordSaasAttempt({
     id: uid("saas_att"),
     tenantId: sub.tenantId,
     subscriptionId: sub.id,
     periodStart,
     periodEnd,
+    debtKey: debtKeyFor(sub.id, periodStart),
     amountMinor: sub.priceSnapshot.amountMinor,
-    currency: "TRY",
+    currency: sub.currency,
     status: "failed",
     kind: "charge",
     attemptNo,
     idempotencyKey: args.idempotencyKey,
-    providerRef: null,
+    provider: args.provider ?? sub.provider,
+    merchantAccount: args.merchantAccount ?? sub.merchantAccount,
+    providerRef: args.providerRef ?? null,
     providerEventId: args.providerEventId,
     error: args.error,
+    sentAt: null,
+    retryable: args.retryable ?? null,
     createdAt: now,
   });
   if (!canTransition(sub.status, "past_due")) return ok(sub);
@@ -385,21 +342,28 @@ export async function recordRefundOrChargeback(args: {
   const sub = await getSaasSubscription(args.tenantId);
   if (!sub) return fail("NOT_FOUND", "Abonelik bulunamadı.");
   const now = args.nowIso ?? new Date().toISOString();
+  const periodStart = sub.currentPeriodStart ?? now;
+  const { debtKeyFor } = await import("./collections");
   const { record } = await recordSaasAttempt({
     id: uid("saas_att"),
     tenantId: sub.tenantId,
     subscriptionId: sub.id,
-    periodStart: sub.currentPeriodStart ?? now,
+    periodStart,
     periodEnd: sub.currentPeriodEnd ?? now,
+    debtKey: debtKeyFor(sub.id, periodStart),
     amountMinor: args.amountMinor,
-    currency: "TRY",
+    currency: sub.currency,
     status: "succeeded",
     kind: args.kind,
     attemptNo: 1,
     idempotencyKey: args.idempotencyKey,
+    provider: sub.provider,
+    merchantAccount: sub.merchantAccount,
     providerRef: args.providerRef,
     providerEventId: args.providerEventId,
     error: args.note ?? null,
+    sentAt: now,
+    retryable: null,
     createdAt: now,
   });
   return ok(record);

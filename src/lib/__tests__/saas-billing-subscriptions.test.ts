@@ -49,14 +49,14 @@ beforeEach(async () => {
 
 describe("saas abonelik durum makinesi", () => {
   it("sağlayıcı durumlarını yerel durumlara eşler; bilinmeyende fail-closed", () => {
-    expect(mapProviderStatus("ACTIVE")).toBe("active");
-    expect(mapProviderStatus("PENDING")).toBe("pending");
-    expect(mapProviderStatus("UNPAID")).toBe("suspended");
-    expect(mapProviderStatus("UPGRADED")).toBe("active");
-    expect(mapProviderStatus("CANCELED")).toBe("canceled");
-    expect(mapProviderStatus("EXPIRED")).toBe("expired");
-    expect(mapProviderStatus("past_due")).toBe("past_due");
-    expect(mapProviderStatus("BOGUS_STATUS")).toBeNull();
+    expect(mapProviderStatus("iyzico", "ACTIVE")).toBe("active");
+    expect(mapProviderStatus("iyzico", "PENDING")).toBe("pending");
+    expect(mapProviderStatus("iyzico", "UNPAID")).toBe("suspended");
+    expect(mapProviderStatus("iyzico", "UPGRADED")).toBe("active");
+    expect(mapProviderStatus("iyzico", "CANCELED")).toBe("canceled");
+    expect(mapProviderStatus("iyzico", "EXPIRED")).toBe("expired");
+    expect(mapProviderStatus("iyzico", "past_due")).toBe("past_due");
+    expect(mapProviderStatus("iyzico", "BOGUS_STATUS")).toBeNull();
   });
 
   it("sırası bozuk geçişi engeller; yeniden etkinleştirme açık izin ister", () => {
@@ -69,7 +69,7 @@ describe("saas abonelik durum makinesi", () => {
 
   it("doğrulanmış ödeme active'e geçirir; aynı dönem ikinci success yazılmaz", async () => {
     await upsertSaasSubscription(
-      buildPendingSubscription({ tenantId: T1, planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot(), nowIso: "2026-02-01T00:00:00.000Z" })
+      buildPendingSubscription({ tenantId: T1, provider: "iyzico", planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot(), nowIso: "2026-02-01T00:00:00.000Z" })
     );
     const first = await applyVerifiedPayment({
       tenantId: T1, amountMinor: 50000, providerRef: "ord_1", providerEventId: "evt_1",
@@ -92,7 +92,7 @@ describe("saas abonelik durum makinesi", () => {
 
   it("başarısız ödeme past_due yapar; dönem sonunda iptal paid-through'u korur", async () => {
     await upsertSaasSubscription({
-      ...buildPendingSubscription({ tenantId: T1, planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() }),
+      ...buildPendingSubscription({ tenantId: T1, provider: "iyzico", planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() }),
       status: "active",
       currentPeriodStart: "2026-02-01T00:00:00.000Z",
       currentPeriodEnd: "2026-03-01T00:00:00.000Z",
@@ -113,7 +113,7 @@ describe("saas abonelik durum makinesi", () => {
 
   it("yeniden etkinleştirme pending'e döner (ödeme doğrulanmadan hak yok)", async () => {
     await upsertSaasSubscription({
-      ...buildPendingSubscription({ tenantId: T1, planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() }),
+      ...buildPendingSubscription({ tenantId: T1, provider: "iyzico", planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() }),
       status: "suspended",
     });
     const r = await reactivate(T1, "2026-02-12T00:00:00.000Z");
@@ -135,7 +135,7 @@ describe("saas abonelik durum makinesi", () => {
 
   it("düşürme planı mevcut limiti/hakkı hemen değiştirmez", async () => {
     await upsertSaasSubscription(
-      buildPendingSubscription({ tenantId: T1, planKey: "pro", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot({ planKey: "pro", planLabel: "Pro" }) })
+      buildPendingSubscription({ tenantId: T1, provider: "iyzico", planKey: "pro", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot({ planKey: "pro", planLabel: "Pro" }) })
     );
     const r = await applyPlanChange({
       tenantId: T1, targetPlanKey: "starter",
@@ -149,7 +149,7 @@ describe("saas abonelik durum makinesi", () => {
   });
 
   it("iade/chargeback ayrı kayıt; geçmiş charge satırı değişmez", async () => {
-    const sub = buildPendingSubscription({ tenantId: T1, planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() });
+    const sub = buildPendingSubscription({ tenantId: T1, provider: "iyzico", planKey: "core", catalogVersion: null, billingInterval: "monthly", priceSnapshot: snapshot() });
     await upsertSaasSubscription(sub);
     const r = await recordRefundOrChargeback({
       tenantId: T1, kind: "refund", amountMinor: 50000, providerRef: "rf_1",

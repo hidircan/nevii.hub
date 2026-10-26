@@ -16,6 +16,8 @@ type Overview = {
     canceledAt: string | null;
     cancelAtPeriodEnd: boolean;
     provider: string;
+    executionModel: string | null;
+    merchantAccount: string;
     providerSubscriptionRef: string | null;
     lastWebhookAt: string | null;
     lastReconciledAt: string | null;
@@ -36,6 +38,7 @@ export function BillingManager({ data }: { data: Overview }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [exc, setExc] = useState({ tenantId: "", until: "", reason: "" });
+  const [man, setMan] = useState({ tenantId: "", providerRef: "", amountMinor: "", currency: "TRY", occurredAt: "", note: "" });
   const [cmp, setCmp] = useState({ name: "", tenantId: "", discountType: "percent", percent: "20", amountMinor: "", intervalScope: "both", validTo: "", maxRenewals: "12", postCampaignNote: "" });
 
   async function post(path: string, body: unknown) {
@@ -88,6 +91,7 @@ export function BillingManager({ data }: { data: Overview }) {
                   <th className="py-2 pr-2 font-medium">Kurum</th>
                   <th className="py-2 pr-2 font-medium">Plan</th>
                   <th className="py-2 pr-2 font-medium">Durum</th>
+                  <th className="py-2 pr-2 font-medium">Sağlayıcı</th>
                   <th className="py-2 pr-2 font-medium">Tutar</th>
                   <th className="py-2 pr-2 font-medium">Paid-through</th>
                   <th className="py-2 pr-2 font-medium">Enforcement</th>
@@ -100,6 +104,7 @@ export function BillingManager({ data }: { data: Overview }) {
                     <td className="py-2 pr-2 font-mono">{s.tenantId.slice(0, 12)}…</td>
                     <td className="py-2 pr-2">{s.planKey} ({s.billingInterval === "yearly" ? "yıllık" : "aylık"})</td>
                     <td className="py-2 pr-2">{s.status}</td>
+                    <td className="py-2 pr-2">{s.provider}{s.executionModel === "MERCHANT_SCHEDULED" ? " (M)" : s.executionModel === "PROVIDER_MANAGED" ? " (P)" : ""}</td>
                     <td className="py-2 pr-2">{fmtMinor(s.amountMinor)}{s.sandbox ? " (SBX)" : ""}</td>
                     <td className="py-2 pr-2">{fmtDate(s.paidThrough)}</td>
                     <td className="py-2 pr-2">{s.enforcement ? "AÇIK" : "kapalı"}</td>
@@ -141,6 +146,43 @@ export function BillingManager({ data }: { data: Overview }) {
           İstisna ver
         </button>
         <p className="mt-2 text-xs text-slate-500">İstisna ödenmiş kaydı taklit etmez; gerekçe + bitiş + audit ile kayıtlıdır.</p>
+      </section>
+
+      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
+        <h2 className="mb-3 text-base font-semibold">Manuel ödeme onayı (banka transferi)</h2>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <input placeholder="tenantId" aria-label="tenantId" value={man.tenantId} onChange={(e) => setMan({ ...man, tenantId: e.target.value })} className={input} />
+          <input placeholder="Banka referansı" aria-label="Banka referansı" value={man.providerRef} onChange={(e) => setMan({ ...man, providerRef: e.target.value })} className={input} />
+          <input type="number" min={1} placeholder="Tutar (kuruş)" aria-label="Tutar" value={man.amountMinor} onChange={(e) => setMan({ ...man, amountMinor: e.target.value })} className={input} />
+          <select aria-label="Para birimi" value={man.currency} onChange={(e) => setMan({ ...man, currency: e.target.value })} className={input}>
+            <option value="TRY">TRY</option>
+            <option value="USD">USD</option>
+          </select>
+          <input type="datetime-local" aria-label="Ödeme tarihi" value={man.occurredAt} onChange={(e) => setMan({ ...man, occurredAt: e.target.value })} className={input} />
+          <input placeholder="Açıklama" aria-label="Açıklama" value={man.note} onChange={(e) => setMan({ ...man, note: e.target.value })} className={input} />
+        </div>
+        <button
+          disabled={busy || !man.tenantId || man.providerRef.trim().length < 3 || !man.amountMinor || !man.occurredAt || man.note.trim().length < 5}
+          className={`${btn} mt-2`}
+          onClick={async () => {
+            const d = await post("/api/v1/platform/billing/overview", {
+              action: "manual_approve",
+              tenantId: man.tenantId,
+              providerRef: man.providerRef.trim(),
+              amountMinor: Number(man.amountMinor),
+              currency: man.currency,
+              occurredAt: new Date(man.occurredAt).toISOString(),
+              note: man.note.trim(),
+            });
+            if (d) refresh();
+          }}
+        >
+          Manuel ödemeyi onayla
+        </button>
+        <p className="mt-2 text-xs text-slate-500">
+          Yalnız yetkili onayı erişim açar; &ldquo;ödedim&rdquo; beyanı açmaz. Bu kayıt ödeme bilgisidir, fatura değildir.
+          Manuel kanal otomatik kart aboneliği değildir — her dönem onay gerekir.
+        </p>
       </section>
 
       <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">

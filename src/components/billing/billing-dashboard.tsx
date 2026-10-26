@@ -28,10 +28,12 @@ export function BillingDashboard({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [checkoutHtml, setCheckoutHtml] = useState<string | null>(null);
+  const [formPost, setFormPost] = useState<{ postUrl: string; fields: Record<string, string> } | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [planKey, setPlanKey] = useState(plans[0]?.key ?? "core");
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedRecurring, setAcceptedRecurring] = useState(false);
   const [customer, setCustomer] = useState({
     name: "",
     surname: "",
@@ -69,19 +71,31 @@ export function BillingDashboard({
     }
   }
 
+  function openCheckoutResult(data: Record<string, unknown> | null) {
+    if (!data) return;
+    if (data.kind === "form_post" && typeof data.postUrl === "string" && typeof data.fields === "object" && data.fields) {
+      setFormPost({ postUrl: data.postUrl, fields: data.fields as Record<string, string> });
+      setCheckoutHtml(null);
+      setShowCheckout(true);
+    } else if (typeof data.checkoutFormContent === "string") {
+      setCheckoutHtml(data.checkoutFormContent);
+      setFormPost(null);
+      setShowCheckout(true);
+    } else {
+      return;
+    }
+    setNotice({
+      kind: "ok",
+      text: data.mock
+        ? "MOCK checkout açıldı (gerçek tahsilat değildir)."
+        : "Güvenli ödeme formu açıldı. Kart bilgileriniz yalnızca ödeme sağlayıcısına iletilir.",
+    });
+  }
+
   async function startCheckout(e: React.FormEvent) {
     e.preventDefault();
-    const data = await post("/api/v1/billing/checkout", { planKey, billingInterval: interval, acceptedTerms, customer }, "checkout");
-    if (data && typeof data.checkoutFormContent === "string") {
-      setCheckoutHtml(data.checkoutFormContent);
-      setShowCheckout(true);
-      setNotice({
-        kind: "ok",
-        text: data.mock
-          ? "MOCK checkout açıldı (gerçek tahsilat değildir)."
-          : "Güvenli ödeme formu açıldı. Kart bilgileriniz yalnızca ödeme sağlayıcısına iletilir.",
-      });
-    }
+    const data = await post("/api/v1/billing/checkout", { planKey, billingInterval: interval, acceptedTerms, acceptedRecurring, customer }, "checkout");
+    openCheckoutResult(data);
   }
 
   async function updateCard() {
@@ -168,6 +182,7 @@ export function BillingDashboard({
               <div><dt className="text-slate-500">Deneme bitışı</dt><dd className="font-medium">{new Date(subscription.trialEndsAt).toLocaleDateString("tr-TR")}</dd></div>
             ) : null}
             <div><dt className="text-slate-500">Kayıtlı ödeme yöntemi</dt><dd className="font-medium">{subscription.paymentOnFile ? `Var (${subscription.provider})` : "Yok"}</dd></div>
+            <div><dt className="text-slate-500">Ödeme kanalı</dt><dd className="font-medium">{subscription.provider === "manual" ? "Manuel (banka transferi — otomatik yenileme yok)" : subscription.executionModel === "MERCHANT_SCHEDULED" ? "Kayıtlı kart (otomatik)" : subscription.executionModel === "PROVIDER_MANAGED" ? "Sağlayıcı aboneliği (otomatik)" : "—"}</dd></div>
           </dl>
         )}
         {subscription?.renewalNote ? <p className="mt-3 text-xs leading-relaxed text-slate-500">{subscription.renewalNote}</p> : null}
@@ -244,8 +259,14 @@ export function BillingDashboard({
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} className="mt-1" required />
               <span>
-                Tutarı, periyodu, otomatik yenileme ve iptal koşulunu okudum; kartımdan otomatik
-                tahsilatı kabul ediyorum. Kart bilgilerim yalnızca ödeme sağlayıcısının güvenli
+                Tutarı, periyodu, yenileme ve iptal koşulunu okudum; kabul ediyorum.
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={acceptedRecurring} onChange={(e) => setAcceptedRecurring(e.target.checked)} className="mt-1" required />
+              <span>
+                Kartımın güvenli saklanmasını ve her dönem başında otomatik tahsilatı
+                kabul ediyorum. Kart bilgilerim yalnızca ödeme sağlayıcısının güvenli
                 sayfasında alınır.
               </span>
             </label>
@@ -255,8 +276,26 @@ export function BillingDashboard({
           </form>
           {showCheckout && checkoutHtml ? (
             <div className="mt-4 rounded-lg ring-1 ring-slate-200">
-              <div id="iyzico-checkout-form" dangerouslySetInnerHTML={{ __html: checkoutHtml }} />
+              <div id="provider-checkout-form" dangerouslySetInnerHTML={{ __html: checkoutHtml }} />
             </div>
+          ) : null}
+          {showCheckout && formPost ? (
+            <form method="POST" action={formPost.postUrl} className="mt-4 space-y-3 rounded-lg p-4 ring-1 ring-slate-200">
+              {Object.entries(formPost.fields).map(([k, v]) => (
+                <input key={k} type="hidden" name={k} value={v} />
+              ))}
+              <p className="text-sm text-slate-600">
+                Kart bilgileriniz doğrudan ödeme sağlayıcısına iletilir; NeviiHub kart bilginizi görmez.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input required name="cc_owner" placeholder="Kart üzerindeki isim" aria-label="Kart üzerindeki isim" className={input} autoComplete="cc-name" />
+                <input required name="card_number" placeholder="Kart numarası" aria-label="Kart numarası" className={input} inputMode="numeric" autoComplete="cc-number" />
+                <input required name="expiry_month" placeholder="AA" aria-label="Son kullanma ayı" className={input} inputMode="numeric" maxLength={2} autoComplete="cc-exp-month" />
+                <input required name="expiry_year" placeholder="YYYY" aria-label="Son kullanma yılı" className={input} inputMode="numeric" maxLength={4} autoComplete="cc-exp-year" />
+                <input required name="cvv" placeholder="CVV" aria-label="CVV" className={input} inputMode="numeric" maxLength={4} autoComplete="cc-csc" />
+              </div>
+              <button type="submit" className={btn}>Kartı kaydet ve öde</button>
+            </form>
           ) : null}
         </section>
       ) : null}

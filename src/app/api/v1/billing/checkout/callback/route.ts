@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import { getSaasBillingProvider } from "@/lib/saas-billing/provider-adapter";
+import { getSaasProvider } from "@/lib/saas-billing/provider-adapter";
 import {
   getSaasSubscriptionById,
   upsertSaasSubscription,
@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/v1/billing/checkout/callback
- * iyzico Checkout Form sonucu buraya POST edilir (form alanları:
- * `token`, `conversationId`).
+ * Hosted-checkout dönüşü buraya POST edilir (form alanları: `token`,
+ * `conversationId`). Adaptör, conversationId'deki ABONELİĞİN kayıtlı
+ * sağlayıcısından çözülür — global ayar değişimi eski işlemlerin
+ * doğrulamasını etkilemez (provider-pin).
  *
  * KRİTİK: bu dönüş "başarılı" olsa bile ÖDEME KANITI DEĞİLDİR. Yalnızca
  * server-to-server retrieve ile abonelik referansı doğrulanır ve kayda
@@ -45,14 +47,6 @@ async function handleCallback(origin: string, token: string, conversationId: str
   const pendingUrl = `${origin}/abonelik/sonuc?status=pending`;
   if (!token) return Response.redirect(`${origin}/abonelik/sonuc?status=error`, 303);
 
-  const provider = getSaasBillingProvider();
-  const res = await provider.retrieveCheckoutResult(token, conversationId || undefined);
-  if (!res.ok) {
-    logger.warn("saas.callback.retrieve_failed", res.error);
-    // Timeout/kesinti "ödenmedi" kanıtı değil → "doğrulama bekleniyor".
-    return Response.redirect(pendingUrl, 303);
-  }
-
   // conversationId = "<subscriptionId>:<random>" (checkout route üretir).
   const subscriptionId = conversationId.split(":")[0] || "";
   if (!subscriptionId.startsWith("saas_sub_")) {
@@ -62,6 +56,19 @@ async function handleCallback(origin: string, token: string, conversationId: str
   const sub = await getSaasSubscriptionById(subscriptionId);
   if (!sub) {
     logger.warn("saas.callback.unknown_subscription", subscriptionId);
+    return Response.redirect(pendingUrl, 303);
+  }
+  // Adaptör aboneliğin KAYITLI sağlayıcısından çözülür (provider-pin).
+  const { hasCapability } = await import("@/lib/saas-billing/providers");
+  const provider = getSaasProvider(sub.provider);
+  if (!hasCapability(provider, "retrieve_by_token")) {
+    logger.warn("saas.callback.no_retrieve", sub.provider);
+    return Response.redirect(pendingUrl, 303);
+  }
+  const res = await provider.retrieveCheckoutResult(token, conversationId || undefined);
+  if (!res.ok) {
+    logger.warn("saas.callback.retrieve_failed", res.error);
+    // Timeout/kesinti "ödenmedi" kanıtı değil → "doğrulama bekleniyor".
     return Response.redirect(pendingUrl, 303);
   }
   // Mock referanslar gerçek kayda yazılmaz.

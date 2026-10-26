@@ -5,12 +5,13 @@ import { getPricedPlan, prePaymentSummary } from "@/lib/saas-billing/catalog";
 import { validateCampaignForTenant, redeemCampaign } from "@/lib/saas-billing/campaigns";
 import { buildPriceSnapshot } from "@/lib/saas-billing/catalog";
 import {
-  getSaasBillingProvider,
-  getSaasProviderName,
+  getDefaultProviderForNew,
+  getSaasProvider,
   newSaasIdempotencyKey,
 } from "@/lib/saas-billing/provider-adapter";
+import { clientIp } from "@/lib/http/client-ip";
 import { getSaasSubscription, upsertSaasSubscription } from "@/lib/saas-billing/store";
-import { buildPendingSubscription } from "@/lib/saas-billing/subscriptions";
+import { addProviderLink, buildPendingSubscription } from "@/lib/saas-billing/subscriptions";
 import { isSaasBillingInterval } from "@/lib/saas-billing/types";
 import type { SaasBillingInterval } from "@/lib/saas-billing/types";
 import { resolveTenantLimits } from "@/lib/platform/entitlements";
@@ -29,6 +30,12 @@ const bodySchema = z.object({
   billingInterval: z.string().refine(isSaasBillingInterval, "Geçersiz periyot."),
   /** Ödeme öncesi koşul kabulü (tutar, periyot, yenileme, iptal) — zorunlu. */
   acceptedTerms: z.literal(true, "Ödeme koşulları açıkça kabul edilmeli."),
+  /**
+   * Kart saklama + otomatik çekim yetkisi — zorunlu, ayrı kaydedilir
+   * (providerLinks.consent). Yoksa checkout açılmaz, sessizce farklı
+   * akışa düşülmez.
+   */
+  acceptedRecurring: z.literal(true, "Otomatik tahsilat yetkisi açıkça verilmeli."),
   campaignCode: z.string().trim().max(80).nullable().optional(),
   /** NeviiAds davet jetonu (ham, tek kullanımlık). */
   invitationToken: z.string().min(10).max(200).nullable().optional(),
@@ -104,12 +111,15 @@ export const POST = withApiHandler(
     const user = await getUserById(ctx.userId);
     if (!user?.email) return fail("UNAUTHORIZED", "Doğrulanmış kullanıcı e-postası bulunamadı.");
 
-    const provider = getSaasBillingProvider();
+    const existing = await getSaasSubscription(ctx.tenantId);
+    // Mevcut abonelik kendi sağlayıcısında kalır; global varsayılan YALNIZCA
+    // YENİ abonelikler içindir ve eskileri sessizce taşımaz.
+    const providerId =
+      existing && existing.provider !== "none" ? existing.provider : getDefaultProviderForNew();
+    const provider = getSaasProvider(providerId);
     if (!provider.isConfigured()) {
-      return fail(
-        "FORBIDDEN",
-        "SaaS tahsilat sağlayıcısı yapılandırılmadı. Gerçek checkout kapalı."
-      );
+      const missing = provider.missingPreconditions()[0] ?? "Sağlayıcı yapılandırılmadı.";
+      return fail("FORBIDDEN", `SaaS tahsilat sağlayıcısı (${providerId}) hazır değil: ${missing}`);
     }
 
     const origin = new URL(request.url).origin;
@@ -119,7 +129,6 @@ export const POST = withApiHandler(
     const { catalog } = await getPublishedCatalog();
     const includedModules = (catalog.plans.find((p) => p.key === v.planKey)?.includedModules ??
       []) as string[];
-    const existing = await getSaasSubscription(ctx.tenantId);
     const snapshot = buildPriceSnapshot({
       plan: { ...plan, amountMinor },
       limits,
@@ -137,7 +146,11 @@ export const POST = withApiHandler(
           billingInterval: interval,
           priceSnapshot: snapshot,
           status: "pending" as const,
-          provider: provider.name,
+          provider: providerId,
+          executionModel: provider.executionModel,
+          merchantAccount: provider.merchantAccount(),
+          billingEmail: user.email,
+          billingUserIp: clientIp(request),
           updatedAt: new Date().toISOString(),
         }
       : {
@@ -147,7 +160,11 @@ export const POST = withApiHandler(
             catalogVersion: plan.catalogVersion,
             billingInterval: interval,
             priceSnapshot: snapshot,
-            provider: provider.name,
+            provider: providerId,
+            executionModel: provider.executionModel,
+            merchantAccount: provider.merchantAccount(),
+            billingEmail: user.email,
+            billingUserIp: clientIp(request),
           }),
         };
     await upsertSaasSubscription(pendingSub);
@@ -157,8 +174,13 @@ export const POST = withApiHandler(
       planKey: v.planKey,
       billingInterval: interval,
       amountMinor,
+      currency: pendingSub.currency,
       callbackUrl: `${origin}/api/v1/billing/checkout/callback`,
+      okUrl: `${origin}/abonelik/sonuc?status=pending`,
+      failUrl: `${origin}/abonelik/sonuc?status=error`,
+      userIp: clientIp(request),
       idempotencyKey,
+      customerRef: pendingSub.providerCustomerRef,
       customer: {
         name: v.customer.name,
         surname: v.customer.surname,
@@ -172,18 +194,68 @@ export const POST = withApiHandler(
     });
     if (!init.ok) return fail("INTERNAL_ERROR", init.error, { providerCode: init.errorCode });
 
+    // Onay kaydı: kart saklama + otomatik çekim yetkisi (kullanıcı beyanı).
+    const consentAt = new Date().toISOString();
+    await upsertSaasSubscription(
+      addProviderLink(
+        pendingSub,
+        {
+          provider: providerId,
+          merchant: provider.merchantAccount(),
+          consent: { scope: "card_storage+recurring", version: "v1", at: consentAt },
+        },
+        consentAt
+      )
+    );
+
     // Pending abonelik yukarıda yazıldı (ödeme doğrulanmadan hak YOK).
     if (v.campaignCode) await redeemCampaign(v.campaignCode);
     if (v.invitationToken && invitation) {
       await markInvitationConsumed(invitation, ctx.userId);
     }
 
+    // PayTR ilk ödemesi için deneme kaydı: callback merchant_oid ile eşleşir.
+    if (init.kind === "form_post") {
+      const { recordSaasAttempt } = await import("@/lib/saas-billing/store");
+      const { debtKeyFor } = await import("@/lib/saas-billing/collections");
+      const { uid } = await import("@/lib/utils");
+      const now = new Date().toISOString();
+      await recordSaasAttempt({
+        id: uid("saas_att"),
+        tenantId: pendingSub.tenantId,
+        subscriptionId: pendingSub.id,
+        periodStart: now,
+        periodEnd: now,
+        debtKey: debtKeyFor(pendingSub.id, now),
+        amountMinor,
+        currency: pendingSub.currency,
+        status: "pending",
+        kind: "charge",
+        attemptNo: 1,
+        idempotencyKey: `cb_${init.providerReference}`,
+        provider: providerId,
+        merchantAccount: provider.merchantAccount(),
+        providerRef: init.providerReference,
+        providerEventId: null,
+        error: null,
+        sentAt: null,
+        retryable: null,
+        createdAt: now,
+      });
+    }
+
     return ok({
-      checkoutFormContent: init.checkoutFormContent,
+      kind: init.kind,
+      ...(init.kind === "embed_html"
+        ? {
+            checkoutFormContent: init.checkoutFormContent,
+            tokenExpireSeconds: init.tokenExpireSeconds,
+          }
+        : { postUrl: init.postUrl, fields: init.fields }),
       providerReference: init.providerReference,
-      tokenExpireSeconds: init.tokenExpireSeconds,
       mock: init.mock,
-      provider: getSaasProviderName(),
+      provider: providerId,
+      executionModel: provider.executionModel,
       summary: prePaymentSummary(plan),
       idempotencyKey,
     });

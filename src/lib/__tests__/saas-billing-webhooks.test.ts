@@ -39,7 +39,7 @@ beforeEach(async () => {
   process.env.IYZICO_MERCHANT_ID = MERCHANT;
   await upsertSaasSubscription({
     ...buildPendingSubscription({
-      tenantId: T1, planKey: "core", catalogVersion: null, billingInterval: "monthly",
+      tenantId: T1, provider: "iyzico", planKey: "core", catalogVersion: null, billingInterval: "monthly",
       priceSnapshot: {
         planKey: "core", planLabel: "Core", catalogVersion: null, billingInterval: "monthly",
         currency: "TRY", amountMinor: 50000, monthlyEquivalentMinor: null,

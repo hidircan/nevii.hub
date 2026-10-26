@@ -71,6 +71,49 @@ export function isIyzicoSubConfigured(): boolean {
   return Boolean(c.apiKey && c.secretKey && c.merchantId);
 }
 
+/** iyzico sağlayıcı durumları → ortak domain durumu. Bilinmeyende null (fail-closed). */
+export function mapIyzicoSubscriptionStatus(
+  providerStatus: string
+): import("./types").SaasSubscriptionStatus | null {
+  const v = providerStatus.trim().toLowerCase();
+  switch (v) {
+    case "pending":
+    case "incomplete":
+    case "initialized":
+      return "pending";
+    case "trialing":
+    case "trial":
+      return "trialing";
+    case "active":
+    case "subscribed":
+    case "upgraded":
+      return "active";
+    case "past_due":
+    case "pastdue":
+    case "payment_failed":
+      return "past_due";
+    case "suspended":
+    case "unpaid":
+      return "suspended";
+    case "canceled":
+    case "cancelled":
+      return "canceled";
+    case "expired":
+      return "expired";
+    default:
+      return null;
+  }
+}
+
+/** planKey:interval → iyzico pricingPlanReferenceCode (panelden, env ile). */
+export function iyzicoPlanRefFor(
+  planKey: string,
+  interval: import("./types").SaasBillingInterval
+): string | null {
+  const cfg = getIyzicoSubConfig();
+  return cfg.planRefs[`${planKey}:${interval}`] ?? null;
+}
+
 /** Abonelik webhook imza doğrulaması (resmi formül, Ekim 2026). */
 export function iyzicoSubscriptionWebhookSignature(
   secretKey: string,

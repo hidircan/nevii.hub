@@ -24,6 +24,8 @@ export const GET = withApiHandler(
         label: p.label,
         description: p.description,
         catalogVersion: version,
+        currency: monthly.currency,
+        usdAmountMinor: monthly.usdAmountMinor,
         limits: p.limits,
         includedModules: p.includedModules,
         customQuote: monthly.customQuote,

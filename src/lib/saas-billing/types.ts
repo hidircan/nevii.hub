@@ -22,8 +22,35 @@ export type SaasSubscriptionStatus = (typeof SAAS_SUBSCRIPTION_STATUSES)[number]
 export const SAAS_BILLING_INTERVALS = ["monthly", "yearly"] as const;
 export type SaasBillingInterval = (typeof SAAS_BILLING_INTERVALS)[number];
 
-export const SAAS_ATTEMPT_STATUSES = ["pending", "succeeded", "failed", "voided"] as const;
+export const SAAS_ATTEMPT_STATUSES = ["pending", "succeeded", "failed", "voided", "uncertain"] as const;
 export type SaasAttemptStatus = (typeof SAAS_ATTEMPT_STATUSES)[number];
+
+/**
+ * Yürütme modeli — yenileme çekimini KİM başlatır?
+ * PROVIDER_MANAGED: sağlayıcı zamanlar (örn. iyzico Abonelik).
+ * MERCHANT_SCHEDULED: uygulama, dönem geldiğinde kayıtlı araçtan ister (örn. PayTR).
+ * Aynı dönemde iki model birden çekim başlatamaz (abonelikte TEK model).
+ */
+export const SAAS_EXECUTION_MODELS = ["PROVIDER_MANAGED", "MERCHANT_SCHEDULED"] as const;
+export type SaasExecutionModel = (typeof SAAS_EXECUTION_MODELS)[number];
+
+export const SAAS_PROVIDER_IDS = ["iyzico", "paytr", "manual", "mock", "none"] as const;
+export type SaasProviderId = (typeof SAAS_PROVIDER_IDS)[number];
+
+/** Sağlayıcı bağlantı kaydı — sağlayıcı kimlikleri uygulamanın kendi kimliklerinden ayrı tutulur. */
+export type SaasProviderLink = {
+  provider: SaasProviderId;
+  /** Merchant hesabı: "paytr:<merchant_id>" | "iyzico:<mid>" | "manual" | "mock:test" */
+  merchant: string;
+  customerRef?: string | null;
+  planRef?: string | null;
+  subscriptionRef?: string | null;
+  /** Kayıtlı kart/token referansı (örn. PayTR ctoken) — loglanmaz, frontend'e taşınmaz. */
+  cardRef?: string | null;
+  /** Kart saklama + otomatik çekim onayı (checkout'ta açıkça alınır, burada saklanır). */
+  consent?: { scope: "card_storage+recurring"; version: string; at: string } | null;
+  at: string;
+};
 
 export const SAAS_ATTEMPT_KINDS = ["charge", "refund", "chargeback"] as const;
 export type SaasAttemptKind = (typeof SAAS_ATTEMPT_KINDS)[number];
@@ -50,7 +77,14 @@ export type SaasTrialRequestRecord = {
   createdAt: string;
 };
 
-export type SaasCurrency = "TRY";
+export type SaasCurrency = "TRY" | "USD";
+
+/** Para birimi → minor-unit üssü. Varsayım yok, açık tablo. */
+export const CURRENCY_MINOR_EXPONENT: Record<SaasCurrency, number> = { TRY: 2, USD: 2 };
+
+export function isSaasCurrency(v: string): v is SaasCurrency {
+  return v === "TRY" || v === "USD";
+}
 
 /** Kabul edilen fiyat/koşul snapshot'ı — katalog değişimi bunu değiştirmez. */
 export type SaasPriceSnapshot = {
@@ -100,9 +134,22 @@ export type SaasSubscriptionRecord = {
   paidThrough: string | null;
   canceledAt: string | null;
   cancelAtPeriodEnd: boolean;
-  provider: string;
+  /** Bu aboneliğin sağlayıcısı — global ayar değişimi bunu sessizce taşımaz. */
+  provider: SaasProviderId;
+  /** Yürütme modeli — deneme/bekleyen abonelikte null (henüz çekim düzeni yok). */
+  executionModel: SaasExecutionModel | null;
+  /** Merchant hesabı — her işlemde açıkça belli olur. */
+  merchantAccount: string;
   providerCustomerRef: string | null;
   providerSubscriptionRef: string | null;
+  /** Kayıtlı kart/token referansı — sunucuda kalır, loglanmaz. */
+  providerCardRef: string | null;
+  /** Sağlayıcı bağlantı geçmişi (geçiş/rollback/audit izi). */
+  providerLinks: SaasProviderLink[];
+  /** Dönem hesabı için IANA timezone (varsayılan UTC). */
+  billingTimeZone: string;
+  billingEmail: string;
+  billingUserIp: string;
   lastWebhookAt: string | null;
   lastReconciledAt: string | null;
   createdAt: string;
@@ -115,15 +162,29 @@ export type SaasCollectionAttemptRecord = {
   subscriptionId: string;
   periodStart: string;
   periodEnd: string;
+  /** Borç/dönem kimliği (`<subId>:<periodStart>`) — deneme kimliğinden ayrı. */
+  debtKey: string;
   amountMinor: number;
   currency: SaasCurrency;
   status: SaasAttemptStatus;
   kind: SaasAttemptKind;
   attemptNo: number;
   idempotencyKey: string;
+  provider: SaasProviderId;
+  merchantAccount: string;
   providerRef: string | null;
   providerEventId: string | null;
   error: string | null;
+  /**
+   * Sağlayıcıya gönderim anı (claim sonrası, sonuçtan bağımsız yazılır).
+   * null + eski + pending = gönderilmeden çöken claim → güvenli yeniden sahiplenme.
+   */
+  sentAt: string | null;
+  /**
+   * Sağlayıcının tekrar-deneme hükmü (PayTR try_again). false = kart
+   * güncellenmeden otomatik retry yok. null = bilinmiyor/legacy.
+   */
+  retryable: boolean | null;
   createdAt: string;
 };
 
@@ -186,12 +247,32 @@ export type SaasCheckoutInvitationRecord = {
 
 /** Minor → "1.234,56 ₺" gösterimi. */
 export function formatMinorTR(minor: number, currency: SaasCurrency = "TRY"): string {
+  return formatMoney(minor, currency, "tr-TR");
+}
+
+const CURRENCY_SYMBOL: Record<SaasCurrency, string> = { TRY: "₺", USD: "$" };
+
+/**
+ * Minor-unit → yerelleştirilmiş tutar. Üs ve sembol açık tablodan, varsayım
+ * yok; ICU/Node sürümüne göre değişen `Intl` çıktısı kullanılmaz —
+ * tr-TR biçimi V1 sözleşmesidir (`1.234,56 ₺`, sembol sonda).
+ */
+export function formatMoney(
+  minor: number,
+  currency: SaasCurrency,
+  locale: "tr-TR" | "en-US" = "tr-TR"
+): string {
   if (!Number.isInteger(minor) || minor < 0) throw new Error("Geçersiz tutar (minor-unit tamsayı olmalı).");
-  const major = Math.floor(minor / 100);
-  const rest = minor % 100;
+  const exp = CURRENCY_MINOR_EXPONENT[currency];
+  const major = Math.floor(minor / 10 ** exp);
+  const frac = (minor % 10 ** exp).toString().padStart(exp, "0");
+  const symbol = CURRENCY_SYMBOL[currency] ?? currency;
+  if (locale === "en-US") {
+    const grouped = major.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${symbol}${grouped}.${frac}`;
+  }
   const grouped = major.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  const symbol = currency === "TRY" ? "₺" : currency;
-  return `${grouped},${rest.toString().padStart(2, "0")} ${symbol}`;
+  return `${grouped},${frac} ${symbol}`;
 }
 
 /** Yüzde indirim — tamamı tamsayı aritmetiği, aşağı yuvarlanır. */

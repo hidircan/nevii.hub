@@ -126,6 +126,8 @@ export async function startTrial(args: {
       catalogVersion: plan.catalogVersion,
       billingInterval: "monthly",
       priceSnapshot: snapshot,
+      provider: "none",
+      executionModel: null,
       nowIso: now,
     }),
     status: "trialing",

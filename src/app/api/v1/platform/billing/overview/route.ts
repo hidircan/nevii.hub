@@ -6,6 +6,8 @@ import { appendPlatformAudit } from "@/lib/platform/store";
 import { getBillingOverview } from "@/lib/saas-billing/overview";
 import { reconcileSubscriptions } from "@/lib/saas-billing/webhooks";
 import { decideTrialRequest } from "@/lib/saas-billing/trial";
+import { approveManualPayment } from "@/lib/saas-billing/manual";
+import { getSaasAttemptById, releaseStuckClaim } from "@/lib/saas-billing/store";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +36,13 @@ const exceptionSchema = z.object({
  *   "ödenmiş" kaydı taklit etmez).
  * - enforcement: kurum bazlı kontrollü billingEnforcement açma/kapama.
  * - reconcile: ölçülü mutabakat tetikleme (varsayılan 25 abonelik).
+ * - release_claim: takılı belirsiz denemeyi DIŞ DOĞRULAMA + gerekçe + audit
+ *   ile kapatır (yeni çekime izin). Ödeme geçmişi/audit silinmez.
  */
 export const POST = withApiHandler(
   async ({ ctx, body }) => {
     const parsed = z
-      .object({ action: z.enum(["exception", "enforcement", "reconcile", "trial_decide"]) })
+      .object({ action: z.enum(["exception", "enforcement", "reconcile", "trial_decide", "manual_approve", "release_claim"]) })
       .passthrough()
       .safeParse(body);
     if (!parsed.success) return fail("VALIDATION_ERROR", "Geçersiz işlem.");
@@ -130,6 +134,65 @@ export const POST = withApiHandler(
         outcome: "success",
       });
       return ok({ tenantId: v.data.tenantId, enabled: v.data.enabled });
+    }
+
+    if (action === "manual_approve") {
+      const { action: _a, ...input } = (body as Record<string, unknown>) ?? {};
+      void _a;
+      const res = await approveManualPayment({ input, approvedBy: ctx.userId });
+      if (!res.ok) return res;
+      await appendPlatformAudit({
+        actorUserId: ctx.userId,
+        actorRole: ctx.role,
+        actorTenantId: ctx.tenantId,
+        targetTenantId: (input as { tenantId?: string }).tenantId ?? null,
+        action: "billing.manual.approve",
+        entityType: "saas_collection_attempt",
+        entityId: (input as { providerRef?: string }).providerRef ?? "-",
+        before: null,
+        after: { paidThrough: res.data.paidThrough },
+        requestId: ctx.requestId ?? "-",
+        outcome: "success",
+      });
+      return ok(res.data);
+    }
+
+    if (action === "release_claim") {
+      const v = z
+        .object({
+          attemptId: z.string().min(1),
+          reason: z.string().trim().min(10).max(300),
+          /** Sağlayıcı panelindeki dış doğrulama kaydı (zorunlu). */
+          externalRef: z.string().trim().min(3).max(120),
+        })
+        .safeParse(body);
+      if (!v.success) return fail("VALIDATION_ERROR", "Geçersiz serbest bırakma isteği.");
+      const target = await getSaasAttemptById(v.data.attemptId);
+      if (!target) return fail("NOT_FOUND", "Tahsilat denemesi bulunamadı.");
+      if (target.status !== "uncertain") {
+        return fail("VALIDATION_ERROR", "Yalnızca belirsiz (uncertain) denemeler serbest bırakılabilir.");
+      }
+      const released = await releaseStuckClaim({
+        attemptId: v.data.attemptId,
+        reason: v.data.reason,
+        actorUserId: ctx.userId,
+        externalRef: v.data.externalRef,
+      });
+      if (!released) return fail("CONFLICT", "Deneme bu arada çözüldü; işlem yapılmadı.");
+      await appendPlatformAudit({
+        actorUserId: ctx.userId,
+        actorRole: ctx.role,
+        actorTenantId: ctx.tenantId,
+        targetTenantId: target.tenantId,
+        action: "billing.claim.release",
+        entityType: "saas_collection_attempt",
+        entityId: v.data.attemptId,
+        before: { status: "uncertain", providerRef: target.providerRef },
+        after: { status: "failed", reason: v.data.reason, externalRef: v.data.externalRef },
+        requestId: ctx.requestId ?? "-",
+        outcome: "success",
+      });
+      return ok({ attemptId: v.data.attemptId, released: true });
     }
 
     const v = z.object({ limit: z.number().int().min(1).max(100).optional() }).safeParse(body);

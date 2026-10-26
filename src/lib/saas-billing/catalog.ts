@@ -27,7 +27,9 @@ export type SaasPricedPlan = {
   planLabel: string;
   catalogVersion: number | null;
   billingInterval: SaasBillingInterval;
-  currency: "TRY";
+  currency: import("./types").SaasCurrency;
+  /** Onaylı USD liste fiyatı (yoksa null — kur çevrimiyle uydurulmaz). */
+  usdAmountMinor: number | null;
   /** Dönem tahsilat tutarı (minor). */
   amountMinor: number;
   /** Yıllıkta aylık eşdeğer (gösterim, minor). */
@@ -75,6 +77,8 @@ export async function getPricedPlan(
     catalogVersion: version,
     billingInterval: interval,
     currency: "TRY",
+    // USD liste fiyatı ayrı yayın gerektirir; kur çevrimiyle uydurulmaz.
+    usdAmountMinor: null,
     amountMinor,
     monthlyEquivalentMinor,
     displayTotal: formatMinorTR(amountMinor),
@@ -113,7 +117,11 @@ export function prePaymentSummary(p: SaasPricedPlan): {
   };
 }
 
-/** Kabul anında dondurulan snapshot — sonraki katalog değişimleri etkilemez. */
+/**
+ * Kabul anında dondurulan snapshot — sonraki katalog değişimleri etkilemez.
+ * currency: TRY varsayılan; USD ancak ayrı onaylı USD fiyat kaydıyla
+ * (liste fiyatı sahibi yayınlamadan USD snapshot kurulmaz).
+ */
 export function buildPriceSnapshot(args: {
   plan: Pick<
     SaasPricedPlan,

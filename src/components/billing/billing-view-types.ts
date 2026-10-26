@@ -18,6 +18,7 @@ export type SubscriptionView = {
   cancelAtPeriodEnd: boolean;
   paymentOnFile: boolean;
   provider: string;
+  executionModel: string | null;
 };
 
 export type AttemptView = {

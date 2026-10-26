@@ -73,8 +73,9 @@ export default async function BillingPage() {
                 trialEndsAt: sub.trialEndsAt,
                 paidThrough: sub.paidThrough,
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-                paymentOnFile: Boolean(sub.providerSubscriptionRef),
+                paymentOnFile: Boolean(sub.providerSubscriptionRef || sub.providerCardRef),
                 provider: sub.provider,
+                executionModel: sub.executionModel,
               }
             : null
         }

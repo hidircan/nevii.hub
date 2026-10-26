@@ -2640,6 +2640,8 @@ model PlatformDeployment {
 /// webhook inbox + PlatformAuditEvent üzerinden izlenir, satır silinmez.
 /// status: pending | trialing | active | past_due | suspended | canceled | expired
 /// billingInterval: monthly | yearly
+/// provider: bu aboneliğin sağlayıcısı (global ayar bunu sessizce taşımaz).
+/// executionModel: PROVIDER_MANAGED | MERCHANT_SCHEDULED | null (deneme/bekleyen).
 model SaasSubscription {
   id                   String    @id
   tenantId             String    @unique
@@ -2659,8 +2661,19 @@ model SaasSubscription {
   canceledAt           DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
   provider             String    @default("iyzico")
+  executionModel       String?
+  merchantAccount      String    @default("")
   providerCustomerRef  String?
   providerSubscriptionRef String?
+  /// Kayıtlı kart/token referansı (sunucuda kalır, loglanmaz).
+  providerCardRef      String?
+  /// Sağlayıcı bağlantı geçmişi (geçiş/rollback/audit izi).
+  providerLinks        Json?
+  /// Dönem hesabı için IANA timezone (varsayılan UTC).
+  billingTimeZone      String    @default("UTC")
+  /// Server-to-server tahsilat için gerekli iletişim (checkout'ta alınır).
+  billingEmail         String    @default("")
+  billingUserIp        String    @default("")
   lastWebhookAt        DateTime?
   lastReconciledAt     DateTime?
   createdAt            DateTime  @default(now())
@@ -2671,11 +2684,13 @@ model SaasSubscription {
   @@index([status])
   @@index([trialEndsAt])
   @@index([currentPeriodEnd])
+  @@index([executionModel, currentPeriodEnd])
 }
 
 /// Dönem tahsilat denemesi. Tek dönem/tek başarılı tahsilat:
-/// idempotencyKey unique + (subscriptionId, periodStart, periodEnd, attemptNo).
-/// status: pending | succeeded | failed | voided
+/// idempotencyKey unique + dönem başına tek "succeeded" charge (kısmi unique
+/// index, bkz. migration) + süreç-içi mutex (json/memory).
+/// status: pending | succeeded | failed | voided | uncertain
 /// İade/chargeback AYRI kayıttır (kind), geçmiş satır silinmez/değişmez.
 model SaasCollectionAttempt {
   id             String   @id
@@ -2685,6 +2700,8 @@ model SaasCollectionAttempt {
   subscription   SaasSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   periodStart    DateTime
   periodEnd      DateTime
+  /// Borç/dönem kimliği (`<subId>:<periodStart>`) — deneme kimliğinden ayrı.
+  debtKey        String?
   amountMinor    Int
   currency       String   @default("TRY")
   status         String   @default("pending")
@@ -2692,14 +2709,22 @@ model SaasCollectionAttempt {
   kind           String   @default("charge")
   attemptNo      Int      @default(1)
   idempotencyKey String   @unique
+  provider       String   @default("")
+  merchantAccount String  @default("")
   providerRef    String?
   providerEventId String?
   error          String?
+  /// Sağlayıcıya gönderim anı; null + eski + pending = gönderilmeden çöken claim.
+  sentAt         DateTime?
+  /// Sağlayıcının tekrar-deneme hükmü (false = kart güncellenmeden retry yok).
+  retryable      Boolean?
   createdAt      DateTime @default(now())
 
   @@index([tenantId, subscriptionId])
   @@index([subscriptionId, periodStart, periodEnd])
   @@index([status])
+  @@index([debtKey])
+  @@index([provider, providerRef])
 }
 
 /// Sağlayıcı webhook inbox'u. eventId unique → yinelenen teslimat tek etki.

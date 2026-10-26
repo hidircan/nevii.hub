@@ -37,8 +37,8 @@ describe("saas store güvenlik sınırları", () => {
       id: "att_1", tenantId: "t1", subscriptionId: "s1",
       periodStart: "2026-02-01T00:00:00.000Z", periodEnd: "2026-03-01T00:00:00.000Z",
       amountMinor: 100, currency: "TRY" as const, status: "pending" as const, kind: "charge" as const,
-      attemptNo: 1, idempotencyKey: "idem_1", providerRef: null, providerEventId: null,
-      error: null, createdAt: "2026-02-01T00:00:00.000Z",
+      attemptNo: 1, idempotencyKey: "idem_1", debtKey: "s1:202602", provider: "iyzico" as const, merchantAccount: "default", providerRef: null, providerEventId: null,
+      error: null, sentAt: null, retryable: null, createdAt: "2026-02-01T00:00:00.000Z",
     };
     const a = await recordSaasAttempt(base);
     const b = await recordSaasAttempt({ ...base, id: "att_2" });

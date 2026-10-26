@@ -23,8 +23,15 @@ CREATE TABLE IF NOT EXISTS "SaasSubscription" (
   "canceledAt" TIMESTAMP(3),
   "cancelAtPeriodEnd" BOOLEAN NOT NULL DEFAULT false,
   "provider" TEXT NOT NULL DEFAULT 'iyzico',
+  "executionModel" TEXT,
+  "merchantAccount" TEXT NOT NULL DEFAULT '',
   "providerCustomerRef" TEXT,
   "providerSubscriptionRef" TEXT,
+  "providerCardRef" TEXT,
+  "providerLinks" JSONB,
+  "billingTimeZone" TEXT NOT NULL DEFAULT 'UTC',
+  "billingEmail" TEXT NOT NULL DEFAULT '',
+  "billingUserIp" TEXT NOT NULL DEFAULT '',
   "lastWebhookAt" TIMESTAMP(3),
   "lastReconciledAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,6 +49,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS "SaasSubscription_status_idx" ON "SaasSubscription" ("status");
 CREATE INDEX IF NOT EXISTS "SaasSubscription_trialEndsAt_idx" ON "SaasSubscription" ("trialEndsAt");
 CREATE INDEX IF NOT EXISTS "SaasSubscription_currentPeriodEnd_idx" ON "SaasSubscription" ("currentPeriodEnd");
+CREATE INDEX IF NOT EXISTS "SaasSubscription_executionModel_currentPeriodEnd_idx" ON "SaasSubscription" ("executionModel", "currentPeriodEnd");
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SaasSubscription_tenantId_fkey') THEN
@@ -58,15 +66,20 @@ CREATE TABLE IF NOT EXISTS "SaasCollectionAttempt" (
   "subscriptionId" TEXT NOT NULL,
   "periodStart" TIMESTAMP(3) NOT NULL,
   "periodEnd" TIMESTAMP(3) NOT NULL,
+  "debtKey" TEXT,
   "amountMinor" INTEGER NOT NULL,
   "currency" TEXT NOT NULL DEFAULT 'TRY',
   "status" TEXT NOT NULL DEFAULT 'pending',
   "kind" TEXT NOT NULL DEFAULT 'charge',
   "attemptNo" INTEGER NOT NULL DEFAULT 1,
   "idempotencyKey" TEXT NOT NULL,
+  "provider" TEXT NOT NULL DEFAULT '',
+  "merchantAccount" TEXT NOT NULL DEFAULT '',
   "providerRef" TEXT,
   "providerEventId" TEXT,
   "error" TEXT,
+  "sentAt" TIMESTAMP(3),
+  "retryable" BOOLEAN,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT "SaasCollectionAttempt_pkey" PRIMARY KEY ("id")
@@ -81,6 +94,18 @@ END $$;
 CREATE INDEX IF NOT EXISTS "SaasCollectionAttempt_tenantId_subscriptionId_idx" ON "SaasCollectionAttempt" ("tenantId", "subscriptionId");
 CREATE INDEX IF NOT EXISTS "SaasCollectionAttempt_subscriptionId_periodStart_periodEnd_idx" ON "SaasCollectionAttempt" ("subscriptionId", "periodStart", "periodEnd");
 CREATE INDEX IF NOT EXISTS "SaasCollectionAttempt_status_idx" ON "SaasCollectionAttempt" ("status");
+CREATE INDEX IF NOT EXISTS "SaasCollectionAttempt_debtKey_idx" ON "SaasCollectionAttempt" ("debtKey");
+CREATE INDEX IF NOT EXISTS "SaasCollectionAttempt_provider_providerRef_idx" ON "SaasCollectionAttempt" ("provider", "providerRef");
+-- Dönem başına tek başarılı tahsilat (süreçler-arası garanti; refund/chargeback hariç).
+CREATE UNIQUE INDEX IF NOT EXISTS "SaasCollectionAttempt_one_success_per_period"
+  ON "SaasCollectionAttempt" ("subscriptionId", "periodStart", "periodEnd")
+  WHERE "status" = 'succeeded' AND "kind" = 'charge';
+-- Borç başına tek açık claim: iki paralel job aynı döneme iki çekim gönderemez.
+-- (pending/uncertain satırı dururken ikinci claim INSERT'i P2002 ile düşer;
+--  sağlayıcı idempotency'si varsayılmaz.)
+CREATE UNIQUE INDEX IF NOT EXISTS "SaasCollectionAttempt_one_open_claim_per_debt"
+  ON "SaasCollectionAttempt" ("subscriptionId", "periodStart")
+  WHERE "kind" = 'charge' AND "status" IN ('pending', 'uncertain');
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'SaasCollectionAttempt_tenantId_fkey') THEN
