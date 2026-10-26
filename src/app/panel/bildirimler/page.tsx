@@ -30,7 +30,7 @@ export default async function BildirimlerPage() {
   );
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div>
       <PageHeader title="Bildirimler" description="Uygulama içi ders, telafi, görev, tahsilat, duyuru ve sistem bildirimleriniz." />
       <NotificationsList initialNotifications={notifications} />
       {nextCursor ? (

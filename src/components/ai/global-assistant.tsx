@@ -294,6 +294,10 @@ export function GlobalAssistant() {
   // Auth bitmeden ne launcher ne chip — boş flicker yok.
   if (publicSurface || !authChecked || !session) return null;
 
+  // AI asistan yalnızca yöneticilere ait — öğretmen/öğrenci portallarında
+  // (gelişim raporu, değerlendirme formu dahil) launcher + popup hiç basılmaz.
+  if (session.role === "TEACHER" || session.role === "STUDENT") return null;
+
   return (
     <>
       {/* Launcher — hidden while the popup is open so it never sits under
