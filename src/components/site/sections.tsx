@@ -27,6 +27,8 @@ import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-loca
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
 import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
+import { SceneBody, ShowcaseCycle, STORY_SCENES } from "./showcase-panel";
+import type { CSSProperties } from "react";
 import { SITE_STEPS } from "@/lib/site-content";
 
 /** Odak halkası her etkileşimli öğede AYNI — klavye kullanıcısı nerede olduğunu her zaman görür. */
@@ -322,7 +324,25 @@ export function HeroSection({ c }: { c: SiteContent }) {
             <figcaption className="mt-3 text-center text-sm text-slate-500">{SITE_HERO_SHOWCASE.caption}</figcaption>
           </figure>
         </Reveal>
-      ) : null}
+      ) : (
+        <div className="relative mx-auto mt-14 max-w-2xl">
+          <div
+            aria-hidden
+            className="nh-drift pointer-events-none absolute -inset-x-16 -inset-y-10 -z-10 rounded-full opacity-60 blur-3xl"
+            style={{ background: "radial-gradient(closest-side, #fcd34d, transparent)" }}
+          />
+          <div
+            className="nh-rise rounded-[1.25rem] bg-[var(--color-primary-soft-text)] p-3 shadow-2xl shadow-amber-900/25 ring-1 ring-black/5 sm:p-4"
+            style={{ "--nh-delay": "200ms" } as CSSProperties}
+          >
+            <div aria-hidden className="mb-3 flex items-center justify-between px-2 text-xs text-white/60">
+              <span className="font-semibold text-white/90">{BRAND.shortName}</span>
+              <span className="rounded-full bg-white/10 px-3 py-1">neviihub.com/panel</span>
+            </div>
+            <ShowcaseCycle />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -391,36 +411,79 @@ export function FeaturesSection({ c }: { c: SiteContent }) {
 }
 
 export function PlatformSection({ c }: { c: SiteContent }) {
+  const cards = (
+    <ul className="grid gap-4 lg:grid-cols-3">
+      {c.surfaces.map((s, i) => {
+        const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
+        return (
+          <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
+            <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
+              <Icon className="h-5 w-5" aria-hidden />
+            </p>
+            <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
+            <PlatformPoints points={s.points} />
+          </li>
+        );
+      })}
+    </ul>
+  );
   return (
     <Section id="platform" className="bg-slate-50">
       <SectionHeading title={c.platform.title} description={c.platform.description} />
-      <Reveal delayMs={80} className="mt-10">
-        <ul className="grid gap-4 lg:grid-cols-3">
+      {/* Dar ekran / desteklemeyen tarayıcı / hareketi azalt: kartlar. */}
+      <Reveal delayMs={80} className="nh-story-fallback mt-10">
+        {cards}
+      </Reveal>
+      {/*
+        Geniş ekran + scroll-driven animation desteği: kaydırdıkça soldaki
+        anlatım akar, sağdaki ekran sabit kalıp portal ekranına geçer.
+        Yalnız CSS (globals.css nh-story-*); JS/istek yok.
+      */}
+      <div className="nh-story mt-12 hidden grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-14">
+        <ol className="space-y-0">
           {c.surfaces.map((s, i) => {
             const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
             return (
-            <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
-              <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
-                <Icon className="h-5 w-5" aria-hidden />
-              </p>
-              <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
-              <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
-                {s.points.map((p) => (
-                  <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
-                    <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m3 8.5 3.5 3.5L13 4.5" />
-                    </svg>
-                    <span>{p}</span>
-                  </li>
-                ))}
-              </ul>
-            </li>
+              <li key={s.title} className="nh-story-step flex min-h-[70vh] flex-col justify-center">
+                <p className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-amber-700 shadow-sm ring-1 ring-amber-100">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </p>
+                <h3 className="mt-5 text-2xl font-semibold text-slate-900">{s.title}</h3>
+                <p className="mt-3 max-w-md text-base leading-relaxed text-slate-600">{s.description}</p>
+                <PlatformPoints points={s.points} />
+              </li>
             );
           })}
-        </ul>
-      </Reveal>
+        </ol>
+        <div className="relative">
+          <div className="sticky top-[calc(50vh-11rem)]">
+            <div aria-hidden className="relative h-[22rem] rounded-[1.25rem] bg-[var(--color-primary-soft-text)] p-4 shadow-2xl shadow-amber-900/25">
+              {STORY_SCENES.slice(0, Math.max(1, c.surfaces.length)).map((scene) => (
+                <div key={scene.title} className="nh-story-layer absolute inset-4 rounded-2xl bg-white/[0.07] p-5 ring-1 ring-white/15">
+                  <SceneBody scene={scene} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </Section>
+  );
+}
+
+function PlatformPoints({ points }: { points: string[] }) {
+  return (
+    <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
+      {points.map((p) => (
+        <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
+          <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 8.5 3.5 3.5L13 4.5" />
+          </svg>
+          <span>{p}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
