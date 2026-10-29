@@ -33,7 +33,7 @@ import { appearancePolicyConflict, normalizeAppearancePolicy } from "./policies"
 import { deleteSettingOverride, listFeatureOverrides } from "./store";
 import { FEATURES_POLICY_KEY, PLATFORM_SCOPE_ID, isGovernedPolicyKey, recordPublishedVersion } from "./policy-version-log";
 import { PLAN_KEY_PATTERN } from "./types";
-import { listSaasPurchaseRequests, listSaasQuoteRequests, listSaasSubscriptions, listSaasTrialRequests, listSaasWebhookEvents } from "../saas-billing/store";
+import { listAllInvoiceOrders, listSaasPendingOrders, listSaasPurchaseRequests, listSaasQuoteRequests, listSaasSubscriptions, listSaasTrialRequests, listSaasWebhookEvents } from "../saas-billing/store";
 import { listFailedWebhookEvents } from "../saas-billing/webhooks";
 import { PLAN_CATALOG, resolveTenantLimits, STAFF_SEAT_ROLES } from "./entitlements";
 import {
@@ -113,13 +113,15 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
   const problemIntegrations = integrations.filter((i) => i.status === "error" || i.status === "not_configured");
 
   // Satış bekleyen işleri — sınırlı okuma (sayfa başına tek render, polling yok).
-  const [trials, purchases, subs, quotes, webhooks, failedWebhooks] = await Promise.all([
+  const [trials, purchases, subs, quotes, webhooks, failedWebhooks, pendingOrders, invoiceOrders] = await Promise.all([
     listSaasTrialRequests(50).catch(() => []),
     listSaasPurchaseRequests(50).catch(() => []),
     listSaasSubscriptions(100).catch(() => []),
     listSaasQuoteRequests(50).catch(() => []),
     listSaasWebhookEvents(8).catch(() => []),
     listFailedWebhookEvents(100).catch(() => []),
+    listSaasPendingOrders(50).catch(() => []),
+    listAllInvoiceOrders(100).catch(() => []),
   ]);
   const tenantName = new Map(tenants.map((t) => [t.tenantId, t.name]));
   const weekAhead = Date.now() + 7 * 24 * 3600 * 1000;
@@ -130,6 +132,8 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
   const trialsEnding = subs.filter(
     (s) => s.status === "trialing" && s.trialEndsAt && new Date(s.trialEndsAt).getTime() <= weekAhead
   );
+  const awaitingOrders = pendingOrders.filter((o) => o.status === "awaiting_payment");
+  const docTrouble = invoiceOrders.filter((o) => o.status === "document_failed" || o.status === "manual_pending");
 
   const buckets = await dashboardLifecycleBuckets();
   return ok({
@@ -179,6 +183,7 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
       paymentEvents: webhooks.map((w) => ({
         id: w.id,
         provider: w.provider,
+        tenantId: w.tenantId,
         tenant: w.tenantId ? (tenantName.get(w.tenantId) ?? w.tenantId) : null,
         status: w.status,
         createdAt: w.createdAt,
@@ -199,11 +204,27 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
         trialEndsAt: s.trialEndsAt,
       })),
       trialsEndingTotal: trialsEnding.length,
+      awaitingOrders: awaitingOrders.slice(0, 8).map((o) => ({
+        id: o.id,
+        institutionName: o.institutionName,
+        planKey: o.planKey,
+        interval: o.interval,
+        createdAt: o.createdAt,
+      })),
+      awaitingOrdersTotal: awaitingOrders.length,
+      docTrouble: docTrouble.slice(0, 8).map((o) => ({
+        id: o.id,
+        tenantId: o.tenantId,
+        tenant: tenantName.get(o.tenantId) ?? o.tenantId,
+        status: o.status,
+        createdAt: o.createdAt,
+      })),
+      docTroubleTotal: docTrouble.length,
     },
   });
 }
 
-export async function listInstitutions(ctx: ServiceContext, query?: string) {
+export async function listInstitutions(ctx: ServiceContext, query?: string, lifecycle?: string) {
   const gate = requireHyperAdmin(ctx);
   if (!gate.ok) return gate;
   const q = (query ?? "").trim().toLowerCase();
@@ -213,7 +234,89 @@ export async function listInstitutions(ctx: ServiceContext, query?: string) {
       (t) => t.name.toLowerCase().includes(q) || t.tenantId.toLowerCase().includes(q) || t.slug.toLowerCase().includes(q)
     );
   }
-  return ok({ tenants });
+  if (lifecycle && isTenantLifecycle(lifecycle)) {
+    tenants = tenants.filter((t) => t.lifecycle === lifecycle);
+  }
+  const ids = tenants.map((t) => t.tenantId);
+  const [owners, phones] = await Promise.all([resolveTenantOwners(ids), resolveTenantPhones(ids)]);
+  return ok({
+    tenants: tenants.map((t) => ({
+      ...t,
+      ownerEmail: owners.get(t.tenantId) ?? null,
+      schoolPhone: phones.get(t.tenantId) ?? null,
+    })),
+  });
+}
+
+/**
+ * Kurum yetkilisi = o kurumun SUPER_ADMIN rolündeki kullanıcısı (RBAC'taki
+ * tek sahiplik kavramı; "ilk kullanıcı" değil). Birden çoksa en eski kayıt.
+ * Tek toplu okuma — kurum başına sorgu yok.
+ */
+async function resolveTenantOwners(tenantIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (tenantIds.length === 0) return out;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const rows = await getPrisma().user.findMany({
+        where: { tenantId: { in: tenantIds }, role: "SUPER_ADMIN", active: true },
+        select: { tenantId: true, email: true },
+        orderBy: { createdAt: "asc" },
+      });
+      for (const r of rows) {
+        if (!out.has(r.tenantId) && r.email) out.set(r.tenantId, r.email);
+      }
+      return out;
+    } catch {
+      return out;
+    }
+  }
+  const { listDynamicUsers } = await import("../auth/dynamic-users");
+  const rows = (await listDynamicUsers())
+    .filter((u) => u.active && u.role === "SUPER_ADMIN")
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+  for (const r of rows) {
+    if (!out.has(r.tenantId) && r.email) out.set(r.tenantId, r.email);
+  }
+  for (const id of tenantIds) {
+    if (out.has(id)) continue;
+    const seed = listBootstrapUsersForTenant(id).find((u) => u.role === "SUPER_ADMIN");
+    if (seed?.email) out.set(id, seed.email);
+  }
+  return out;
+}
+
+/** Kurum telefonu = okul kaydının telefonu (tek yetkili kaynak). */
+async function resolveTenantPhones(tenantIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (tenantIds.length === 0) return out;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const rows = await getPrisma().school.findMany({
+        where: { tenantId: { in: tenantIds } },
+        select: { tenantId: true, phone: true },
+      });
+      for (const r of rows) {
+        if (r.phone?.trim()) out.set(r.tenantId, r.phone.trim());
+      }
+      return out;
+    } catch {
+      return out;
+    }
+  }
+  const settled = await Promise.all(
+    tenantIds.map((id) =>
+      runWithTenantAsync(id, () => readData())
+        .then((d) => ({ id, phone: (d.settings.phone ?? "").trim() || null }))
+        .catch(() => ({ id, phone: null as string | null }))
+    )
+  );
+  for (const r of settled) {
+    if (r.phone) out.set(r.id, r.phone);
+  }
+  return out;
 }
 
 export async function getInstitutionOverview(ctx: ServiceContext, tenantId: string) {

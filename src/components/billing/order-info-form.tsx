@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BILLING_RECIPIENT_LABELS, BILLING_RECIPIENT_TYPES } from "@/lib/saas-billing/invoicing-profile";
+import {
+  clearCheckoutSession,
+  ensureCheckoutKey,
+  loadCheckoutSession,
+  saveCheckoutSession,
+  useCheckoutSession,
+} from "@/components/billing/checkout-session";
 
 export type OrderInfoInitial = {
   institutionName: string;
@@ -58,13 +65,58 @@ export function OrderInfoForm({
   onEmailTaken?: () => void;
 }) {
   const [f, setF] = useState<OrderInfoInitial>({ ...EMPTY, ...(initial ?? {}) });
-  const [key] = useState(() =>
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `k_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  );
+  // Sekme-sabit anahtar: geri/ileri/yenileme aynı anahtarı verir → sunucu
+  // replay'i ikinci kayıt açmaz (BUG2). Render çıktısına girmez (SSR güvenli).
+  const [key] = useState(() => ensureCheckoutKey(planKey, interval));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resumeEmail, setResumeEmail] = useState("");
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+  const [resumeOffer, setResumeOffer] = useState(false);
+
+  async function requestResume() {
+    setResumeNotice(null);
+    setResumeBusy(true);
+    try {
+      const res = await fetch("/api/v1/billing/orders/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resumeEmail }),
+      });
+      const json = (await res.json()) as { ok: boolean; data?: { message?: string }; error?: { message?: string } };
+      setResumeBusy(false);
+      setResumeNotice(
+        json.ok ? (json.data?.message ?? "İstek alındı.") : (json.error?.message ?? "İstek alınamadı.")
+      );
+    } catch {
+      setResumeBusy(false);
+      setResumeNotice("Sunucuya ulaşılamadı.");
+    }
+  }
+  // Sekme oturumu (haricî kaynak aboneliği — hidrasyon uyumlu).
+  const session = useCheckoutSession();
+  const resumeToken = !editToken ? (session?.token ?? null) : null;
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Gönderim öncesi taslak (BUG1): render sırasında tek seferlik uyarlama
+  // (onaylı desen; effect içinde sync setState yasak).
+  const [draftApplied, setDraftApplied] = useState(Boolean(editToken));
+  if (!editToken && !draftApplied && session?.draft) {
+    setDraftApplied(true);
+    const d = session.draft;
+    setF((v) => ({ ...v, ...d }));
+  }
+
+  // Taslak yazımı (400ms debounce; sekme ömrü, URL'ye hassas veri yok).
+  useEffect(() => {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      saveCheckoutSession({ key, planKey, interval, draft: { ...f } });
+    }, 400);
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+  }, [f, key, planKey, interval]);
   const input =
     "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20";
   const label = "mb-1 block text-sm font-medium text-slate-700";
@@ -145,12 +197,26 @@ export function OrderInfoForm({
           setError("Bu e-posta ile kayıtlı bir hesap var. Aşağıdaki mevcut müşteri girişini kullanın.");
           return;
         }
+        if (json.error?.code === "PENDING_EXISTS") {
+          // BUG2: kendi bekleyen kaydı — sekmedeki token ile sürdür (e-posta
+          // tek başına yetki değildir; token sahipliği kanıtlar).
+          const mine = loadCheckoutSession()?.token ?? null;
+          if (mine) {
+            window.location.href = `/satin-al/bilgiler?t=${encodeURIComponent(mine)}`;
+            return;
+          }
+          setError("Bu e-posta ile bekleyen bir kaydınız var. Kaydı oluşturduğunuz sekmeden devam edin.");
+          setResumeOffer(true);
+          return;
+        }
         setError(json.error?.message ?? "Kayıt oluşturulamadı.");
         return;
       }
       if (isEdit) {
         window.location.href = `/satin-al/onizleme?t=${encodeURIComponent(editToken ?? "")}`;
       } else if (json.data?.token) {
+        // Token benimsenir (tek kaynak: sunucu yanıtı); taslak temizlenir.
+        saveCheckoutSession({ key, planKey, interval, token: json.data.token, draft: null });
         window.location.href = `/satin-al/onizleme?t=${encodeURIComponent(json.data.token)}`;
       } else {
         setBusy(false);
@@ -164,6 +230,34 @@ export function OrderInfoForm({
 
   return (
     <form onSubmit={submit} className="space-y-6">
+      {resumeToken && !editToken ? (
+        <div role="note" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p className="font-semibold text-amber-900">Devam eden kaydınız var.</p>
+          <p className="mt-1 text-amber-800">
+            Ödeme bekleyen kaydınıza kaldığınız yerden devam edebilir veya yeni bir kayıt başlatabilirsiniz.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href={`/satin-al/bilgiler?t=${encodeURIComponent(resumeToken)}`}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+            >
+              Kaydıma devam et
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                // Oturum silinir ve sayfa baştan açılır: yeni idempotency
+                // anahtarı üretilir, eski kayda bağlanılmaz.
+                clearCheckoutSession();
+                window.location.reload();
+              }}
+              className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+            >
+              Yeni kayıt başlat
+            </button>
+          </div>
+        </div>
+      ) : null}
       <fieldset>
         <legend className="mb-3 text-base font-semibold">Kurum ve yetkili</legend>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -252,6 +346,39 @@ export function OrderInfoForm({
       </fieldset>
 
       {error ? <p role="alert" className="text-sm font-medium text-red-700">{error}</p> : null}
+      {resumeOffer && !editToken ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-800">Bağlantınızı mı kaybettiniz?</p>
+          <p className="mt-1 text-xs text-slate-600">
+            Kayıttaki e-posta adresinize yeni bir devam bağlantısı gönderebiliriz.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="email"
+              value={resumeEmail}
+              onChange={(e) => setResumeEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void requestResume();
+                }
+              }}
+              placeholder="Kayıttaki e-posta"
+              aria-label="Kayıttaki e-posta"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+            />
+            <button
+              type="button"
+              onClick={() => void requestResume()}
+              disabled={resumeBusy || !resumeEmail.trim()}
+              className="shrink-0 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+            >
+              {resumeBusy ? "Gönderiliyor…" : "Bağlantıyı gönder"}
+            </button>
+          </div>
+          {resumeNotice ? <p role="status" className="mt-2 text-xs text-slate-600">{resumeNotice}</p> : null}
+        </div>
+      ) : null}
       <button
         type="submit"
         disabled={busy}

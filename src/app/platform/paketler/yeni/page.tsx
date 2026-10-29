@@ -1,3 +1,4 @@
+import Link from "@/components/link";
 import { EmptyState } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getCatalogOverview } from "@/lib/platform/commercial-catalog";
@@ -12,7 +13,11 @@ export default async function PackageNewPage() {
   if (!res.ok) return <EmptyState title="Katalog yüklenemedi" description={res.error.message} />;
   const working = res.data.draft ?? res.data.published;
   return (
-    <PackageEditor
+    <div className="space-y-3">
+      <Link className="text-sm text-[var(--color-primary)] hover:underline" href="/platform/paketler">
+        ← Paketler ve Fiyatlar
+      </Link>
+      <PackageEditor
       initial={{
         mode: "new",
         plan: {
@@ -35,6 +40,7 @@ export default async function PackageNewPage() {
         usageCount: 0,
         renameAllowed: true,
       }}
-    />
+      />
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import { listPlatformTenants } from "../platform/store";
 import { getPublishedCatalog } from "../platform/commercial-catalog";
 import { planLabel } from "../platform/entitlements";
 import {
+  listSaasPendingOrders,
   listSaasPurchaseRequests,
   listSaasQuoteRequests,
   listSaasSubscriptions,
@@ -17,13 +18,14 @@ import { listFailedWebhookEvents } from "./webhooks";
 
 export async function getBillingOverview(opts?: { includeRequests?: boolean }) {
   const wantRequests = opts?.includeRequests !== false;
-  const [subs, webhooks, failed, trialRequests, quotes, purchaseRequests, tenants, catalog] = await Promise.all([
+  const [subs, webhooks, failed, trialRequests, quotes, purchaseRequests, pendingOrders, tenants, catalog] = await Promise.all([
     listSaasSubscriptions(100),
     listSaasWebhookEvents(20),
     listFailedWebhookEvents(20),
     wantRequests ? listSaasTrialRequests(50) : [],
     wantRequests ? listSaasQuoteRequests(50) : [],
     wantRequests ? listSaasPurchaseRequests(50) : [],
+    wantRequests ? listSaasPendingOrders(50) : [],
     listPlatformTenants().catch(() => []),
     getPublishedCatalog().catch(() => null),
   ]);
@@ -114,6 +116,22 @@ export async function getBillingOverview(opts?: { includeRequests?: boolean }) {
       status: r.status,
       tenantId: r.tenantId,
       createdAt: r.createdAt,
+    })),
+    // Satın alma hunisi taslakları (provisional — aktif müşteri sayılmaz).
+    pendingOrders: pendingOrders.map((r) => ({
+      id: r.id,
+      planKey: r.planKey,
+      planLabel: planName.get(r.planKey) ?? planLabel(r.planKey),
+      interval: r.interval,
+      institutionName: r.institutionName,
+      ownerName: r.ownerName,
+      ownerEmail: r.ownerEmail,
+      ownerPhone: r.ownerPhone,
+      status: r.status,
+      subscriptionId: r.subscriptionId,
+      expiresAt: r.expiresAt,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
     })),
   };
 }

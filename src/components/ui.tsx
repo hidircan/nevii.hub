@@ -42,12 +42,18 @@ export function StatCard({
   hint,
   accent = "primary",
   icon,
+  href,
+  compact,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   accent?: "primary" | "success" | "warning" | "danger" | "info";
   icon?: ReactNode;
+  /** Verilirse kartın tamamı bu hedefe bağlantı olur (klavye odağı korunur). */
+  href?: string;
+  /** Kompakt özet kartı (daha az boşluk, daha küçük değer). */
+  compact?: boolean;
 }) {
   const accents: Record<string, string> = {
     primary: "text-[var(--color-primary)]",
@@ -56,21 +62,31 @@ export function StatCard({
     danger: "text-[var(--color-danger)]",
     info: "text-[var(--color-info)]",
   };
-  return (
-    <Card className="relative overflow-hidden">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-[var(--color-text-muted)]">{label}</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-[var(--color-text)]">{value}</p>
-          {hint ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">{hint}</p> : null}
-        </div>
-        {icon ? (
-          <div className={cn("rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-2", accents[accent])}>
-            {icon}
-          </div>
-        ) : null}
+  const body = (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className={compact ? "text-xs font-medium text-[var(--color-text-muted)]" : "text-sm font-medium text-[var(--color-text-muted)]"}>{label}</p>
+        <p className={compact ? "mt-1 text-2xl font-semibold tracking-tight text-[var(--color-text)]" : "mt-2 text-3xl font-semibold tracking-tight text-[var(--color-text)]"}>{value}</p>
+        {hint ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">{hint}</p> : null}
       </div>
-    </Card>
+      {icon ? (
+        <div className={cn("rounded-[var(--radius-md)] bg-[var(--color-surface-muted)] p-2", accents[accent])}>
+          {icon}
+        </div>
+      ) : null}
+    </div>
+  );
+  if (!href) {
+    return <Card className={cn("relative overflow-hidden", compact && "p-4")}>{body}</Card>;
+  }
+  return (
+    <Link
+      href={href}
+      aria-label={`${label}: ${value}`}
+      className="block rounded-[var(--radius-lg)] transition-colors hover:border-[var(--color-border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+    >
+      <Card className={cn("relative overflow-hidden", compact && "p-4")}>{body}</Card>
+    </Link>
   );
 }
 

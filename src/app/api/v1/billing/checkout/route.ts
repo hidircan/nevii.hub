@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { withApiHandler } from "@/lib/api/handler";
+import { consumeRateLimit } from "@/lib/rate-limit";
 import { fail, ok } from "@/lib/services/result";
 import { getPricedPlan, prePaymentSummary } from "@/lib/saas-billing/catalog";
 import { validateCampaignForTenant, redeemCampaign } from "@/lib/saas-billing/campaigns";
@@ -63,6 +64,10 @@ const bodySchema = z.object({
  */
 export const POST = withApiHandler(
   async ({ ctx, body, request }) => {
+    // §12: ödeme başlatma — kullanıcı başına saatte 20 (suistimal freni).
+    if (!consumeRateLimit("billing-checkout-user", `u:${ctx.userId}`, { windowMs: 3600_000, max: 20 })) {
+      return fail("RATE_LIMITED", "Çok fazla istek. Lütfen daha sonra tekrar deneyin.");
+    }
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
       return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Geçersiz istek.");
@@ -125,6 +130,21 @@ export const POST = withApiHandler(
     }
 
     const existing = await getSaasSubscription(ctx.tenantId);
+    // §9 koruma: ödenmiş süresi süren AKTİF abonelik yerinde EZİLMEZ.
+    // Zamanlanmış değişim kaydı DB şeması gerektirir (bu turda migration
+    // YOK) → güvenli engel: mevcut hak korunur, yeni çekim açılmaz.
+    if (existing) {
+      const { guardActivePaidOverwrite } = await import("@/lib/saas-billing/subscriptions");
+      const blocked = guardActivePaidOverwrite({
+        status: existing.status,
+        paidThrough: existing.paidThrough,
+        planKey: existing.planKey,
+        billingInterval: existing.billingInterval,
+        targetPlanKey: v.planKey,
+        targetInterval: interval,
+      });
+      if (blocked) return fail("VALIDATION_ERROR", blocked);
+    }
     // Mevcut abonelik kendi sağlayıcısında kalır; global varsayılan YALNIZCA
     // YENİ abonelikler içindir ve eskileri sessizce taşımaz.
     const providerId =

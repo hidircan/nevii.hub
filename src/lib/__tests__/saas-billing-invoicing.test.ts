@@ -244,6 +244,33 @@ describe("sipariş snapshot", () => {
     expect(again?.buyer.legalTitle).toBe("Demo Müzik Eğitim A.Ş.");
   });
 
+  it("oran değişimi eski siparişin KDV snapshot'ını değiştirmez", async () => {
+    await saveBillingProfile(profile());
+    const r1 = await ensureInvoiceOrderForAttempt({
+      attempt: attempt(),
+      subscriptionId: "saas_sub_1",
+      tenantId: T,
+      priceSnapshot: snapshot(),
+      planLabel: "Pro",
+    });
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    // Oran değişmiş gibi yeni snapshot ile ikinci sipariş (farklı dönem).
+    const now2 = new Date(Date.now() + 31 * 86400000).toISOString();
+    const r2 = await ensureInvoiceOrderForAttempt({
+      attempt: attempt({ id: "a-kdv2", periodStart: now2, periodEnd: now2, idempotencyKey: "k2", providerRef: "mock_ref_2", providerEventId: "ev2" }),
+      subscriptionId: "saas_sub_1",
+      tenantId: T,
+      priceSnapshot: { ...snapshot(), taxRateBps: 2500, taxAmountMinor: 75000, totalWithTaxMinor: 375000 },
+      planLabel: "Pro",
+    });
+    expect(r2.ok).toBe(true);
+    const old = await getInvoiceOrderByAttempt(attempt().id);
+    expect(old?.taxRateBps).toBe(2000);
+    expect(old?.taxMinor).toBe(60000);
+    expect(old?.totalMinor).toBe(360000);
+  });
+
   it("tenant izolasyonu: liste yalnız kendi siparişlerini döner", async () => {
     await saveBillingProfile(profile());
     await saveBillingProfile(profile({ id: "saas_bprof_2", tenantId: "tenant_demo_2" }));

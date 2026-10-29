@@ -5,8 +5,15 @@ import { BillingManager } from "@/components/platform/billing-manager";
 
 export const dynamic = "force-dynamic";
 
-export default async function BillingOverviewPage() {
+const DURUM_VALUES = new Set(["sorunlu", "active", "trialing", "pending", "incomplete", "past_due", "suspended", "canceled", "expired"]);
+
+export default async function BillingOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ durum?: string }>;
+}) {
   await requireHyperAdminPage("/platform/fatura");
+  const { durum } = await searchParams;
   // Başvurular ayrı ekranda (/platform/basvurular); burada gereksiz okuma yok.
   const data = await getBillingOverview({ includeRequests: false }).catch(() => null);
   if (!data) {
@@ -16,9 +23,9 @@ export default async function BillingOverviewPage() {
     <div>
       <PageHeader
         title="Kurum Abonelikleri"
-        description="Kurum abonelikleri, kampanyalar, ödeme bildirimleri ve istisnalar. Başvurular ayrı ekrandadır. Manuel istisna ödenmiş kaydı taklit etmez."
+        description="Kurum abonelikleri, ödeme bildirimleri ve istisnalar. Başvurular ve kampanyalar ayrı ekrandadır. Manuel istisna ödenmiş kaydı taklit etmez."
       />
-      <BillingManager data={data} />
+      <BillingManager data={data} initialStatus={durum && DURUM_VALUES.has(durum) ? durum : undefined} />
     </div>
   );
 }

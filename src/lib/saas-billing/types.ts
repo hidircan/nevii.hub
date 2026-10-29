@@ -114,8 +114,18 @@ export type SaasPendingOrderRecord = {
     recurringAt: string;
     marketingAt: string | null;
     termsText: string;
+    /** Kabul edilen belge sürümleri (belge → sürüm; geçmiş kabul değişmez). */
+    docVersions: Record<string, string>;
+    /** İşlemdeki sağlayıcı snapshot'ı (onay metni sonradan değişmez). */
+    providerId: string;
+    providerDisplayName: string;
   } | null;
   setupUserId: string | null;
+  /** Gönderim durumu (alıcı/olay bazında; tekrar deneme ikinci ödeme/hesap yaratmaz). */
+  mailStatus: {
+    account: { state: "sent" | "blocked" | "failed"; reason: string; at: string } | null;
+    invoice: { state: "sent" | "skipped_same_address" | "blocked" | "failed"; reason: string; at: string } | null;
+  } | null;
   /** Ödeme penceresi sonu (ISO). */
   expiresAt: string;
   createdAt: string;

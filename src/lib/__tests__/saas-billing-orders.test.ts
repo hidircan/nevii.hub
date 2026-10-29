@@ -7,6 +7,7 @@ import {
   getSaasSubscription,
   listSaasPendingOrders,
 } from "../saas-billing/store";
+import { getRequiredDocs } from "../saas-billing/legal-documents";
 import {
   completeMockOrder,
   createPendingOrder,
@@ -28,6 +29,8 @@ const BILLING = {
   country: "Turkiye",
   invoiceEmail: "fatura@testkoleji.com",
 };
+
+const docs = () => Object.fromEntries(getRequiredDocs().map((d) => [d.id, d.version]));
 
 const base = (email: string, key: string) => ({
   planKey: "core",
@@ -203,6 +206,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: false,
       marketingConsent: false,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     });
@@ -217,6 +221,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: true,
       marketingConsent: true,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     });
@@ -240,6 +245,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: true,
       marketingConsent: false,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     };
@@ -260,6 +266,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: true,
       marketingConsent: false,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     });
@@ -277,6 +284,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: true,
       marketingConsent: false,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     });
@@ -314,6 +322,7 @@ describe("ödeme ve tamamlama", () => {
       acceptedTerms: true,
       acceptedRecurring: true,
       marketingConsent: false,
+      docVersions: docs(),
       userIp: "127.0.0.1",
       origin: "http://localhost:3001",
     });
@@ -334,5 +343,336 @@ describe("ödeme ve tamamlama", () => {
     const t = await paidOrder("c7@t.com", "testkey-c7", "");
     const re = await reissueSetupLink({ token: t });
     expect(re.ok).toBe(false);
+  });
+});
+
+describe("NeviiOS taslak görünürlüğü (§3)", () => {
+  it("kayıt anında aynı kaynaktan özet listede görünür (kurum açılmadan)", async () => {
+    const r = await createPendingOrder({ input: base("taslak@t.com", "testkey-t1") });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.data.outcome !== "created") return;
+    const orderId = r.data.order.id;
+    const { getBillingOverview } = await import("../saas-billing/overview");
+    const ov = await getBillingOverview();
+    const row = ov.pendingOrders.find((x) => x.id === orderId);
+    expect(row).toBeDefined();
+    expect(row).toMatchObject({
+      institutionName: "Test Koleji",
+      ownerName: "Test Sahibi",
+      ownerEmail: "taslak@t.com",
+      planKey: "core",
+      interval: "monthly",
+      status: "awaiting_payment",
+    });
+    expect(row!.planLabel.length).toBeGreaterThan(0);
+    expect(row!.createdAt).toBeTruthy();
+    expect(row!.updatedAt).toBeTruthy();
+  });
+
+  it("ödenen kayıt listede 'paid' aşamasıyla durur (çift sayım yok)", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    process.env.SAAS_MOCK_WEBHOOK_ENABLED = "true";
+    const r = await createPendingOrder({ input: base("odendi@t.com", "testkey-t2") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const pay = await startOrderPayment({
+      token: r.data.token,
+      acceptedTerms: true,
+      acceptedRecurring: true,
+      marketingConsent: false,
+      docVersions: docs(),
+      userIp: "127.0.0.1",
+      origin: "http://localhost:3001",
+    });
+    expect(pay.ok).toBe(true);
+    const done = await completeMockOrder({ token: r.data.token });
+    expect(done.ok).toBe(true);
+    const { getBillingOverview } = await import("../saas-billing/overview");
+    const ov = await getBillingOverview();
+    const rows = ov.pendingOrders.filter((x) => x.ownerEmail === "odendi@t.com");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("paid");
+    expect(rows[0].subscriptionId).toBeTruthy();
+  });
+});
+
+describe("belge kabulü + sağlayıcı snapshot'ı (§4-§5)", () => {
+  const payBase = (t: string) => ({
+    token: t,
+    acceptedTerms: true,
+    acceptedRecurring: true,
+    marketingConsent: false,
+    userIp: "127.0.0.1",
+    origin: "http://localhost:3001",
+  });
+
+  it("belge sürümleri eksik/bayat ise ödeme açılmaz", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    const r = await createPendingOrder({ input: base("doc1@t.com", "testkey-d1") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const missing = await startOrderPayment(payBase(r.data.token));
+    expect(missing.ok).toBe(false);
+    const stale = await startOrderPayment({ ...payBase(r.data.token), docVersions: { "saas-service-terms": "1999-eski" } });
+    expect(stale.ok).toBe(false);
+    if (stale.ok) return;
+    expect(stale.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("güncel sürümler kabul edilir; onay + sağlayıcı snapshot'ı dondurulur", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    const r = await createPendingOrder({ input: base("doc2@t.com", "testkey-d2") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const pay = await startOrderPayment({ ...payBase(r.data.token), docVersions: docs() });
+    expect(pay.ok).toBe(true);
+    const order = await getSaasPendingOrder(r.data.order.id);
+    expect(order?.consents?.docVersions["saas-service-terms"]).toBe(
+      getRequiredDocs().find((d) => d.id === "saas-service-terms")!.version
+    );
+    expect(order?.consents?.providerId).toBe("mock");
+    expect(order?.consents?.providerDisplayName).toBeTruthy();
+  });
+
+  it("sağlayıcı görünen adı config'den gelir; mock gerçek şirket gibi sunulmaz", async () => {
+    const { getProviderDisplayInfo } = await import("../saas-billing/provider-adapter");
+    expect(getProviderDisplayInfo("mock").displayName).toMatch(/mock|demo/i);
+    expect(getProviderDisplayInfo("mock").termsUrl).toBeNull();
+    process.env.SAAS_PROVIDER_DISPLAY_PAYTR = "PayTR Test Unvanı";
+    process.env.SAAS_PROVIDER_TERMS_PAYTR = "https://ornek.test/odeme-kosullari";
+    const info = getProviderDisplayInfo("paytr");
+    expect(info.displayName).toBe("PayTR Test Unvanı");
+    expect(info.termsUrl).toBe("https://ornek.test/odeme-kosullari");
+    delete process.env.SAAS_PROVIDER_DISPLAY_PAYTR;
+    delete process.env.SAAS_PROVIDER_TERMS_PAYTR;
+    expect(getProviderDisplayInfo("paytr").displayName).toBe("paytr");
+    expect(getProviderDisplayInfo("paytr").termsUrl).toBeNull();
+  });
+});
+
+describe("sahip görünümü (§7)", () => {
+  it("oturumsuz/yanlış rol/başka tenant → FORBIDDEN; maskeli görünüm etkilenmez", async () => {
+    const { getOrderOwnerView } = await import("../saas-billing/pending-orders");
+    const r = await createPendingOrder({ input: base("sahip@t.com", "testkey-s1") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const t = r.data.token;
+    const tenantId = r.data.order.tenantId;
+    expect((await getOrderOwnerView({ token: t, session: null })).ok).toBe(false);
+    expect((await getOrderOwnerView({ token: t, session: { tenantId, role: "SCHOOL_ADMIN" } })).ok).toBe(false);
+    expect((await getOrderOwnerView({ token: t, session: { tenantId: "baska", role: "SUPER_ADMIN" } })).ok).toBe(
+      false
+    );
+    const full = await getOrderOwnerView({ token: t, session: { tenantId, role: "SUPER_ADMIN" } });
+    expect(full.ok).toBe(true);
+    if (!full.ok) return;
+    expect(full.data.ownerEmail).toBe("sahip@t.com");
+    expect(full.data.invoiceEmail).toBe("fatura@testkoleji.com");
+    expect(full.data.taxId).toBe("1234567890");
+    // Maskeli görünüm hâlâ maskeli.
+    const masked = await getOrderPublicView({ token: t });
+    expect(masked.ok).toBe(true);
+    if (!masked.ok) return;
+    expect(masked.data.ownerEmailMasked).not.toContain("sahip@t.com");
+  });
+});
+
+describe("sürdürme bağlantısı (§2-C)", () => {
+  it("kayıt yok/geçersiz e-posta → aynı sonuç (numaralandırma yok)", async () => {
+    const { requestOrderResume } = await import("../saas-billing/pending-orders");
+    const a = await requestOrderResume({ email: "yok@t.com", origin: "http://localhost:3001" });
+    const b = await requestOrderResume({ email: "geçersiz", origin: "http://localhost:3001" });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(a.data).toEqual({ mailed: false, reason: "NOT_FOUND" });
+    expect(b.data).toEqual({ mailed: false, reason: "NOT_FOUND" });
+  });
+
+  it("bekleyen kayıt → token döner (eski ölür); mail altyapısı kapalıysa sahte başarı yok", async () => {
+    const { requestOrderResume } = await import("../saas-billing/pending-orders");
+    const r = await createPendingOrder({ input: base("devam@t.com", "testkey-r1") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const t1 = r.data.token;
+    const res = await requestOrderResume({ email: "devam@t.com", origin: "http://localhost:3001" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Test ortamında mail kapalı (allowlist/live yok) → mailed:false + gerekçe.
+    expect(res.data.mailed).toBe(false);
+    expect(res.data.reason).toContain("TEST_MODE_BLOCKED");
+    // Eski token öldü (yeni token e-postayla gider, yanıtta dönmez).
+    expect((await getOrderByToken({ token: t1 })).ok).toBe(false);
+    // Kayıt hâlâ TEK ve bekliyor (ikinci kayıt açılmadı).
+    expect(await listSaasPendingOrders(10)).toHaveLength(1);
+  });
+
+  it("süresi dolmuş/ödenmiş kayda sürdürme yok", async () => {
+    const { requestOrderResume } = await import("../saas-billing/pending-orders");
+    const r = await createPendingOrder({ input: base("bitmis@t.com", "testkey-r2") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const future = new Date(Date.now() + 25 * 3600 * 1000).toISOString();
+    const res = await requestOrderResume({ email: "bitmis@t.com", origin: "http://localhost:3001", nowIso: future });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data).toEqual({ mailed: false, reason: "NOT_FOUND" });
+  });
+});
+
+describe("ödeme sonrası çift-adres teslimat (§6)", () => {
+  const payAll = async (t: string) =>
+    startOrderPayment({
+      token: t,
+      acceptedTerms: true,
+      acceptedRecurring: true,
+      marketingConsent: false,
+      docVersions: docs(),
+      userIp: "127.0.0.1",
+      origin: "http://localhost:3001",
+    });
+
+  it("farklı adresler → iki ayrı deneme + durum kaydı (demo: engelli, sahte başarı yok)", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    process.env.SAAS_MOCK_WEBHOOK_ENABLED = "true";
+    const { sendOrderConfirmationMails } = await import("../saas-billing/pending-orders");
+    const r = await createPendingOrder({ input: base("hesap@t.com", "testkey-m1") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    // base() fatura e-postası farklı: fatura@testkoleji.com
+    expect((await payAll(r.data.token)).ok).toBe(true);
+    expect((await completeMockOrder({ token: r.data.token, origin: "http://localhost:3001" })).ok).toBe(true);
+    const order = await getSaasPendingOrder(r.data.order.id);
+    expect(order?.mailStatus?.account?.state).toBe("blocked");
+    expect(order?.mailStatus?.account?.reason).toContain("TEST_MODE_BLOCKED");
+    expect(order?.mailStatus?.invoice?.state).toBe("blocked");
+    // İkinci çağrı yeni gönderim denemez (durum korunur, kayıt tek).
+    const again = await sendOrderConfirmationMails({
+      orderId: r.data.order.id,
+      setupPath: null,
+      origin: "http://localhost:3001",
+    });
+    expect(again.ok).toBe(true);
+    expect(await listSaasPendingOrders(10)).toHaveLength(1);
+  });
+
+  it("aynı adres → fatura postası birleşik sayılır (dedup)", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    process.env.SAAS_MOCK_WEBHOOK_ENABLED = "true";
+    const input = { ...base("ayni@t.com", "testkey-m2"), billing: { ...BILLING, invoiceEmail: "ayni@t.com" } };
+    const r = await createPendingOrder({ input });
+    if (!r.ok || r.data.outcome !== "created") return;
+    expect((await payAll(r.data.token)).ok).toBe(true);
+    expect((await completeMockOrder({ token: r.data.token, origin: "http://localhost:3001" })).ok).toBe(true);
+    const order = await getSaasPendingOrder(r.data.order.id);
+    expect(order?.mailStatus?.invoice?.state).toBe("skipped_same_address");
+  });
+
+  it("ödenmemiş kayda bildirim yok", async () => {
+    const { sendOrderConfirmationMails } = await import("../saas-billing/pending-orders");
+    const r = await createPendingOrder({ input: base("odenmemis@t.com", "testkey-m3") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const res = await sendOrderConfirmationMails({
+      orderId: r.data.order.id,
+      setupPath: null,
+      origin: "http://localhost:3001",
+    });
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("KDV snapshot koruması (§8)", () => {
+  const payAll = async (t: string) =>
+    startOrderPayment({
+      token: t,
+      acceptedTerms: true,
+      acceptedRecurring: true,
+      marketingConsent: false,
+      docVersions: docs(),
+      userIp: "127.0.0.1",
+      origin: "http://localhost:3001",
+    });
+
+  it("oran değişimi eski snapshot'ı yeniden hesaplamaz; yeni işlem yeni oranı alır", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    delete process.env.SAAS_TAX_RATE_BPS;
+    delete process.env.SAAS_TAX_RATE_VERIFIED;
+    const a = await createPendingOrder({ input: base("kdv-a@t.com", "testkey-k1") });
+    if (!a.ok || a.data.outcome !== "created") return;
+    expect((await payAll(a.data.token)).ok).toBe(true);
+    const snapA = (await getSaasPendingOrder(a.data.order.id))?.priceSnapshot;
+    expect(snapA?.taxDemo).toBe(true);
+
+    process.env.SAAS_TAX_RATE_BPS = "1000";
+    process.env.SAAS_TAX_RATE_VERIFIED = "true";
+    const b = await createPendingOrder({ input: base("kdv-b@t.com", "testkey-k2") });
+    if (!b.ok || b.data.outcome !== "created") return;
+    expect((await payAll(b.data.token)).ok).toBe(true);
+    const snapB = (await getSaasPendingOrder(b.data.order.id))?.priceSnapshot;
+    expect(snapB?.taxRateBps).toBe(1000);
+    expect(snapB?.taxDemo).toBe(false);
+
+    const snapA2 = (await getSaasPendingOrder(a.data.order.id))?.priceSnapshot;
+    expect(snapA2?.taxDemo).toBe(true);
+    expect(snapA2?.taxRateBps).toBe(snapA?.taxRateBps);
+    delete process.env.SAAS_TAX_RATE_BPS;
+    delete process.env.SAAS_TAX_RATE_VERIFIED;
+  });
+
+  it("KDV kararı HYPER_ADMIN ister; validation + denetim izi çalışır", async () => {
+    const { recordTaxDecision, listTaxDecisions } = await import("../saas-billing/tax-decisions");
+    const stranger = { role: "SCHOOL_ADMIN", userId: "u-s", tenantId: "t-s", channel: "web" } as never;
+    expect((await recordTaxDecision(stranger, { rateBps: 2000, validFrom: "2026-11-01", reason: "x".repeat(20) })).ok).toBe(false);
+    const hyper = { role: "HYPER_ADMIN", userId: "u-h", tenantId: "t-h", channel: "web" } as never;
+    expect((await recordTaxDecision(hyper, { rateBps: 0, validFrom: "2026-11-01", reason: "x".repeat(20) })).ok).toBe(false);
+    expect((await recordTaxDecision(hyper, { rateBps: 2000, validFrom: "2026-11-01", reason: "kısa" })).ok).toBe(false);
+    const r = await recordTaxDecision(hyper, {
+      rateBps: 2000,
+      validFrom: "2026-11-01",
+      reason: "Mali müşavir yazısı 2026-10-29",
+    });
+    expect(r.ok).toBe(true);
+    const list = await listTaxDecisions(hyper);
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    expect(list.data.some((d) => d.rateBps === 2000 && d.status === "published")).toBe(true);
+  });
+});
+
+describe("sözleşme onay kilidi (§5)", () => {
+  it("gerçek sağlayıcıda onaysız sözleşme metni satışı kapatır", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "paytr";
+    const r = await createPendingOrder({ input: base("kilit@t.com", "testkey-k1") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const pay = await startOrderPayment({
+      token: r.data.token,
+      acceptedTerms: true,
+      acceptedRecurring: true,
+      marketingConsent: false,
+      docVersions: docs(),
+      userIp: "127.0.0.1",
+      origin: "http://localhost:3001",
+    });
+    expect(pay.ok).toBe(false);
+    if (pay.ok) return;
+    expect(pay.error.message).toContain("hukuk onayından");
+  });
+
+  it("mock demoda onaysız metin engel değil, bilgi notu", async () => {
+    process.env.SAAS_BILLING_PROVIDER = "mock";
+    const { getDocsApprovalStatus } = await import("../saas-billing/legal-documents");
+    // Taslak rozeti: onay yok ama demo akışı açık (UI tek bant gösterir).
+    expect(getDocsApprovalStatus().allApproved).toBe(false);
+    const r = await createPendingOrder({ input: base("demo@t.com", "testkey-k2") });
+    if (!r.ok || r.data.outcome !== "created") return;
+    const pay = await startOrderPayment({
+      token: r.data.token,
+      acceptedTerms: true,
+      acceptedRecurring: true,
+      marketingConsent: false,
+      docVersions: docs(),
+      userIp: "127.0.0.1",
+      origin: "http://localhost:3001",
+    });
+    expect(pay.ok).toBe(true);
+  });
+
+  it("yalnız 2 sözleşme zorunlu; aydınlatma kutu istemez", async () => {
+    const { validateDocAcceptance, getRequiredDocs } = await import("../saas-billing/legal-documents");
+    expect(getRequiredDocs().map((d) => d.id).sort()).toEqual(["renewal-cancel-refund", "saas-service-terms"]);
+    expect(validateDocAcceptance(docs()).ok).toBe(true);
+    expect(validateDocAcceptance({ "saas-service-terms": "1999-eski" }).ok).toBe(false);
   });
 });

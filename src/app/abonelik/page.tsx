@@ -34,7 +34,8 @@ export default async function BillingPage({
     const back = qp.size > 0 ? `/abonelik?${qp.toString()}` : "/abonelik";
     redirect(`/login?next=${encodeURIComponent(back)}`);
   }
-  if (session.role !== "SUPER_ADMIN" && session.role !== "SCHOOL_ADMIN") {
+  // Owner kararı (2026-10-29): abonelik ekranları yalnız kurum sahibi (SUPER_ADMIN).
+  if (session.role !== "SUPER_ADMIN") {
     redirect(homePathForRole(session.role));
   }
   const canWrite = session.role === "SUPER_ADMIN";

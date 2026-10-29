@@ -293,6 +293,33 @@ export function planUpgradeRequiresPayment(
   return (rank[targetPlanKey] ?? 0) > (rank[currentPlanKey] ?? 0);
 }
 
+/**
+ * §9 koruma: ödenmiş süresi süren AKTİF abonelik checkout ile yerinde
+ * EZİLEMEZ (plan/snapshot/hak kaybı + çift çekim riski). Dönen mesaj
+ * istemciye gösterilir; null = devam edilebilir.
+ */
+export function guardActivePaidOverwrite(args: {
+  status: string;
+  paidThrough: string | null;
+  planKey: string;
+  billingInterval: string;
+  targetPlanKey: string;
+  targetInterval: string;
+  nowMs?: number;
+}): string | null {
+  if (args.status !== "active" || !args.paidThrough) return null;
+  const paidUntil = new Date(args.paidThrough).getTime();
+  if (!Number.isFinite(paidUntil) || paidUntil <= (args.nowMs ?? Date.now())) return null;
+  if (args.planKey !== args.targetPlanKey || args.billingInterval !== args.targetInterval) {
+    return (
+      "Ödenmiş döneminiz sürerken paket değişimi yapılamaz; mevcut haklarınız korunur. " +
+      "Değişim dönem sonunda yürürlüğe girer — dönem bitimine yakın bu ekrandan yeniden deneyin " +
+      "veya destek ile iletişime geçin."
+    );
+  }
+  return "Bu dönem zaten ödenmiş; yeni çekim açılmadı. Dönem sonunda yenileme otomatik gerçekleşir.";
+}
+
 /** Plan değişimi (ödeme doğrulandıktan sonra çağrılır). */
 export async function applyPlanChange(args: {
   tenantId: string;

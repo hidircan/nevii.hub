@@ -5,6 +5,7 @@ import { formatExVat, getTaxConfig } from "@/lib/saas-billing/tax";
 import { formatMinorTR } from "@/lib/saas-billing/types";
 import { getOrderByToken } from "@/lib/saas-billing/pending-orders";
 import { CheckoutSteps } from "@/components/billing/checkout-steps";
+import { CheckoutTimeoutGuard } from "@/components/billing/checkout-timeout-guard";
 import { OrderInfoForm } from "@/components/billing/order-info-form";
 import { OrderSummaryRows } from "@/components/billing/order-summary";
 import { LoginForm } from "@/components/login-form";
@@ -78,6 +79,10 @@ export default async function OrderInfoPage({
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <CheckoutTimeoutGuard
+        token={editToken}
+        validatePath={editToken ? `/api/v1/billing/orders?t=${encodeURIComponent(editToken)}` : null}
+      />
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="rounded-lg text-lg font-extrabold tracking-tight">NeviiHub</Link>

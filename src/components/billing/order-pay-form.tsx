@@ -1,26 +1,50 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { setCheckoutPaymentBusy } from "@/components/billing/checkout-timeout-guard";
 
 /**
- * Adım 3 ödeme bölümü: ayrı onay kutuları (koşullar + otomatik tahsilat
- * ZORUNLU; pazarlama İSTEĞE BAĞLI ve önceden işaretsiz) → "Ödemeyi tamamla"
- * → mock paneli veya dürüst "hazır değil" durumu.
+ * Adım 3 ödeme bölümü (§5): 2 zorunlu kutu (sözleşmeler + otomatik
+ * tahsilat, önceden işaretsiz) + bilgilendirme bağlantıları + isteğe bağlı
+ * pazarlama izni → "Ödemeyi tamamla" → mock paneli veya dürüst
+ * "hazır değil" durumu.
  */
+export type CheckoutDocItem = {
+  id: string;
+  title: string;
+  version: string;
+  scope: string;
+  about: string;
+  bodyText: string | null;
+};
+
 export function OrderPayForm({
   token,
   termsText,
   renewalNote,
   totalDisplay,
+  documents,
+  acceptedVersions,
+  providerDisplayName,
+  providerTermsUrl,
+  docsApproved,
+  isMock,
 }: {
   token: string;
   termsText: string;
   renewalNote: string;
   totalDisplay: string;
+  documents: CheckoutDocItem[];
+  acceptedVersions: Record<string, string>;
+  providerDisplayName: string;
+  providerTermsUrl: string | null;
+  docsApproved: boolean;
+  isMock: boolean;
 }) {
   const [terms, setTerms] = useState(false);
   const [recurring, setRecurring] = useState(false);
   const [marketing, setMarketing] = useState(false);
+  const [openDoc, setOpenDoc] = useState<CheckoutDocItem | null>(null);
   const [busy, setBusy] = useState<"pay" | "mock" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [providerState, setProviderState] = useState<
@@ -29,6 +53,12 @@ export function OrderPayForm({
     | null
   >(null);
 
+  // Ödeme işlenirken zaman-aşımı perdesi açılmaz (§11).
+  useEffect(() => {
+    setCheckoutPaymentBusy(busy !== null);
+    return () => setCheckoutPaymentBusy(false);
+  }, [busy]);
+
   async function pay() {
     setError(null);
     setBusy("pay");
@@ -36,7 +66,13 @@ export function OrderPayForm({
       const res = await fetch("/api/v1/billing/orders/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ t: token, acceptedTerms: terms, acceptedRecurring: recurring, marketingConsent: marketing }),
+        body: JSON.stringify({
+        t: token,
+        acceptedTerms: terms,
+        acceptedRecurring: recurring,
+        marketingConsent: marketing,
+        docVersions: acceptedVersions,
+      }),
       });
       const json = (await res.json()) as {
         ok: boolean;
@@ -124,29 +160,149 @@ export function OrderPayForm({
     );
   }
 
+  const contracts = documents.filter((d) => d.scope === "required");
+  const notices = documents.filter((d) => d.scope !== "required");
+  const docTitle = (id: string, fallback: string) => documents.find((d) => d.id === id)?.title ?? fallback;
+  function openDocById(id: string) {
+    const d = documents.find((x) => x.id === id);
+    if (d) setOpenDoc(d);
+  }
+  const docLink = (id: string, fallback: string) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openDocById(id);
+      }}
+      className="rounded font-semibold text-amber-700 underline hover:text-amber-800"
+    >
+      {docTitle(id, fallback)}
+    </button>
+  );
+
   return (
     <div className="space-y-4">
+      {!docsApproved ? (
+        <p role="status" className="rounded-2xl bg-amber-50 p-4 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-200">
+          Demo ortamı: sözleşme metinleri taslak, hukuk incelemesi bekliyor. Bu ödeme simülasyonu
+          gerçek tahsilat değildir.
+        </p>
+      ) : null}
       <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-relaxed text-slate-600 ring-1 ring-slate-200">
         <p className="font-semibold text-slate-800">Bilgilendirme</p>
         <p className="mt-1">
-          Bu sayfada verdiğiniz kurum, yetkili ve fatura bilgileri; siparişinizin oluşturulması,
-          ödemenizin alınması, faturanızın düzenlenmesi ve hesabınızın kurulması için işlenir.
-          Bilgileriniz pazarlama izni vermedikçe tanıtım için kullanılmaz.
+          Bilgileriniz sipariş, ödeme, fatura ve hesap kurulumu için işlenir. Pazarlama izni
+          vermedikçe tanıtım için kullanılmaz.
         </p>
       </div>
       <label className="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-4 ring-1 ring-transparent has-checked:border-amber-400 has-checked:ring-amber-200">
         <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-amber-600" />
         <span className="text-sm leading-relaxed">
-          <strong>Ödeme koşulunu kabul ediyorum:</strong> {termsText}
+          {docLink("saas-service-terms", "Hizmet Sözleşmesi")} ile{" "}
+          {docLink("renewal-cancel-refund", "Yenileme ve İptal Koşulları")}’nı okudum,
+          kabul ediyorum. <span className="text-slate-600">{termsText}</span>
         </span>
       </label>
       <label className="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-4 ring-1 ring-transparent has-checked:border-amber-400 has-checked:ring-amber-200">
         <input type="checkbox" checked={recurring} onChange={(e) => setRecurring(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-amber-600" />
         <span className="text-sm leading-relaxed">
-          <strong>Otomatik tahsilat yetkisi veriyorum:</strong> {renewalNote} Kart bilgilerim
-          ödeme sağlayıcısında işlenir; NeviiHub sunucularında kart numarası saklanmaz.
+          Otomatik yenileme kapsamında belirtilen dönemlerde tahsilat yapılmasını kabul ediyorum.{" "}
+          <span className="text-slate-600">{renewalNote}</span>
+          <details
+            className="mt-2 rounded-xl bg-slate-50 p-3 text-slate-600 ring-1 ring-slate-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <summary
+              className="cursor-pointer font-semibold text-slate-800"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const el = e.currentTarget.parentElement;
+                if (el instanceof HTMLDetailsElement) el.open = !el.open;
+              }}
+            >
+              Nasıl çalışır?
+            </summary>
+            <p className="mt-1">
+              {isMock
+                ? "Demo ortamı: gerçek kart işlenmez, çekim yetkisi verilmez."
+                : `Kart bilgileriniz ${providerDisplayName} altyapısında işlenir; NeviiHub sunucularında kart numarası saklanmaz.`}
+              {providerTermsUrl && !isMock ? (
+                <>
+                  {" "}
+                  <a
+                    href={providerTermsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-semibold text-amber-700 underline hover:text-amber-800"
+                  >
+                    Sağlayıcı ödeme koşulları
+                  </a>
+                </>
+              ) : null}
+            </p>
+          </details>
         </span>
       </label>
+      <div className="rounded-2xl bg-slate-50 p-4 text-sm ring-1 ring-slate-200">
+        <p className="font-semibold text-slate-800">Sözleşmeler (yukarıdaki kutuda kabul edilir)</p>
+        <ul className="mt-2 space-y-1.5">
+          {contracts.map((d) => (
+            <li key={d.id}>
+              <button
+                type="button"
+                onClick={() => setOpenDoc(d)}
+                className="rounded text-left font-medium text-amber-700 underline hover:text-amber-800"
+              >
+                {d.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 font-semibold text-slate-800">Bilgilendirme (okumanız için sunulur, onay kutusu değildir)</p>
+        <ul className="mt-2 space-y-1.5">
+          {notices.map((d) => (
+            <li key={d.id}>
+              <button
+                type="button"
+                onClick={() => setOpenDoc(d)}
+                className="rounded text-left font-medium text-amber-700 underline hover:text-amber-800"
+              >
+                {d.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {openDoc ? (
+        <div role="dialog" aria-modal="true" aria-labelledby="doc-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <h3 id="doc-modal-title" className="text-lg font-semibold text-slate-900">{openDoc.title}</h3>
+            <p className="mt-1 text-xs text-slate-500">Sürüm {openDoc.version} · kabul kaydında saklanır</p>
+            {openDoc.bodyText ? (
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{openDoc.bodyText}</p>
+            ) : (
+              <>
+                <p className="mt-3 text-sm leading-relaxed text-slate-700">{openDoc.about}</p>
+                <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-200">
+                  Bu belgenin tam metni hukukçu incelemesinden geçtikten sonra burada yayımlanacak.
+                  Ödeme adımında bu sürümün sunulduğu kaydedilir.
+                </p>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setOpenDoc(null)}
+              autoFocus
+              className="mt-4 w-full rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
+            >
+              Kapat
+            </button>
+          </div>
+        </div>
+      ) : null}
       <label className="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-4">
         <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-amber-600" />
         <span className="text-sm leading-relaxed text-slate-600">

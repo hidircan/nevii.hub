@@ -217,6 +217,8 @@ export async function submitTrialRequest(args: {
     createdAt: now,
   };
   await saveSaasTrialRequest(record);
+  const { notifyOwnerNewRequest } = await import("./request-notify");
+  await notifyOwnerNewRequest({ kind: "deneme", id: record.id, institutionName: record.institutionName, createdAt: now });
   return ok(record);
 }
 

@@ -18,7 +18,7 @@ import { uid } from "../utils";
 import { fail, ok, type ServiceResult } from "../services/result";
 import { getPricedPlan, buildPriceSnapshot } from "./catalog";
 import { getTaxConfig, taxBreakdown } from "./tax";
-import { getDefaultProviderForNew, getSaasProvider } from "./provider-adapter";
+import { getDefaultProviderForNew, getProviderDisplayInfo, getSaasProvider } from "./provider-adapter";
 import { buildBillingProfileRecord, validateBillingProfile } from "./invoicing-profile";
 import { getPublishedCatalog } from "../platform/commercial-catalog";
 import { resolveTenantLimits } from "../platform/entitlements";
@@ -51,7 +51,7 @@ const orderInputSchema = z.object({
   ownerName: z.string().trim().min(2).max(120),
   ownerEmail: z.string().trim().email().max(160),
   ownerPhone: z.string().trim().max(20).nullable().optional(),
-  /** İstemci üretir (sayfa yüklemede uuid); çift gönderim koruması. */
+  /** İstemci üretir (sekme-sabit uuid, checkout-session); çift gönderim + sürdürme. */
   idempotencyKey: z.string().trim().min(8).max(80),
   billing: z.unknown(),
 });
@@ -158,11 +158,14 @@ async function createPendingOrderInner(
     priceSnapshot: null,
     consents: null,
     setupUserId: null,
+    mailStatus: null,
     expiresAt: new Date(new Date(now).getTime() + PENDING_ORDER_TTL_MS).toISOString(),
     createdAt: now,
     updatedAt: now,
   };
   await saveSaasPendingOrder(record);
+  const { notifyOwnerNewRequest } = await import("./request-notify");
+  await notifyOwnerNewRequest({ kind: "taslak", id: record.id, institutionName: record.institutionName, createdAt: now });
   return ok({ outcome: "created", order: record, token });
 }
 
@@ -245,6 +248,8 @@ export async function startOrderPayment(args: {
   acceptedTerms: boolean;
   acceptedRecurring: boolean;
   marketingConsent: boolean;
+  /** Kabul edilen belge sürümleri (belge → sürüm). */
+  docVersions?: unknown;
   userIp: string;
   origin: string;
   nowIso?: string;
@@ -272,6 +277,9 @@ export async function startOrderPayment(args: {
   if (!args.acceptedRecurring) {
     return fail("VALIDATION_ERROR", "Otomatik tahsilat yetkisi açıkça verilmeli.");
   }
+  const { validateDocAcceptanceAsync } = await import("./legal-doc-store");
+  const docCheck = await validateDocAcceptanceAsync(args.docVersions);
+  if (!docCheck.ok) return fail("VALIDATION_ERROR", docCheck.message);
   const cur = await getOrderByToken({ token: args.token, nowIso: args.nowIso });
   if (!cur.ok) return cur;
   const order = cur.data;
@@ -288,6 +296,16 @@ export async function startOrderPayment(args: {
     return fail("FORBIDDEN", "Paket artık bu koşullarla satılmıyor; kaydı yenileyin.");
   }
   const providerId = getDefaultProviderForNew();
+  if (providerId !== "mock") {
+    const { getDocsApprovalStatusAsync } = await import("./legal-doc-store");
+    const approval = await getDocsApprovalStatusAsync();
+    if (!approval.allApproved) {
+      return fail(
+        "FORBIDDEN",
+        `Sözleşme metinleri henüz hukuk onayından geçmedi (${approval.pending.join(", ")}); gerçek satış kapalı.`
+      );
+    }
+  }
   const provider = getSaasProvider(providerId);
   if (!provider.isConfigured()) {
     const missing = provider.missingPreconditions()[0] ?? "Sağlayıcı yapılandırılmadı.";
@@ -398,6 +416,7 @@ export async function startOrderPayment(args: {
   });
   if (!init.ok) return fail("INTERNAL_ERROR", init.error, { providerCode: init.errorCode });
 
+  const providerDisplay = getProviderDisplayInfo(providerId);
   await saveSaasPendingOrder({
     ...order,
     subscriptionId: pendingSub.id,
@@ -407,6 +426,9 @@ export async function startOrderPayment(args: {
       recurringAt: now,
       marketingAt: args.marketingConsent ? now : null,
       termsText,
+      docVersions: { ...(args.docVersions as Record<string, string>) },
+      providerId,
+      providerDisplayName: providerDisplay.displayName,
     },
     updatedAt: now,
   });
@@ -455,6 +477,8 @@ export function mockSimulatorGuard(): { ok: true } | { ok: false; message: strin
 export async function completeMockOrder(args: {
   token: string;
   nowIso?: string;
+  /** Bildirim bağlantıları için istek kökü (yoksa posta atlanır, durum işlenir). */
+  origin?: string;
 }): Promise<
   ServiceResult<{
     orderId: string;
@@ -560,11 +584,27 @@ export async function completeMockOrder(args: {
 
   const next = { ...order, status: "paid" as const, setupUserId: user.userId, updatedAt: now };
   await saveSaasPendingOrder(next);
+  const setupPath = `/sifre-sifirla?token=${encodeURIComponent(setupCode)}&mode=setup`;
+  // §6: hesap + fatura postası (demo modunda engelli-durum kaydı; sahte başarı yok).
+  if (args.origin) {
+    await sendOrderConfirmationMails({ orderId: order.id, setupPath, origin: args.origin, nowIso: now }).catch(
+      () => null
+    );
+  } else {
+    await saveSaasPendingOrder({
+      ...next,
+      mailStatus: {
+        account: { state: "blocked", reason: "NO_ORIGIN", at: now },
+        invoice: { state: "blocked", reason: "NO_ORIGIN", at: now },
+      },
+      updatedAt: now,
+    });
+  }
   return ok({
     orderId: order.id,
     status: "paid",
     mock: true,
-    setupPath: `/sifre-sifirla?token=${encodeURIComponent(setupCode)}&mode=setup`,
+    setupPath,
     setupAlreadyIssued: false,
   });
 }
@@ -626,6 +666,143 @@ export type OrderPublicView = {
   invoice: { state: "none" | "awaiting" | "processing" | "ready" | "failed"; emailState: string } | null;
   consents: { termsAt: string; recurringAt: string; marketing: boolean } | null;
 };
+
+/**
+ * Kurum sahibinin KENDİ siparişi: yetkili oturumda TAM görünüm (§7).
+ * Koşullar (hepsi): geçerli token + oturum tenant'ı siparişin tenant'ı ile
+ * AYNI + rol SUPER_ADMIN. Sağlanmazsa maskeli görünüme DÜŞÜLÜR (yetki
+ * kaldırılmaz, yalnız tam adres gizlenir).
+ */
+export async function getOrderOwnerView(args: {
+  token: string;
+  session: { tenantId: string; role: string } | null;
+  nowIso?: string;
+}): Promise<ServiceResult<OrderPublicView & { ownerEmail: string; invoiceEmail: string; taxId: string | null }>> {
+  const cur = await getOrderByToken({ token: args.token, nowIso: args.nowIso });
+  if (!cur.ok) return cur as never;
+  const order = cur.data;
+  const s = args.session;
+  if (!s || s.role !== "SUPER_ADMIN" || s.tenantId !== order.tenantId) {
+    return fail("FORBIDDEN", "Bu görünüm yalnız kurum sahibinin oturumunda açılır.");
+  }
+  const view = await getOrderPublicView({ token: args.token, nowIso: args.nowIso });
+  if (!view.ok) return view as never;
+  return ok({
+    ...view.data,
+    ownerEmail: order.ownerEmail,
+    invoiceEmail: order.billing.invoiceEmail,
+    taxId: order.billing.taxId ?? order.billing.nationalId ?? null,
+  });
+}
+
+/**
+ * Sürdürme bağlantısı isteği (§2-C + §11): bağlantısını kaybeden alıcı,
+ * kayıttaki e-postasına yeni bir devam bağlantısı ister.
+ * - E-posta eşleşmesi YETKİ vermez; posta kutusuna giden YENİ token (eski
+ *   ölür) sahipliği kanıtlar. Ham token saklanmadığı için döndürme zorunlu.
+ * - Kayıt yoksa da AYNI sonuç döner (numaralandırma yok); e-posta yalnız
+ *   gerçek bekleyen kayıt varsa ve mail altyapısı izin verirse gider.
+ */
+export async function requestOrderResume(args: {
+  email: unknown;
+  origin: string;
+  nowIso?: string;
+}): Promise<ServiceResult<{ mailed: boolean; reason: string }>> {
+  const parsed = z.string().trim().email().max(160).safeParse(args.email);
+  if (!parsed.success) {
+    return ok({ mailed: false, reason: "NOT_FOUND" });
+  }
+  const email = parsed.data.toLowerCase();
+  const now = args.nowIso ?? new Date().toISOString();
+  const { listSaasPendingOrdersByEmail, saveSaasPendingOrder } = await import("./store");
+  const mine = await listSaasPendingOrdersByEmail(email);
+  const cand = mine
+    .filter((o) => o.status === "awaiting_payment" && o.expiresAt > now)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+  if (!cand) return ok({ mailed: false, reason: "NOT_FOUND" });
+  // Yeni token üret, eskiyi öldür (tek geçerli bağlantı).
+  const token = newOrderToken();
+  await saveSaasPendingOrder({ ...cand, accessTokenHash: hashOrderToken(token), updatedAt: now });
+  const { sendOrderResumeEmail } = await import("./emails");
+  const sent = await sendOrderResumeEmail({
+    to: email,
+    institutionName: cand.institutionName,
+    resumeUrl: `${args.origin}/satin-al/bilgiler?t=${encodeURIComponent(token)}`,
+    expiresAt: cand.expiresAt,
+  });
+  if (sent.sent) return ok({ mailed: true, reason: "SENT" });
+  return ok({ mailed: false, reason: sent.reason });
+}
+
+/**
+ * Ödeme sonrası çift-adres teslimat (§6): hesap adresine sözleşmeler + ödeme
+ * özeti + kurulum bağlantısı; fatura adresine belge durumu. İki adres aynıysa
+ * TEK birleşik gönderim (dedup); fatura gecikirse hesap postası beklemez.
+ * - Tür başına idempotent: gönderilmiş tür yeniden gönderilmez.
+ * - Mail hatası YENİDEN TAHSİLAT/fatura/hesap üretmez; durum kayda işlenir.
+ * - Normalizasyon: yalnız kırpma + küçük harf (farklı alıcılar birleşmez).
+ */
+export async function sendOrderConfirmationMails(args: {
+  orderId: string;
+  setupPath: string | null;
+  origin: string;
+  nowIso?: string;
+}): Promise<ServiceResult<{ account: string; invoice: string }>> {
+  const { getSaasPendingOrder, saveSaasPendingOrder } = await import("./store");
+  const order = await getSaasPendingOrder(args.orderId);
+  if (!order || order.status !== "paid") {
+    return fail("VALIDATION_ERROR", "Bildirim yalnız ödemesi doğrulanmış kayıt içindir.");
+  }
+  const now = args.nowIso ?? new Date().toISOString();
+  const { sendOrderAccountEmail, sendOrderInvoiceEmail } = await import("./emails");
+  const { LEGAL_DOCS } = await import("./legal-documents");
+  const { getPricedPlan } = await import("./catalog");
+  const { formatMinorTR } = await import("./types");
+  const plan = await getPricedPlan(order.planKey, order.interval);
+  const planLabel = plan?.planLabel ?? order.planKey;
+  const total = order.priceSnapshot ? formatMinorTR(order.priceSnapshot.totalWithTaxMinor ?? 0) : "";
+  const periodLabel = order.interval === "yearly" ? "yıllık" : "aylık";
+  const docTitles = Object.entries(order.consents?.docVersions ?? {}).map(([id, version]) => ({
+    title: LEGAL_DOCS.find((d) => d.id === id)?.title ?? id,
+    version,
+  }));
+  const accountTo = order.ownerEmail.trim().toLowerCase();
+  const invoiceTo = order.billing.invoiceEmail.trim().toLowerCase();
+  const sameAddress = accountTo === invoiceTo;
+  const status = order.mailStatus ?? { account: null, invoice: null };
+
+  if (!status.account || status.account.state !== "sent") {
+    const sent = await sendOrderAccountEmail({
+      to: order.ownerEmail,
+      institutionName: order.institutionName,
+      planLabel,
+      totalDisplay: total,
+      periodLabel,
+      docTitles,
+      setupUrl: args.setupPath ? `${args.origin}${args.setupPath}` : null,
+    });
+    status.account = sent.sent
+      ? { state: "sent", reason: "SENT", at: now }
+      : { state: "blocked", reason: sent.reason, at: now };
+  }
+  if (sameAddress) {
+    status.invoice = { state: "skipped_same_address", reason: "SAME_AS_ACCOUNT", at: now };
+  } else if (!status.invoice || status.invoice.state !== "sent") {
+    const sent = await sendOrderInvoiceEmail({
+      to: order.billing.invoiceEmail,
+      institutionName: order.institutionName,
+      planLabel,
+      totalDisplay: total,
+      invoiceReady: false,
+      invoiceUrl: null,
+    });
+    status.invoice = sent.sent
+      ? { state: "sent", reason: "SENT", at: now }
+      : { state: "blocked", reason: sent.reason, at: now };
+  }
+  await saveSaasPendingOrder({ ...order, mailStatus: status, updatedAt: now });
+  return ok({ account: status.account!.state, invoice: status.invoice!.state });
+}
 
 /**
  * Token sahibine açık görünüm: kimlik bilgileri MASKELİ, ham token/snapshot
@@ -731,6 +908,30 @@ export async function getOrderPublicView(args: {
         }
       : null,
   });
+}
+
+/**
+ * Önizleme/ödeme ekranı bağlamı: güncel belge kayıt defteri + işlemdeki
+ * sağlayıcının görünen kimliği. Belge METNİ içermez (taslak üstverisi).
+ */
+export async function getCheckoutDocContext(): Promise<{
+  documents: { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null }[];
+  provider: { id: string; displayName: string; termsUrl: string | null };
+  acceptedVersions: Record<string, string>;
+  docsApproved: boolean;
+  isMock: boolean;
+}> {
+  const { getEffectiveDocs, getDocsApprovalStatusAsync } = await import("./legal-doc-store");
+  const providerId = getDefaultProviderForNew();
+  const info = getProviderDisplayInfo(providerId);
+  const docs = await getEffectiveDocs();
+  return {
+    documents: docs.map((d) => ({ id: d.id, title: d.title, version: d.version, scope: d.scope, about: d.about, bodyText: d.bodyText })),
+    provider: { id: providerId, displayName: info.displayName, termsUrl: info.termsUrl },
+    acceptedVersions: Object.fromEntries(docs.filter((d) => d.scope === "required").map((d) => [d.id, d.version])),
+    docsApproved: (await getDocsApprovalStatusAsync()).allApproved,
+    isMock: providerId === "mock",
+  };
 }
 
 /** E-posta maskesi (sonuç ekranı): a***@k***.com biçimi. */

@@ -36,20 +36,13 @@ export type SellerSnapshot = {
   verified: boolean;
 };
 
-export function getSellerSnapshot(): SellerSnapshot {
-  const env = (k: string) => (process.env[k] ?? "").trim() || null;
-  const legalTitle = env("SAAS_SELLER_LEGAL_TITLE");
-  const taxId = env("SAAS_SELLER_TAX_ID");
-  return {
-    legalTitle: legalTitle ?? "[DOĞRULANACAK: satıcı unvanı]",
-    taxId,
-    taxOffice: env("SAAS_SELLER_TAX_OFFICE"),
-    addressLine: env("SAAS_SELLER_ADDRESS"),
-    city: env("SAAS_SELLER_CITY"),
-    country: env("SAAS_SELLER_COUNTRY") ?? "Türkiye",
-    invoiceEmail: "info@neviihub.com",
-    verified: Boolean(legalTitle && taxId),
-  };
+/**
+ * Belgeye dondurulan satıcı kaydı: kayıtlı profil ?? env (SAAS_SELLER_*)
+ * ?? eksik. Eski siparişlerin dondurulmuş satıcısı değişmez.
+ */
+export async function getSellerSnapshot(): Promise<SellerSnapshot> {
+  const { getEffectiveSeller } = await import("./seller-profile");
+  return (await getEffectiveSeller()).snapshot;
 }
 
 export type InvoiceOrderStatus = "awaiting_document" | "document_ready" | "document_failed" | "manual_pending";
@@ -248,7 +241,7 @@ export async function ensureInvoiceOrderForAttempt(args: {
     periodStart: attempt.periodStart,
     periodEnd: attempt.periodEnd,
     buyer: freezeProfile(profile),
-    seller: getSellerSnapshot(),
+    seller: await getSellerSnapshot(),
     planKey: snap.planKey,
     planLabel: args.planLabel,
     billingInterval: snap.billingInterval,

@@ -72,6 +72,10 @@ type SaasBillingFile = {
   billingProfiles: import("./invoicing-profile").BillingProfileRecord[];
   invoiceOrders: import("./invoicing-orders").InvoiceOrderRecord[];
   eDocuments: import("./invoicing-orders").EDocumentRecord[];
+  /** Satıcı (NeviiHub) şirket profili — secret DEĞİL (faturalarda görünen bilgiler). */
+  sellerProfile: import("./seller-profile").SellerProfileRecord | null;
+  /** Hukuki belge revizyonları (NeviiOS yönetimi; tek kayıt listesi). */
+  legalDocs: import("./legal-doc-store").LegalDocState[];
 };
 
 const EMPTY: SaasBillingFile = {
@@ -88,6 +92,8 @@ const EMPTY: SaasBillingFile = {
   billingProfiles: [],
   invoiceOrders: [],
   eDocuments: [],
+  sellerProfile: null,
+  legalDocs: [],
 };
 
 let memoryState: SaasBillingFile | null = null;
@@ -114,6 +120,9 @@ async function readFile(): Promise<SaasBillingFile> {
       billingProfiles: Array.isArray(parsed.billingProfiles) ? parsed.billingProfiles : [],
       invoiceOrders: Array.isArray(parsed.invoiceOrders) ? parsed.invoiceOrders : [],
       eDocuments: Array.isArray(parsed.eDocuments) ? parsed.eDocuments : [],
+      sellerProfile:
+        parsed.sellerProfile && typeof parsed.sellerProfile === "object" ? parsed.sellerProfile : null,
+      legalDocs: Array.isArray(parsed.legalDocs) ? parsed.legalDocs : [],
     };
   } catch (e) {
     if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return clone(EMPTY);
@@ -888,6 +897,24 @@ export async function getSaasCampaign(id: string): Promise<SaasCampaignRecord | 
   return s.campaigns.find((x) => x.id === id) ?? null;
 }
 
+/** Kampanyalar ekranı — sınırlı liste, tam tablo okuma yok. */
+export async function listSaasCampaigns(limit = 100): Promise<SaasCampaignRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  if (isDbMode) {
+    try {
+      const rows = await prisma.saasCampaign.findMany({
+        take: n,
+        orderBy: { updatedAt: "desc" },
+      });
+      return rows as unknown as SaasCampaignRecord[];
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const s = await readState();
+  return [...s.campaigns].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)).slice(0, n);
+}
+
 export async function saveSaasCampaign(c: SaasCampaignRecord): Promise<SaasCampaignRecord> {
   if (isDbMode) {
     try {
@@ -1136,6 +1163,13 @@ export async function getSaasPendingOrder(
   return s.pendingOrders.find((x) => x.id === id) ?? null;
 }
 
+export async function getSaasPendingOrderBySubscriptionId(
+  subscriptionId: string
+): Promise<import("./types").SaasPendingOrderRecord | null> {
+  const s = await readState();
+  return s.pendingOrders.find((x) => x.subscriptionId === subscriptionId) ?? null;
+}
+
 export async function getSaasPendingOrderByTokenHash(
   tokenHash: string
 ): Promise<import("./types").SaasPendingOrderRecord | null> {
@@ -1198,6 +1232,42 @@ export async function saveBillingProfile(
   const idx = next.billingProfiles.findIndex((x) => x.tenantId === r.tenantId);
   if (idx >= 0) next.billingProfiles[idx] = clone(r);
   else next.billingProfiles.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+// ── Satıcı şirket profili (tek kayıt; secret değil) ──
+
+export async function getSellerProfile(): Promise<import("./seller-profile").SellerProfileRecord | null> {
+  const s = await readState();
+  return s.sellerProfile ? clone(s.sellerProfile) : null;
+}
+
+export async function saveSellerProfile(
+  r: import("./seller-profile").SellerProfileRecord
+): Promise<import("./seller-profile").SellerProfileRecord> {
+  const s = await readState();
+  const next = clone(s);
+  next.sellerProfile = clone(r);
+  await writeState(next);
+  return r;
+}
+
+// ── Hukuki belge durumları (tek kayıt listesi) ──
+
+export async function listLegalDocStates(): Promise<import("./legal-doc-store").LegalDocState[]> {
+  const s = await readState();
+  return clone(s.legalDocs);
+}
+
+export async function saveLegalDocState(
+  r: import("./legal-doc-store").LegalDocState
+): Promise<import("./legal-doc-store").LegalDocState> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.legalDocs.findIndex((x) => x.docId === r.docId);
+  if (idx >= 0) next.legalDocs[idx] = clone(r);
+  else next.legalDocs.push(clone(r));
   await writeState(next);
   return r;
 }

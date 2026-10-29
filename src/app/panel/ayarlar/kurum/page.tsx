@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { PageHeader, EmptyState } from "@/components/ui";
-import { requireSessionContext } from "@/lib/auth/session";
+import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { getOwnInstitutionSettings } from "@/lib/platform/service";
 import { SettingsEditor } from "@/components/platform/settings-editor";
 
@@ -13,8 +13,8 @@ export default async function PanelKurumAyarlariPage() {
   } catch {
     redirect("/login?next=/panel/ayarlar/kurum");
   }
-  if (session.role === "HYPER_ADMIN") redirect("/platform");
-  if (session.role !== "SUPER_ADMIN" && session.role !== "SCHOOL_ADMIN") redirect("/panel");
+  // Owner kararı (2026-10-29): kurum ayarları yalnız kurum sahibi (SUPER_ADMIN).
+  if (session.role !== "SUPER_ADMIN") redirect(homePathForRole(session.role));
 
   const result = await getOwnInstitutionSettings(session);
   if (!result.ok) {

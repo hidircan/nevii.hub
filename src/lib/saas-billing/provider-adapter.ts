@@ -72,6 +72,31 @@ export function getSaasProviderName(): SaasProviderName {
   return getDefaultProviderForNew();
 }
 
+export type ProviderDisplayInfo = {
+  /** Müşteriye görünen ad. Yasal unvan UYDURULMAZ: operatör
+   * `SAAS_PROVIDER_DISPLAY_<ID>` girmedikçe sağlayıcı kimliği (id) yazılır;
+   * mock ortam asla gerçek şirket gibi sunulmaz. */
+  displayName: string;
+  /** Sağlayıcı gizlilik/kart-saklama koşullarının doğrulanmış adresi
+   * (`SAAS_PROVIDER_TERMS_<ID>`); yoksa bağlantı GÖSTERİLMEZ (uydurma yok). */
+  termsUrl: string | null;
+};
+
+export function getProviderDisplayInfo(id: SaasProviderId): ProviderDisplayInfo {
+  if (id === "mock") {
+    return { displayName: "Demo ödeme (mock)", termsUrl: null };
+  }
+  if (id === "none") {
+    return { displayName: "Ödeme sağlayıcısı", termsUrl: null };
+  }
+  const tag = id.toUpperCase();
+  const displayName = (process.env[`SAAS_PROVIDER_DISPLAY_${tag}`] || "").trim() || id;
+  const rawTerms = (process.env[`SAAS_PROVIDER_TERMS_${tag}`] || "").trim();
+  let termsUrl: string | null = null;
+  if (/^https:\/\/[^/\s]+\.[^/\s]+/.test(rawTerms)) termsUrl = rawTerms;
+  return { displayName, termsUrl };
+}
+
 export type SaasCheckoutInitInput = {
   tenantId: string;
   planKey: string;

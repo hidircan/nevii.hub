@@ -1,8 +1,10 @@
 import Link from "@/components/link";
-import { getOrderPublicView } from "@/lib/saas-billing/pending-orders";
+import { requireSessionContext } from "@/lib/auth/session";
+import { getOrderOwnerView, getOrderPublicView } from "@/lib/saas-billing/pending-orders";
 import { CheckoutSteps } from "@/components/billing/checkout-steps";
 import { OrderSummaryRows } from "@/components/billing/order-summary";
 import { SetupLinkPanel } from "@/components/billing/setup-link-panel";
+import { ClearCheckoutOnPaid } from "@/components/billing/clear-checkout-on-paid";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,12 @@ export default async function OrderResultPage({
     );
   }
   const o = view.data;
+  // §7: kurum sahibi kendi oturumunda tam adres; diğer herkes maskeli.
+  const session = await requireSessionContext().catch(() => null);
+  const ownerView = session ? await getOrderOwnerView({ token: t ?? "", session }) : null;
+  const ownerEmailShown = ownerView && ownerView.ok ? ownerView.data.ownerEmail : o.ownerEmailMasked;
+  const invoiceEmailShown =
+    ownerView && ownerView.ok ? ownerView.data.invoiceEmail : o.billing.invoiceEmailMasked;
   const paid = o.status === "paid" && o.subscription?.status === "active";
   const checking =
     !paid && (o.subscription?.status === "pending" || (o.status === "awaiting_payment" && o.subscription !== null));
@@ -44,6 +52,7 @@ export default async function OrderResultPage({
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <ClearCheckoutOnPaid active={paid} />
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="rounded-lg text-lg font-extrabold tracking-tight">NeviiHub</Link>
@@ -87,7 +96,7 @@ export default async function OrderResultPage({
                   <h2 className="text-lg font-semibold">Fatura durumu</h2>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">
                     {!o.invoice || o.invoice.state === "awaiting"
-                      ? `Faturanız hazırlanıyor; hazır olduğunda ${o.billing.invoiceEmailMasked} adresine gönderilecek.`
+                      ? `Faturanız hazırlanıyor; hazır olduğunda ${invoiceEmailShown} adresine gönderilecek.`
                       : o.invoice.state === "processing"
                         ? "Faturanız düzenleniyor; hazır olduğunda e-posta adresinize gönderilecek."
                         : o.invoice.emailState === "sent"
@@ -101,7 +110,7 @@ export default async function OrderResultPage({
                     </p>
                   ) : null}
                 </section>
-                <SetupLinkPanel token={t ?? ""} maskedEmail={o.ownerEmailMasked} />
+                <SetupLinkPanel token={t ?? ""} maskedEmail={ownerEmailShown} />
               </>
             ) : checking ? (
               <section aria-label="Doğrulama bekleniyor" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
