@@ -4,7 +4,21 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-23 (Raporlar sadeleştirme + 4 haftalık rapor tek kural; MERGE/PUSH/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-30 (satın alma hukuk + kalıcılık + güvenlik + giriş/site yenileme + nevii-agent; PR açık, MERGE/CANLI YOK, migration YOK)
+- Worktree `nevii-hub-neviios-control-center`, dal `feat/satin-alma-hukuk-guvenlik` (taban origin/main c887af01).
+- P0: saas-billing'in Prisma'sız koleksiyonları (sipariş, talep, teklif, fatura/satıcı profili, hukuki belge, e-belge)
+  db modunda Vercel /tmp'ye yazılıyordu → artık `SettingOverride` satırları (`saas_billing:*`). Migration yok.
+- 8 hazır hukuki taslak (`saas-billing/legal-templates.ts`), satıcı kimliği `{{SATICI_*}}` ile satıcı profilinden;
+  NeviiOS "Hazır taslağı yükle"; yayın kapısı (hukuki + ticari onay) aynen. Şahıs işletmesi vergi no = TCKN.
+- Güvenlik: CSP object-src none, form-action PayTR, COOP; Türkçe CSRF mesajı. Gerçek ödeme sağlayıcısı hâlâ askıda.
+- Giriş ekranı + ana sayfa: CSS-only hareket (vitrin, kaydırmalı Platform, yüzen menü), mobil web "uygulamada aç".
+- NeviiOS: 26 ekran + 13 kurum sekmesi yerelde 200; ölü ekran yok.
+- Ajan: `docs/agent-memory/NEVII_BRAIN.md` + `.claude/agents/nevii-agent.md`; AGENTS.md §0.
+- Rapor: `docs/business/FIYAT_PAKET_KAPASITE_2026_10_30.md` (Supabase Pro önerisi, Atölye/Akademi/Kampüs).
+- Açık (owner): HDR Mühendislik satıcı bilgileri, avukat okuması + yayın, Supabase Pro, PayTR/ETBİS/İYS, canlı UAT.
+- Paralel oturum: NeviiAds ↔ NeviiOS entegrasyonu ayrı dalda.
+
+## Snapshot — 2026-10-23 (Raporlar sadeleştirme + 4 haftalık rapor tek kural; MERGE/PUSH/CANLI YOK, migration YOK)
 - Worktree `../nevii-hub-reports-pagination-and-4week-flow`, dal `redesign/reports-pagination-and-4week-flow` (taban origin/main 0ae95871).
 - 4 haftalık: öğrenci×öğretmen başına en çok 1 bekleyen = son rapordan sonraki ilk 4 ders (`computePendingPeriod`, rapor yoksa 60 gün taban); 28 günlük takvim dönemi kalktı. Gönderim eşleşme değil kural doğrular (kendi dersi var, çakışma yok); aynı metinle tekrar = aynı kayıt. "Hazırlayan" = öğretmen kaydı adı.
 - /panel/raporlar: varsayılan "Bekleyenler" (tek 60 gün pencere), arşiv sekmeleri sayfalı, yalnız açık sekme okunur; öğrenci değerlendirmeleri DB'de sayfalı. Başlık `reportInstitutionName` (tam ad; `shortName` "Nilüfer Acar" kişi adı gibi görünüyordu).
