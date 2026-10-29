@@ -1,9 +1,9 @@
 -- SaaS abonelik katmanı V1 (kurum→NeviiHub).
 -- YALNIZCA YENİ TABLOLAR; mevcut hiçbir tabloya/kolona dokunulmaz.
 -- Öğrenci finansmanı (Payment/StudentContract/TeacherPayout) değişmez.
--- Geri dönüş: tablolar DROP TABLE ile kaldırılabilir (SaaS verisi kaybolur,
--- öğrenci/kurum verisi etkilenmez). Bu migration test/prod'a owner'ın açık
--- onayıyla ve hedef kanıtlandıktan sonra uygulanır.
+-- Geri dönüş: gerekirse 6 yeni tablo tek tek kaldırılabilir (yalnız SaaS
+-- verisi kaybolur, öğrenci/kurum verisi etkilenmez). Bu migration test/prod'a
+-- owner'ın açık onayıyla ve hedef kanıtlandıktan sonra uygulanır.
 
 -- ── SaasSubscription ──
 CREATE TABLE IF NOT EXISTS "SaasSubscription" (
