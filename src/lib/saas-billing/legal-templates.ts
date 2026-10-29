@@ -39,7 +39,7 @@ export function renderLegalText(body: string, seller: LegalSellerFields): string
   return body.replace(/\{\{([A-Z_]+)\}\}/g, (all, key: string) => {
     if (!(key in values)) return all;
     const v = values[key];
-    return v && String(v).trim() ? String(v).trim() : key === "SATICI_SEHIR" ? "İstanbul" : MISSING;
+    return v && String(v).trim() ? String(v).trim() : MISSING;
   });
 }
 
@@ -138,7 +138,7 @@ Hizmet Sağlayıcı: {{SATICI_UNVAN}} — {{SATICI_EPOSTA}}
 
 1. OTOMATİK YENİLEME
 1.1. Abonelik, seçtiğiniz Dönem (aylık veya yıllık) sonunda aynı Paket ile otomatik olarak yenilenir. Yenileme bedeli, ilk ödemede kullandığınız ve ödeme kuruluşunca güvenli biçimde saklanan kartınızdan, satın alma adımında verdiğiniz ayrı tahsilat yetkisine dayanarak çekilir.
-1.2. Yıllık aboneliklerde yenileme tarihinden en az 7 gün önce hatırlatma e-postası gönderilir.
+1.2. Bir sonraki yenileme tarihi ve tutarı Hizmet içinde Abonelik ekranında her zaman görüntülenir.
 1.3. Fiyat değişikliği en az 30 gün önce bildirilir ve yalnızca bildirimden sonra başlayan Dönem'e uygulanır.
 
 2. BAŞARISIZ TAHSİLAT
@@ -215,7 +215,7 @@ Bu esaslar, {{MARKA}} hizmetinde kurum ve kullanıcı verilerinin nasıl korundu
 - Yetkilendirme ve yalıtım: her kayıt tek bir kuruma bağlıdır; kurum kimliği yalnızca doğrulanmış oturumdan alınır ve kurumlar birbirinin verisine erişemez. Rol bazlı yetkiler (yönetici, öğretmen, veli, öğrenci) ve kayıt düzeyinde erişim kontrolü uygulanır.
 - Kart verisi: kart numarası, son kullanma tarihi ve CVV {{MARKA}} sunucularına ulaşmaz; ödeme kuruluşunun PCI-DSS uyumlu altyapısında işlenir.
 - Kayıt ve denetim: önemli işlemler (ödeme, sözleşme onayı, yetki değişikliği, veri dışa aktarma) denetim izine yazılır.
-- Yedekleme: veritabanı barındırma sağlayıcısında düzenli yedeklenir; yedeklere erişim yetkili personelle sınırlıdır.
+- Yedekleme: veritabanı barındırma sağlayıcısının günlük otomatik yedekleme hizmetiyle yedeklenir (en az 7 gün geriye dönük); yedeklere erişim yetkili personelle sınırlıdır.
 - Personel: verilere erişim "bilmesi gereken" ilkesiyle sınırlıdır; erişen kişiler gizlilik yükümlülüğü altındadır.
 - Yapay zekâ özellikleri: yapay zekâ asistanı yalnızca kullanıcının yetkili olduğu verilerle çalışır ve aynı yetki kontrollerinden geçer; dış mesaj gönderimi insan onayı olmadan yapılmaz.
 
@@ -267,10 +267,11 @@ Kurum, aşağıdaki alt işleyenlerin kullanılmasına genel onay verir. Liste d
 - Mobil anlık bildirim: Expo / 650 Industries Inc. (ABD) — yalnızca cihaz bildirim anahtarı ve bildirim metni.
 - Ödeme (yalnızca Kurum'un kendi tahsilatlarında ve ilgili özellik açıksa): Kurum'un seçtiği lisanslı ödeme kuruluşu.
 - SMS / WhatsApp (yalnızca Kurum ilgili kanalı açarsa): Twilio Inc. (ABD) ve/veya Meta Platforms (WhatsApp Business).
-- Yapay zekâ özellikleri (yalnızca Kurum yapay zekâ asistanını kullandığında): Anthropic PBC, Google LLC (Gemini), Groq Inc., NVIDIA Corp., Cerebras Systems Inc. (ABD) — kullanıcının sorusu ve sorunun yanıtlanması için gereken kayıt özetleri; sağlayıcıların bu verileri model eğitiminde kullanmadığı kurumsal API koşulları tercih edilir.
+- Yapay zekâ özellikleri (yalnızca Kurum kullanıcıları yapay zekâ asistanını veya yapay zekâ taslak özelliklerini kullandığında; otomatik iş akışları yapay zekâ sağlayıcısına veri göndermez): Anthropic PBC, Google LLC (Gemini), OpenAI OpCo LLC, Groq Inc., NVIDIA Corp., Cerebras Systems Inc., Cloudflare Inc. (Workers AI) (ABD) — kullanıcının sorusu ve sorunun yanıtlanması için gereken kayıt özetleri; sağlayıcıların bu verileri model eğitiminde kullanmadığı kurumsal API koşulları tercih edilir.
+- Yapay zekâ hafızası (yalnızca etkinleştirilmişse): Qdrant Solutions GmbH veya veritabanı içi vektör deposu — asistan konuşma özetlerinin vektör temsili.
 
 5. YURT DIŞINA AKTARIM
-Yukarıdaki alt işleyenlerin bir kısmı yurt dışında bulunduğundan aktarım, KVKK m.9 uyarınca Kurul'ca ilan edilen standart sözleşmeler veya kanunda öngörülen diğer güvencelerle yapılır; standart sözleşmelerin imzalanmasından itibaren 5 iş günü içinde Kurum'a bildirimi gibi usul yükümlülükleri taraflarca yerine getirilir. Kurum, yapay zekâ, SMS ve WhatsApp özelliklerini kullanmayarak bu kanallar üzerinden yurt dışı aktarımı önleyebilir.
+Yukarıdaki alt işleyenlerin bir kısmı yurt dışında bulunduğundan aktarım, KVKK m.9 uyarınca Kurul'ca ilan edilen standart sözleşmeler veya kanunda öngörülen diğer güvencelerle yapılır; standart sözleşmelerin imzalanmasından itibaren 5 iş günü içinde Kişisel Verileri Koruma Kurumu'na bildirilmesi gibi usul yükümlülükleri taraflarca yerine getirilir. Kurum, yapay zekâ, SMS ve WhatsApp özelliklerini kullanmayarak bu kanallar üzerinden yurt dışı aktarımı önleyebilir.
 
 6. VERİ SORUMLUSUNUN YÜKÜMLÜLÜKLERİ
 Kurum; ilgili kişileri aydınlatmak, gerekli açık rızaları almak (özellikle küçüklerin verileri için veli/vasi bilgilendirmesi), VERBİS kayıt yükümlülüğü varsa yerine getirmek, Hizmet'e yalnızca amaçla sınırlı ve ölçülü veri girmek ve Yetkili Kullanıcı yetkilerini doğru ayarlamakla yükümlüdür.
@@ -299,7 +300,7 @@ Destek saatleri: hafta içi 09:00–18:00 (Türkiye saati), resmî tatiller hari
 Süreler destek saatleri içinde işler; ilk yanıt süresidir, çözüm süresi taahhüdü değildir.
 
 5. YEDEKLEME VE KURTARMA
-Veritabanı barındırma sağlayıcısında otomatik olarak yedeklenir. Sağlayıcı kaynaklı veri kaybında son geçerli yedekten geri dönüş yapılır; Kurum'un kendi işlemiyle sildiği verinin geri getirilmesi teknik olarak mümkünse ayrıca ücretlendirilebilir.
+Veritabanı, barındırma sağlayıcısının günlük otomatik yedekleme hizmetiyle yedeklenir ve en az 7 gün geriye dönük yedek tutulur. Sağlayıcı kaynaklı veri kaybında son geçerli yedekten geri dönüş yapılır; Kurum'un kendi işlemiyle sildiği verinin geri getirilmesi teknik olarak mümkünse ayrıca ücretlendirilebilir.
 
 6. KURUM'UN KATKISI
 Hızlı çözüm için destek talebinde etkilenen ekran, tarih/saat, kullanıcı ve mümkünse ekran görüntüsü paylaşılmalıdır. Kurum, Hizmet'e erişim için güncel bir tarayıcı ve kararlı internet bağlantısı kullanmakla yükümlüdür.`;
@@ -329,7 +330,7 @@ Hizmeti kendi kişisel ihtiyacı için (ticari veya mesleki amaç dışında) sa
 Şikâyetlerinizi {{SATICI_EPOSTA}} adresine iletebilirsiniz. Uyuşmazlıklarda Türk hukuku uygulanır; {{SATICI_SEHIR}} Mahkemeleri ve İcra Daireleri yetkilidir.
 
 8. SÖZLEŞMENİN SAKLANMASI
-Onayladığınız sözleşme metinleri ve sürümleri sipariş kaydında saklanır; Hizmet içinde Abonelik › Faturalar › Fatura detayı ekranından erişilebilir ve talep hâlinde e-postayla gönderilir.`;
+Onayladığınız belgelerin adı, sürümü ve onay anındaki metnin dijital parmak izi sipariş kaydında saklanır; onay kaydı Hizmet içinde Abonelik › Faturalar › Fatura detayı ekranında görünür. Belgeler satın alma ekranında indirilebilir; onayladığınız metnin kopyası talep hâlinde e-postayla gönderilir.`;
 
 const MARKETING_CONSENT = `TİCARİ ELEKTRONİK İLETİ ONAY METNİ (İSTEĞE BAĞLI)
 

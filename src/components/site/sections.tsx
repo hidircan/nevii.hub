@@ -123,7 +123,7 @@ function Section({
   className?: string;
 }) {
   return (
-    <section id={id} className={`scroll-mt-20 px-6 py-16 sm:py-20 ${className}`}>
+    <section id={id} className={`scroll-mt-32 px-6 py-16 sm:py-20 ${className}`}>
       <div className="mx-auto max-w-6xl">{children}</div>
     </section>
   );

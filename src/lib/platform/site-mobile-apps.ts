@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
@@ -46,7 +47,8 @@ const normAppStore = (v: unknown) => normalizeStoreUrl(v, ["apps.apple.com", "it
 const normPlay = (v: unknown) => normalizeStoreUrl(v, ["play.google.com"]);
 
 /** Site ayarındaki ham değerler (env'siz). */
-export async function getSiteMobileApps(): Promise<MobileAppLinks> {
+/** İstek başına tek okuma (sayfa + generateMetadata + bant aynı satırı paylaşır). */
+export const getSiteMobileApps = cache(async function getSiteMobileApps(): Promise<MobileAppLinks> {
   const row = (await listSettingOverrides({ tenantId: PLATFORM_TENANT_ID })).find(
     (o) => o.scopeType === "platform" && o.scopeId === "*" && o.key === SITE_MOBILE_APPS_KEY
   );
@@ -57,7 +59,7 @@ export async function getSiteMobileApps(): Promise<MobileAppLinks> {
     appStoreVisible: v.appStoreVisible !== false,
     playVisible: v.playVisible !== false,
   };
-}
+});
 
 export type ResolvedMobileAppLinks = {
   appStoreUrl?: string;

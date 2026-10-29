@@ -85,7 +85,8 @@ Kurucu (ilk) müşteri olduğu, ürünü birlikte olgunlaştırdığınız ve re
   Yenileme koşullarındaki 30 gün önceden bildirim kuralıyla değişir.
 
 ## 5. Para almadan önce yapılacaklar (sırayla)
-1. Supabase Pro'ya geçiş (sahip, Supabase panelinden).
+1. Supabase Pro'ya geçiş (sahip, Supabase panelinden). Hukuki metinlerdeki "günlük yedek, 7 gün geriye" hükmü
+   YALNIZ Pro'da doğrudur (Free planda otomatik yedek yok) — metinleri yayınlamadan önce şart.
 2. NeviiOS › Fatura › E-belgeler › Satıcı profili: HDR Mühendislik unvan, vergi no (şahıssa T.C. kimlik no),
    vergi dairesi, adres, MERSİS (şirketse), KEP, telefon.
 3. NeviiOS › Hukuki Belgeler: her belge için "Hazır taslağı yükle" → avukata okut → hukuki + ticari onay → Yayınla.

@@ -68,7 +68,7 @@ export function SiteAppBanner({ scheme, appStoreUrl, playStoreUrl, title, subtit
       const pkg = androidPackage(playStoreUrl);
       if (pkg) {
         const fallback = encodeURIComponent(playStoreUrl ?? "");
-        window.location.href = `intent://open#Intent;scheme=${scheme || "neviihub"};package=${pkg};S.browser_fallback_url=${fallback};end`;
+        window.location.href = `intent://#Intent;scheme=${scheme || "neviihub"};package=${pkg};S.browser_fallback_url=${fallback};end`;
       } else if (playStoreUrl) {
         window.location.href = playStoreUrl;
       }

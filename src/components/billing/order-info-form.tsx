@@ -304,7 +304,8 @@ export function OrderInfoForm({
           <div>
             <label htmlFor="oi-type" className={label}>Alıcı türü{req}</label>
             <select id="oi-type" value={f.recipientType} onChange={set("recipientType")} className={input}>
-              {BILLING_RECIPIENT_TYPES.map((t) => (
+              {/* Satış yalnız kurumsal: bireysel (tüketici) seçeneği sunulmaz (B2B_ONLY_MESSAGE). */}
+              {BILLING_RECIPIENT_TYPES.filter((t) => t !== "individual").map((t) => (
                 <option key={t} value={t}>{BILLING_RECIPIENT_LABELS[t]}</option>
               ))}
             </select>

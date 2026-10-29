@@ -95,6 +95,11 @@ describe("bekleyen sipariş kaydı (Adım 2)", () => {
       input: { ...base("a3@t.com", "testkey-3"), billing: { ...BILLING, taxId: "123" } },
     });
     expect(badVkn.ok).toBe(false);
+    // Satış yalnız kurumsal: bireysel (tüketici) alıcı reddedilir.
+    const consumer = await createPendingOrder({
+      input: { ...base("a3b@t.com", "testkey-3b"), billing: { ...BILLING, recipientType: "individual", nationalId: "10000000146" } },
+    });
+    expect(consumer.ok).toBe(false);
   });
 
   it("mevcut hesaba ait e-posta ile kayıt açılmaz (sahiplenme yok)", async () => {
