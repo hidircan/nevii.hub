@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Icon } from "./icon";
 
@@ -23,6 +25,7 @@ type Props = {
 /** Devam eden bir ders için canlı geçen süre — saniyede bir yerel olarak tikler, kaynak HER ZAMAN sunucu actualStartAt'ıdır. */
 export function LiveLessonTimer({ actualStartAt, scheduledEndAt }: Props) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -36,16 +39,16 @@ export function LiveLessonTimer({ actualStartAt, scheduledEndAt }: Props) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <Icon name="time-outline" size={16} color={overtime ? t.colors.warning : t.colors.primary} />
-      <Text
+      <AppText
         style={[
           t.typography.cardTitle,
           { color: overtime ? t.colors.warning : t.colors.text, fontVariant: ["tabular-nums"] },
         ]}
       >
         {formatElapsed(now - startMs)}
-      </Text>
+      </AppText>
       {overtime ? (
-        <Text style={[t.typography.caption, { color: t.colors.warning }]}>Planlanan süre doldu</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.warning }]}>{tr("ui.overtimeDone")}</AppText>
       ) : null}
     </View>
   );

@@ -5,6 +5,8 @@ import {
   isValidDateOnlyInput,
   dayOfMonthUtc,
   isValidTimeOnlyInput,
+  isCompleteDateOnlyInput,
+  incompleteDateHint,
 } from "../date-input";
 
 describe("date-input — Faz 5B güvenli tarih ayrıştırma (contract-panel.tsx çökme kök nedeni)", () => {
@@ -51,5 +53,30 @@ describe("date-input — Faz 5B güvenli tarih ayrıştırma (contract-panel.tsx
     expect(isValidTimeOnlyInput("9:00")).toBe(false);
     expect(isValidTimeOnlyInput("")).toBe(false);
     expect(isValidTimeOnlyInput(undefined)).toBe(false);
+  });
+});
+
+describe("2026-09-29 — yıl yazılırken ara değerler (Ders programı paneli çökmesi)", () => {
+  it("yılın ilk rakamı/kısmi yıl TAMAMLANMAMIŞ sayılır ve uyarı üretir", () => {
+    for (const partial of ["0002-10-15", "0020-10-15", "0202-10-15", "15092-10-15", "2026-02-30", "2026-13-01"]) {
+      expect(isCompleteDateOnlyInput(partial)).toBe(false);
+      expect(incompleteDateHint(partial)).toMatch(/tamamlanmadı/);
+    }
+  });
+
+  it("boş (opsiyonel) alan uyarı üretmez, tam tarih geçerlidir", () => {
+    expect(incompleteDateHint("")).toBeNull();
+    expect(isCompleteDateOnlyInput("2026-10-15")).toBe(true);
+    expect(incompleteDateHint("2026-10-15")).toBeNull();
+    expect(isCompleteDateOnlyInput("2028-02-29")).toBe(true);
+  });
+
+  it("çökme zinciri: kısmi tarihten türetilen gün date-fns ile formatlanabilir kalır", async () => {
+    const { format, parseISO, addDays } = await import("date-fns");
+    const { toYmd } = await import("../closed-days");
+    // Eski davranış: toYmd yılı doldurmadığı için "2-10-17" → parseISO Invalid → format RangeError.
+    const ymd = toYmd(addDays(parseISO("0002-10-15T12:00"), 2));
+    expect(ymd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(() => format(parseISO(`${ymd}T12:00`), "d MMMM EEEE")).not.toThrow();
   });
 });

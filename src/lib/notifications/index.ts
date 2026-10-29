@@ -39,6 +39,8 @@ function db(): Promise<DbModules> {
   return dbModules;
 }
 import { uid } from "../utils";
+import { logger } from "../logger";
+import { isNotificationCategory } from "../notification-categories";
 import type { Notification as DbNotification } from "@prisma/client";
 import type { Notification } from "../types";
 
@@ -142,6 +144,13 @@ export type CreateNotificationInput = {
    * tekrar bildirimi engellenmez.
    */
   dedupeKey?: string;
+  /**
+   * Push köprüsünü ATLA. Yalnız push'u kendisi yöneten çağıranlar kullanır
+   * (ders hatırlatma sweep'i: PII-minimize + alıcı doğrulaması + ayrı
+   * `pushSent` sayacı). Verilmezse satır `created` olduğunda push da
+   * gönderilir (`push/sender.ts` — `PUSH_ENABLED` kapalıysa sessizce atlanır).
+   */
+  skipPush?: boolean;
 };
 
 export type CreateNotificationResult = {
@@ -244,14 +253,70 @@ export async function createNotification(
     body: input.body,
     createdAt: new Date().toISOString(),
   };
-  if (isDbMode) return createNotificationDb(input, record);
-  return mutateAllUnderLock<CreateNotificationResult>((all) => {
-    const existing = all.find((n) => n.id === record.id);
-    if (existing) {
-      return { next: null, result: { status: "duplicate", notification: toPublicNotification(existing) } };
+  let result: CreateNotificationResult;
+  if (isDbMode) {
+    result = await createNotificationDb(input, record);
+  } else {
+    result = await mutateAllUnderLock<CreateNotificationResult>((all) => {
+      const existing = all.find((n) => n.id === record.id);
+      if (existing) {
+        return { next: null, result: { status: "duplicate", notification: toPublicNotification(existing) } };
+      }
+      return { next: [...all, record], result: { status: "created", notification: toPublicNotification(record) } };
+    });
+  }
+  // Yeni satır → push. Tekilleştirilmiş (`duplicate`) satırda push YOK:
+  // aynı olayın ikinci bildirimi kullanıcının tepsini tekrar çalmamalı.
+  // Hata bildirim yazımını ASLA bozmaz (helper kendi içinde yutar + loglar).
+  if (result.status === "created" && !input.skipPush) {
+    await deliverPushForNotification(record);
+  }
+  return result;
+}
+
+/**
+ * Push köprüsü — bildirim satırı yazıldıktan sonra cihazlara da düşürür.
+ * `PUSH_ENABLED=true` + `EXPO_PUSH_ACCESS_TOKEN` yoksa HİÇBİR HTTP çağrısı
+ * yapılmaz (mevcut davranış korunur). Kategori tercihi `pushEnabled=false`
+ * ise gönderim yoktur (bkz. push/sender.ts). Ham push token'ı loglanmaz.
+ */
+async function deliverPushForNotification(record: StoredNotification): Promise<void> {
+  if (!isNotificationCategory(record.kind)) return;
+  try {
+    const { isPushActive } = await import("../push/config");
+    if (!isPushActive()) return;
+    const userId = record.targetUserId
+      ? record.targetUserId
+      : record.targetStudentId
+        ? await (await import("../auth/users")).getUserIdByStudentId(record.tenantId, record.targetStudentId)
+        : null;
+    if (!userId) return;
+    const [{ deliverPushForUser }, { pushChannelForCategory }] = await Promise.all([
+      import("../push/sender"),
+      import("../push/channels"),
+    ]);
+    const result = await deliverPushForUser(record.tenantId, userId, record.kind, {
+      title: record.title,
+      body: record.body,
+      data: { kind: record.kind },
+      channelId: pushChannelForCategory(record.kind),
+    });
+    if (result.outcome === "failed") {
+      logger.warn("push gönderilemedi", {
+        tenantId: record.tenantId,
+        userId,
+        kind: record.kind,
+        sent: result.sent,
+        invalidated: result.invalidated,
+      });
     }
-    return { next: [...all, record], result: { status: "created", notification: toPublicNotification(record) } };
-  });
+  } catch (error) {
+    logger.warn("push köprüsü hata", {
+      tenantId: record.tenantId,
+      kind: record.kind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function listNotificationsForUserDb(recipient: NotificationRecipient): Promise<Notification[]> {
@@ -287,6 +352,46 @@ export async function listNotificationsForUser(
     .map(toPublicNotification);
 }
 
+/**
+ * Tekilleştirme ön kontrolü (`notifyUserIfEnabled`): kullanıcının `since` sonrasında, aynı `kind`'da,
+ * gövdesinde `bodyIncludes` geçen bildirimi var mı?
+ *
+ * DB egress (2026-10-16): eskiden kullanıcının TÜM bildirimleri okunup bellekte aranıyordu; bildirim
+ * taraması bunu bekleyen ödeme × yönetici kez yaptığı için okunan satır, biriken bildirimle karesel
+ * büyüyordu. Aynı kural artık SQL'de; en fazla 1 satırın kimliği döner.
+ */
+export async function hasRecentNotification(input: {
+  tenantId: string;
+  userId: string;
+  kind: string;
+  bodyIncludes: string;
+  since: Date;
+}): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await db();
+    const row = await prisma.notification.findFirst({
+      where: {
+        tenantId: input.tenantId,
+        targetUserId: input.userId,
+        kind: input.kind,
+        createdAt: { gte: input.since },
+        ...(input.bodyIncludes ? { body: { contains: input.bodyIncludes } } : {}),
+      },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+  const sinceMs = input.since.getTime();
+  return (await loadAll()).some(
+    (n) =>
+      n.tenantId === input.tenantId &&
+      n.targetUserId === input.userId &&
+      n.kind === input.kind &&
+      n.body.includes(input.bodyIncludes) &&
+      new Date(n.createdAt).getTime() >= sinceMs
+  );
+}
+
 /** cursor := base64(JSON {createdAt,id}) of the last item seen on the previous page. */
 function encodeCursor(n: Notification): string {
   return Buffer.from(JSON.stringify({ createdAt: n.createdAt, id: n.id })).toString("base64");
@@ -318,6 +423,7 @@ export async function listNotificationsPageForUser(
   recipient: NotificationRecipient,
   page?: { cursor?: string; limit?: number }
 ): Promise<ListNotificationsPage> {
+  if (isDbMode) return listNotificationsPageForUserDb(recipient, page);
   const all = await listNotificationsForUser(recipient);
   const unreadCount = all.filter((n) => !n.readAt).length;
 
@@ -337,6 +443,51 @@ export async function listNotificationsPageForUser(
   const nextCursor =
     rows.length > limit ? encodeCursor(pageRows[pageRows.length - 1]) : null;
 
+  return { notifications: pageRows, nextCursor, unreadCount };
+}
+
+/**
+ * DB egress (2026-09-30) — zil her açılış/odakta kullanıcının TÜM bildirimlerini (testte ~600 satır)
+ * okuyup bellekte sayfalıyordu. Aynı sözleşme SQL'de: okunmamış sayısı `count`, sayfa
+ * `createdAt desc, id desc` + `take: limit + 1` (fazla satır = sonraki sayfa var). İmleç
+ * karşılaştırması json koluyla aynı bileşik sıralamadır.
+ */
+async function listNotificationsPageForUserDb(
+  recipient: NotificationRecipient,
+  page?: { cursor?: string; limit?: number }
+): Promise<ListNotificationsPage> {
+  if (!recipient.userId && !recipient.studentId) return { notifications: [], nextCursor: null, unreadCount: 0 };
+  const { prisma } = await db();
+  const where = {
+    tenantId: recipient.tenantId,
+    OR: [
+      ...(recipient.userId ? [{ targetUserId: recipient.userId }] : []),
+      ...(recipient.studentId ? [{ targetStudentId: recipient.studentId }] : []),
+    ],
+  };
+  const decoded = page?.cursor ? decodeCursor(page.cursor) : null;
+  const limit = page?.limit ?? DEFAULT_NOTIFICATIONS_PAGE_SIZE;
+  const unreadCountQuery = prisma.notification.count({ where: { ...where, readAt: null } });
+  if (page?.cursor && !decoded) return { notifications: [], nextCursor: null, unreadCount: await unreadCountQuery };
+  const after = decoded
+    ? {
+        OR: [
+          { createdAt: { lt: new Date(decoded.createdAt) } },
+          { createdAt: new Date(decoded.createdAt), id: { lt: decoded.id } },
+        ],
+      }
+    : {};
+  const [unreadCount, rows] = await Promise.all([
+    unreadCountQuery,
+    prisma.notification.findMany({
+      where: { AND: [where, after] },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    }),
+  ]);
+  const mapped = rows.map((r) => toPublicNotification(mapDbNotification(r)));
+  const pageRows = mapped.slice(0, limit);
+  const nextCursor = mapped.length > limit ? encodeCursor(pageRows[pageRows.length - 1]) : null;
   return { notifications: pageRows, nextCursor, unreadCount };
 }
 

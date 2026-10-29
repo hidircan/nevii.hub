@@ -4,7 +4,7 @@
  * (`listTrialLessonsTool` — öğretmen yalnız kendi denemesini görür).
  */
 
-import { TRIAL_STATUS_LABELS } from "../trial-lesson-labels";
+import { trialStatusLabel } from "../trial-lesson-labels";
 import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd } from "../timezone";
 import type { TrialLesson } from "../types";
 
@@ -40,7 +40,8 @@ const snippet = (s?: string) => (s && s.trim() ? (s.trim().length > 90 ? `${s.tr
 export function trialFollowUpAction(t: Pick<TrialLesson, "status" | "convertedStudentId" | "resultNotes">): string | undefined {
   if (t.convertedStudentId || t.status === "cancelled" || t.status === "will_not_continue") return undefined;
   if (t.status === "planned") return "Durum güncellenmedi — katıldı mı?";
-  if (t.status === "awaiting_enrollment" || t.status === "will_continue") return "Kayda dönüştürülmedi";
+  if (t.status === "awaiting_enrollment") return "Kayda dönüştürülmedi";
+  if (t.status === "will_continue") return "Tekrar deneme planlanmadı";
   if (!t.resultNotes?.trim()) return "Sonuç notu bekliyor";
   return undefined;
 }
@@ -75,7 +76,7 @@ export function buildTrialDigest(
       branchName: branchName.get(t.branchId) ?? "—",
       teacherName: teacherName.get(t.teacherId) ?? "—",
       instrument: t.instrument,
-      statusLabel: TRIAL_STATUS_LABELS[t.status] ?? t.status,
+      statusLabel: trialStatusLabel(t),
       prepNote: snippet(t.notes),
       action: finished ? trialFollowUpAction(t) : undefined,
       href: `/panel/deneme?deneme=${encodeURIComponent(t.id)}`,

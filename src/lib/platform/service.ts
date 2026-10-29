@@ -48,7 +48,7 @@ import {
 import { listBootstrapUsersForTenant } from "../auth/users";
 import { isDbMode } from "../config";
 import { runWithTenantAsync } from "../tenant-context";
-import { readData } from "../store";
+import { readBranches, readData, readReferenceData } from "../store";
 
 /** Değerin gerçek doğrulaması `parseSettingValue` (katalog şeması) ile yapılır. */
 const settingValueSchema = z.unknown().refine((v) => v !== undefined, "Değer gerekli");
@@ -242,18 +242,19 @@ export async function getInstitutionOverview(ctx: ServiceContext, tenantId: stri
     logoUrl: string;
   } | null = null;
   try {
-    const data = await runWithTenantAsync(tenantId, () => readData());
     const { withLogoVersion } = await import("../institution-logo");
-    let version = "";
-    if (isDbMode) {
-      try {
-        const { getPrisma } = await import("../db");
-        const row = await getPrisma().school.findFirst({ where: { tenantId }, select: { updatedAt: true } });
-        version = row ? String(row.updatedAt.getTime()) : "";
-      } catch {
-        version = "";
-      }
-    }
+    // DB egress (2026-10-18): yalnız okul satırı + şubeler — eskiden kurumun TAM readData()'sı (canlı logda kalan son
+    // tam okuma kaynağı). Okul satırı yoksa readData()'nın seed davranışı korunur.
+    const row = isDbMode
+      ? await (await import("../db")).getPrisma().school.findFirst({
+          where: { tenantId },
+          select: { name: true, shortName: true, city: true, email: true, phone: true, website: true, currency: true, logoUrl: true, updatedAt: true },
+        })
+      : null;
+    const version = row ? String(row.updatedAt.getTime()) : "";
+    const data = row
+      ? { settings: { ...row, branches: await runWithTenantAsync(tenantId, () => readBranches()) } }
+      : await runWithTenantAsync(tenantId, () => readData());
     branches = data.settings.branches.map((b) => ({
       id: b.id,
       name: b.name,
@@ -923,7 +924,7 @@ export async function getTenantSubscription(ctx: ServiceContext, tenantId: strin
   let students: number | null = null;
   let branches: number | null = null;
   try {
-    const data = await runWithTenantAsync(tenantId, () => readData());
+    const data = await runWithTenantAsync(tenantId, () => readReferenceData());
     students = data.students.filter((s) => s.active !== false).length;
     branches = data.settings.branches.length;
   } catch {

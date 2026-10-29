@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import { Card, EmptyState } from "@/components/ui";
 import { SectionEditCard } from "@/components/section-edit-card";
 import { TeacherProfileEditor } from "@/components/teacher-profile-editor";
+import type { TeacherProfileSection } from "@/lib/profile-sections";
 import { TeacherInstrumentsEditor } from "@/components/teacher-instruments-editor";
 import { TeacherPortalAccessCard } from "@/components/portal-access-card";
 import { NationalIdReveal } from "@/components/national-id-reveal";
 import { maskNationalId } from "@/lib/pii/tc-identity";
 import { canViewFullNationalId } from "@/lib/pii";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { isInstitutionOwner } from "@/lib/auth/platform-access";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import type { Instrument } from "@/lib/types";
 import { computeAge, formatDate } from "@/lib/utils";
 import { loadTeacherPageContext } from "../_context";
@@ -24,12 +26,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
   const { session, data, teacher, canManage } = await loadTeacherPageContext(teacherId);
   if (!teacher) notFound();
 
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = (
-    catalogResult.ok
-      ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-      : undefined
-  ) as Instrument[] | undefined;
+  const instrumentOptions = (await activeInstrumentOptions(session)) as Instrument[];
 
   const branch = data.settings.branches.find((b) => b.id === teacher.branchId);
   const canViewSensitive = canManage;
@@ -58,14 +55,17 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
     university: teacher.university,
     graduationYear: teacher.graduationYear,
     maxDailyLessons: teacher.maxDailyLessons,
+    weeklyHoursThreshold: teacher.weeklyHoursThreshold,
   };
-  const profileEditor = (
+  // Her kart YALNIZ kendi bölümünün alanlarını açar/gönderir (bkz. lib/profile-sections.ts).
+  const profileEditor = (section: TeacherProfileSection) => (
     <TeacherProfileEditor
       teacherId={teacher.id}
       primaryBranchId={teacher.branchId}
       branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
       hasNationalId={!!teacher.nationalIdCipher}
       initial={profileEditorInitial}
+      section={section}
     />
   );
 
@@ -75,7 +75,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Genel Bilgiler</h2>
         <SectionEditCard
           canEdit={canManage}
-          edit={profileEditor}
+          edit={profileEditor("general")}
           readOnly={
             <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <Field
@@ -107,6 +107,10 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Şube" value={branch?.name ?? "Eklenmemiş"} />
               <Field label="Günlük ders limiti" value={String(teacher.maxDailyLessons)} />
               <Field
+                label="Hakediş ödeme eşiği (haftalık saat)"
+                value={teacher.weeklyHoursThreshold !== undefined ? `${teacher.weeklyHoursThreshold} sa` : "Tanımlı değil"}
+              />
+              <Field
                 label="Ek atanmış şubeler"
                 value={
                   (teacher.branchIds ?? [])
@@ -126,7 +130,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
           canEdit={canManage}
           readOnly={
             <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <Field label="E-posta" value={teacher.email || "Eklenmemiş"} />
+              <Field label="İletişim e-postası" value={teacher.email || "Eklenmemiş"} />
               <Field label="Telefon" value={teacher.phone || "Eklenmemiş"} />
               <Field
                 label="Adres"
@@ -136,14 +140,18 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Acil durum telefonu" value={teacher.emergencyContactPhone || "Eklenmemiş"} />
             </dl>
           }
-          edit={profileEditor}
+          edit={profileEditor("contact")}
         />
       </section>
 
       {canManage ? (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Portal Erişimi</h2>
-          <TeacherPortalAccessCard teacherId={teacher.id} defaultEmail={teacher.email || undefined} />
+          <TeacherPortalAccessCard
+            teacherId={teacher.id}
+            defaultEmail={teacher.email || undefined}
+            canChangePortalEmail={isInstitutionOwner({ userId: session.userId, role: session.role })}
+          />
         </section>
       ) : null}
 
@@ -210,7 +218,7 @@ export default async function TeacherInfoTab({ params }: { params: Promise<{ tea
               <Field label="Özlük notu" value={teacher.personnelNotes || "Eklenmemiş"} />
             </dl>
           }
-          edit={profileEditor}
+          edit={profileEditor("employment")}
         />
       </section>
 

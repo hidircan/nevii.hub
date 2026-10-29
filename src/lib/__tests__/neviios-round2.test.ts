@@ -452,7 +452,9 @@ describe("mobil platform policy", () => {
     expect(on.ok && on.data.push.active).toBe(false);
     await updateTenantSetting(hyper(), DEFAULT_TENANT_ID, { key: "mobile.iosEnabled", value: false, confirm: true });
     const ios = await getMobilePolicy(ctx("SUPER_ADMIN"), { platform: "ios" });
-    expect(ios.ok && ios.data.reasons).toContain("iOS uygulaması kapalı.");
+    expect(ios.ok && ios.data.reasons).toContain(
+      "iOS uygulaması kapalı. Platform yöneticisi NeviiOS › Kurum › Mobil ekranında «iOS uygulaması» (mobile.iosEnabled) ayarını açmalı."
+    );
   });
 
   it("değişiklik audit + sürüm üretir; kurum sahibi mobil policy yazamaz", async () => {

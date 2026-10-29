@@ -3,23 +3,38 @@
     "name": "Nevii Hub",
     "slug": "nevii-hub-mobile",
     "scheme": "neviihub",
-    "version": "0.1.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.neviihub.mobile"
+      "bundleIdentifier": "com.neviihub.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.neviihub.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
-      }
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#A56A00"
+        }
+      ],
       "expo-secure-store",
       "expo-asset",
       "@react-native-community/datetimepicker",
@@ -46,7 +61,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "aa045f7e-3bcb-4d53-ae2e-5210f2a7b835"
       }
-    }
+    },
+    "owner": "nevii-production"
   }
 }

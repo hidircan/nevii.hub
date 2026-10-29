@@ -5,7 +5,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { TermWeeklyScheduleEditor } from "@/components/term-weekly-schedule-editor";
 import { WorkDaysManager } from "@/components/work-days-manager";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import {
   FALL_WEEKLY_CLOSED_DAYS,
   SUMMER_WEEKLY_CLOSED_DAYS,
@@ -36,7 +36,7 @@ export default async function WorkDaysSettingsPage() {
     redirect("/panel");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const overrides = data.closedDayOverrides ?? [];
 
   // Önümüzdeki 60 günün çözümlenmiş hali — kuralın gerçek sonucunu göstermek

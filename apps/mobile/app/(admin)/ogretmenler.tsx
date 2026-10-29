@@ -1,4 +1,5 @@
 import { PlaceholderScreen } from "../../src/components/placeholder-screen";
+import { useLocale } from "../../src/i18n/locale-context";
 
 /**
  * Öğretmen listesi + her öğretmen için teacher-performance-v2 özet kartı.
@@ -11,10 +12,11 @@ import { PlaceholderScreen } from "../../src/components/placeholder-screen";
  * üzerinden N ayrı çağrıyla (kabul edilebilir N+1 değil) beslenmesi gerekir.
  */
 export default function AdminOgretmenler() {
+  const { t: tr } = useLocale();
   return (
     <PlaceholderScreen
-      title="Öğretmenler"
-      note="Öğretmen listesi + v2 performans skoru için GET /api/v1/teachers (liste) endpoint'i henüz yok — yalnız tekil /api/v1/teachers/[teacherId]/performance-v2 mevcut."
+      title={tr("adm.teachersTitle")}
+      note={tr("adm.teachersNote")}
     />
   );
 }

@@ -3,13 +3,22 @@
  * yerini bırakmış sözleşmenin tutarını güncel sözleşmeye EKLEMEZ; gerçekleşmiş
  * tahsilatlar ise hiçbir senaryoda kaybolmaz.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { computeStudentPaymentSummary } from "../payment-profile";
 import type { Payment } from "../types";
 
 function pay(over: Partial<Payment>): Payment {
-  return { id: over.id ?? "p", studentId: "s1", amount: 0, paidAmount: 0, status: "pending", dueDate: "2026-10-05", description: "", ...over };
+  return { id: over.id ?? "p", studentId: "s1", amount: 0, paidAmount: 0, status: "pending", dueDate: over.status === "overdue" ? "2026-09-05" : "2026-10-05", description: "", ...over };
 }
+
+// 2026-10-20 — "gecikmiş" artık vade gününden türetilir (payments/status.ts); sabit fixture tarihleri için saat sabit.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-20T09:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 const c = (id: string, status: string, versionNumber = 1) => ({ id, status, versionNumber, contractNumber: `NO-${id}` });
 
 describe("computeStudentPaymentSummary — sözleşme farkındalığı", () => {

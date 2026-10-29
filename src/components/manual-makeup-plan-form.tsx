@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { zonedWallTimeToUtc } from "@/lib/timezone";
+import { resolveAppTimezone, toZonedYmd, zonedWallTimeToUtc } from "@/lib/timezone";
+import { makeupPlanningDeadline } from "@/lib/makeup-deadline";
 import { useRouter } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui";
 
-type TeacherOption = { id: string; name: string; branchId: string };
+type TeacherOption = { id: string; name: string; branchId: string; branchIds?: string[] };
 type RoomOption = { id: string; name: string; branchId: string };
 
 export function ManualMakeupPlanForm({
@@ -17,6 +18,7 @@ export function ManualMakeupPlanForm({
   teachers,
   rooms,
   canWrite,
+  expiresAt,
 }: {
   requestId: string;
   preferredTeacherId: string;
@@ -26,6 +28,8 @@ export function ManualMakeupPlanForm({
   rooms: RoomOption[];
   /** "Tüm kurumlar" görünümünde false — manuel telafi planlanamaz. */
   canWrite: boolean;
+  /** Talebin son kullanım anı — üst sınır (sunucu AFTER_EXPIRY ile aynı). Alt sınır yok: geçmiş tarih serbest. */
+  expiresAt?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -40,13 +44,30 @@ export function ManualMakeupPlanForm({
   const [teacherId, setTeacherId] = useState(initialTeacherId);
   const selectedTeacher = teachers.find((t) => t.id === teacherId);
   const availableRooms = useMemo(
-    () => rooms.filter((r) => r.branchId === selectedTeacher?.branchId),
+    // Öğretmenin ders verdiği TÜM şubeler (birincil + ek) — sunucu kuralı teacherServesBranch ile aynı.
+    () => rooms.filter((r) => r.branchId === selectedTeacher?.branchId || (selectedTeacher?.branchIds ?? []).includes(r.branchId)),
     [rooms, selectedTeacher]
   );
   const [roomId, setRoomId] = useState(availableRooms[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
+  // Sayfa açılış anı — render içinde Date.now() çağrılmaz (saf render).
+  const [nowMs] = useState(() => Date.now());
+  const expiryDay = expiresAt ? toZonedYmd(new Date(expiresAt), resolveAppTimezone()) : undefined;
+  const pickedStart = date && time ? zonedWallTimeToUtc(date, time) : null;
+  const isPast = Boolean(pickedStart && !Number.isNaN(pickedStart.getTime()) && pickedStart.getTime() < nowMs);
+  // Sunucu AFTER_EXPIRY ile AYNI kural (makeup-engine): dersin BİTİŞİ, son günün ertesi 00:00'ını aşamaz.
+  // Eskiden yalnız gün karşılaştırılıyordu; gece yarısını aşan son gün dersi formdan geçip sunucuda reddediliyordu.
+  const afterExpiry = Boolean(
+    expiresAt &&
+      pickedStart &&
+      !Number.isNaN(pickedStart.getTime()) &&
+      pickedStart.getTime() + lessonDurationMinutes * 60_000 > makeupPlanningDeadline(expiresAt).getTime()
+  );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // 2026-10-04 — öğretmen müsaitlik dışı: yetkili kullanıcıya açık onay (normal ders planlamasıyla aynı kural).
+  const [overridePrompt, setOverridePrompt] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
   const [draft, setDraft] = useState<{
     smsSendable: boolean;
     smsBlockReason?: string;
@@ -58,7 +79,7 @@ export function ManualMakeupPlanForm({
   function onTeacherChange(nextTeacherId: string) {
     setTeacherId(nextTeacherId);
     const nextTeacher = teachers.find((t) => t.id === nextTeacherId);
-    const nextRooms = rooms.filter((r) => r.branchId === nextTeacher?.branchId);
+    const nextRooms = rooms.filter((r) => r.branchId === nextTeacher?.branchId || (nextTeacher?.branchIds ?? []).includes(r.branchId));
     if (!nextRooms.some((r) => r.id === roomId)) {
       setRoomId(nextRooms[0]?.id ?? "");
     }
@@ -66,12 +87,12 @@ export function ManualMakeupPlanForm({
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
+    await submit(false);
+  }
+
+  async function submit(overrideAvailability: boolean) {
     if (!date || !time || !teacherId || !roomId) {
       setError("Tarih, saat, öğretmen ve oda seçimi zorunlu.");
-      return;
-    }
-    if (!decisionNote.trim()) {
-      setError("Karar notu zorunludur.");
       return;
     }
     setBusy(true);
@@ -100,12 +121,14 @@ export function ManualMakeupPlanForm({
             score: 0,
             reasons: ["Manuel planlama"],
           },
-          decisionNote,
+          // Boş gerekçe gönderilmez — sunucu da boşu saklamaz.
+          decisionNote: decisionNote.trim() || undefined,
+          ...(overrideAvailability ? { overrideAvailability: true, overrideReason: overrideReason.trim() || undefined } : {}),
         }),
       });
       const json = (await res.json()) as {
         ok: boolean;
-        error?: { message: string };
+        error?: { message: string; details?: { overridable?: boolean } };
         data?: {
           communication?: {
             smsSendable: boolean;
@@ -117,10 +140,17 @@ export function ManualMakeupPlanForm({
         };
       };
       if (!json.ok) {
+        if (!overrideAvailability && json.error?.details?.overridable) {
+          setOverridePrompt(json.error.message);
+          setBusy(false);
+          return;
+        }
         setError(json.error?.message || "Telafi dersi planlanamadı.");
         setBusy(false);
         return;
       }
+      setOverridePrompt(null);
+      setOverrideReason("");
       setSuccess(true);
       setDraft(json.data?.communication ?? null);
       router.refresh();
@@ -154,9 +184,13 @@ export function ManualMakeupPlanForm({
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/70 p-4"
+      className="order-last mt-1 w-full basis-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/70 p-4"
     >
-      <p className="mb-3 text-sm font-medium text-[var(--color-text)] dark:text-slate-200">Başka bir saat planla</p>
+      <p className="text-sm font-medium text-[var(--color-text)] dark:text-slate-200">Başka bir saat planla</p>
+      <p className="mb-3 mt-0.5 text-xs text-[var(--color-text-muted)]">
+        Listede yalnız aktif odalar var. Kaydederken öğretmen, oda ve öğrenci çakışması, kapalı gün ve son kullanım tarihi
+        kontrol edilir; uygun değilse ders yazılmaz ve nedeni gösterilir.
+      </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Tarih</label>
@@ -164,6 +198,7 @@ export function ManualMakeupPlanForm({
             type="date"
             value={date}
             onChange={(event) => setDate(event.target.value)}
+            max={expiryDay}
             required
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
           />
@@ -200,7 +235,7 @@ export function ManualMakeupPlanForm({
             className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
           >
             {availableRooms.length === 0 ? (
-              <option value="">Bu öğretmenin şubesinde uygun oda yok</option>
+              <option value="">Bu öğretmenin şubelerinde bu enstrümana uygun aktif oda yok</option>
             ) : (
               availableRooms.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -211,21 +246,33 @@ export function ManualMakeupPlanForm({
           </select>
         </div>
       </div>
+      {isPast ? (
+        <p role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+          Geçmiş bir tarih seçtiniz. Telafi dersi bu tarihle programa ve yoklama takvimine “Planlanan telafi” olarak
+          eklenir; yapılmış/işlenmiş sayılmaz ve yoklamada “Geldi” ya da “İşlendi” girilene kadar hakedişe girmez.
+          Öğretmen, oda ve öğrenci çakışmaları yine kontrol edilir.
+        </p>
+      ) : null}
+      {afterExpiry ? (
+        <p className="mt-3 text-xs font-medium text-rose-600">
+          Ders, talebin son kullanım gününü ({expiryDay}) aşıyor; bu talep için planlanamaz. Daha erken bir gün/saat seçin veya yetkili yönetici son günü uzatsın.
+        </p>
+      ) : null}
       <div className="mt-3">
         <label className="mb-1 block text-xs font-medium text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-          Karar notu (zorunlu)
+          Planlama gerekçesi (isteğe bağlı)
         </label>
         <textarea
           value={decisionNote}
           onChange={(event) => setDecisionNote(event.target.value)}
-          required
           rows={2}
-          placeholder="Bu saat neden seçildi?"
+          maxLength={1000}
+          placeholder="Bu tarihe neden planlamak istiyorsunuz?"
           className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-muted)] outline-none ring-amber-200 focus:ring-2"
         />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button type="submit" variant="success" disabled={busy || availableRooms.length === 0}>
+        <Button type="submit" variant="success" disabled={busy || availableRooms.length === 0 || afterExpiry}>
           {busy ? "Planlanıyor..." : "Telafi dersini planla"}
         </Button>
         <button
@@ -236,10 +283,49 @@ export function ManualMakeupPlanForm({
           Vazgeç
         </button>
       </div>
+      {overridePrompt ? (
+        <div role="alertdialog" aria-label="Öğretmen müsaitlik dışı" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
+          <p className="text-sm font-semibold">Öğretmenin müsaitlik saati dışında</p>
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+            <dt>Öğretmen</dt>
+            <dd className="font-medium">{selectedTeacher?.name ?? "—"}</dd>
+            <dt>Tarih</dt>
+            <dd className="font-medium">{date ? new Date(`${date}T12:00:00`).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", weekday: "long" }) : "—"}</dd>
+            <dt>Saat</dt>
+            <dd className="font-medium">
+              {time}
+              {pickedStart ? `–${new Date(pickedStart.getTime() + lessonDurationMinutes * 60000).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" })}` : ""} ({lessonDurationMinutes} dk)
+            </dd>
+          </dl>
+          <p className="mt-2"><strong>Neden:</strong> {overridePrompt}</p>
+          <p className="mt-1">
+            Onay YALNIZ öğretmenin bildirdiği müsaitliği aşar. Öğretmenin, odanın veya öğrencinin aynı saatteki başka dersi,
+            kapalı gün ve son kullanım tarihi yine kontrol edilir; bunlar aşılamaz.
+          </p>
+          <label className="mt-2 block font-medium">
+            Kısa gerekçe (önerilir — denetim kaydına yazılır)
+            <textarea
+              value={overrideReason}
+              onChange={(event) => setOverrideReason(event.target.value.slice(0, 500))}
+              rows={2}
+              maxLength={500}
+              className="mt-1 w-full rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs text-[var(--color-text)]"
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button type="button" variant="danger" disabled={busy} onClick={() => void submit(true)}>
+              {busy ? "Planlanıyor..." : "Müsaitlik dışında planla"}
+            </Button>
+            <button type="button" className="text-xs font-medium underline" onClick={() => setOverridePrompt(null)}>
+              Vazgeç
+            </button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="mt-2 text-xs font-medium text-rose-600">{error}</p> : null}
       {success ? (
         <div className="mt-2 space-y-2 text-xs text-emerald-800">
-          <p className="font-medium">Telafi dersi programa eklendi. Program görünümleri otomatik yenilenir.</p>
+          <p className="font-medium">Telafi dersi planlandı: programda ve yoklama takviminde turuncu “Planlanan telafi” olarak görünür.</p>
           {draft ? (
             <div className="rounded-lg border border-emerald-100 bg-[var(--color-surface)] p-2 text-[var(--color-text-muted)]">
               <p className="font-medium text-[var(--color-text)]">Veli iletişim taslağı (otomatik gönderilmez)</p>

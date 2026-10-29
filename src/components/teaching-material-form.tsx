@@ -11,7 +11,6 @@ const STUDENT_TYPES = [
   "Konservatuvar Hazırlık",
   "Güzel Sanatlar Lisesi Hazırlık",
 ] as const;
-const INSTRUMENTS = ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan"] as const;
 
 /** ~2MB ham dosya sınırı — createTeachingMaterialSchema (validation.ts) ile tutarlı. */
 const MAX_FILE_BYTES = 2_000_000;
@@ -28,7 +27,8 @@ function readFileAsBase64(file: File): Promise<string> {
   });
 }
 
-export function TeachingMaterialForm() {
+/** `instrumentOptions`: kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions) — sabit liste değil. */
+export function TeachingMaterialForm({ instrumentOptions }: { instrumentOptions: string[] }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -121,7 +121,7 @@ export function TeachingMaterialForm() {
           <Label>Enstrüman</Label>
           <Select value={targetInstrument} onChange={(e) => setTargetInstrument(e.target.value)}>
             <option value="">Tümü</option>
-            {INSTRUMENTS.map((i) => (
+            {instrumentOptions.map((i) => (
               <option key={i} value={i}>
                 {i}
               </option>

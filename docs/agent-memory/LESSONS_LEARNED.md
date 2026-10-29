@@ -78,6 +78,19 @@ before designing a fix in an area listed below.
     revert a parallel session's work; apply your own changes additively on
     top of it.
 
+12. **Every server-emitted `fieldErrors.<key>` needs a render slot in the
+    form (`<FieldError>` + `aria-invalid`); post-create PII writes need a
+    pre-create pure gate or a checked result.** `actionAddStudent` produced
+    `fieldErrors.birthDate` that no JSX ever read (user saw "marked below"
+    with nothing marked), and an invalid T.C. checksum fell through the
+    unchecked post-create `setNationalIdTool` call (record created, identity
+    silently lost). Fix: checksum gate BEFORE create (same
+    `ToolValidationFailure` pattern as the other pre-checks in the action)
+    + slots in both registration forms. Locks:
+    `registration-identity-field-errors.test.ts` (behavior) +
+    `registration-field-error-parity.test.ts` (count-based slot tripwire —
+    exact-JSX locking avoided per the 2026-09-28 static-test lesson).
+
 ## How to add an entry
 
 ```
@@ -87,6 +100,17 @@ Why it was wrong:
 Correct approach:
 Files involved:
 ```
+
+## 2026-10-14 — teacher contact email is not portal login email
+What was wrong: teacher profile updates and portal invitations treated the
+teacher's contact address as if it were always the linked account's login
+address, leaving stale invitations valid or risking an account handoff.
+Correct approach: resolve accounts only by tenant + `teacherId`; show contact
+and login addresses separately; revoke pending invitation tokens on contact
+changes and only retarget/resend after an explicit admin action. Check email
+ownership including inactive accounts before accepting a new address.
+Files involved: `src/lib/services/tools.ts`, `src/lib/auth/*`,
+`src/components/portal-access-card.tsx`.
 
 ---
 
@@ -1198,3 +1222,410 @@ aynı veriyi aynı yoldan mı okuyor?" diye bak.
 - `button`/`[role=button]`'da 180 ms `background-color` geçişi var; temayı sayfa içinde değiştirip hemen çekilen görüntü
   kartları/düğmeleri açık gri gösterdi. Karar vermeden önce hesaplanmış stili ölç veya geçiş bitince çek.
 
+
+### 2026-09-28 (10. tur iş #1) — portal bağlamını statik JWT alanından çözme
+- Aynı veli e-postası birden fazla öğrenciye (aktif+pasif) bağlanınca JWT `studentId` bayat pasif kayda kilitlendi →
+  veli aktif öğrencisine davet edilip giriş yapsa bile "Hesabınız pasif durumda" gördü. Kural: portal bağlamı her
+  istekte aktif erişim + aktif öğrenci çözümleyiciden (`portal-context.ts`) gelir; tercih (cookie/JWT) yalnızca
+  aktif erişim + aktif öğrenciyse geçerlidir, pasif tercih sessizce yok sayılır.
+- Mevcut kullanılabilir hesaba tekrar davet, şifre sıfırlamayı ZORUNLU tutuyordu (accept-invitation her zaman şifre
+  yazıyordu). Kural: yerleşik hesap (aktif erişimli) varsa erişim doğrudan bağlanır (`linkedExistingAccount`),
+  şifre değişmez; hiç aktive edilmemiş hesaba normal davet akışı çalışır.
+- `inviteStudentPortalAccess` revoked satırı aynen döndürüp e-posta gönderiyordu; kabul yalnızca `invited` satırları
+  aktive ettiği için "daveti yeniden gönder" boşa düşüyordu. Yeniden davet revoked'u tekrar `invited` yapar.
+- Test yardımcısındaki sabit e-posta etiketi ("Kodunuz:") şablon i18n'e taşınınca 3 admin-şifre-sıfırlama testi
+  tabanda kırmızı kaldı (işlevsellik sağlamdı). E-posta gövdesinden kod çıkaran testler etiketi ürünün gerçek i18n
+  metninden almalı (`passwordResetMail(...).codeLabel`).
+
+### 2026-09-28 (10. tur iş #2) — e-postaya data-URI logo gömme
+- Kurum logosu uygulamada `data:` URI saklanıyor ve davet/sıfırlama e-postalarına AYNEN gömülüyordu; Gmail/Outlook
+  `data:` URI görselleri engeller → alıcı "yalnız ad veya bozuk görsel" görüyordu. Kural: e-postada logo MIME
+  satır-içi eki (CID) olarak taşınır (`institutionLogoEmailBlock` + `EmailSendInput.attachments`); göreli/geçersiz
+  veri durumunda kırık görsel yerine temiz kurum-adı metni gösterilir. Bu davranışı kilitleyen regresyon testi
+  `account-invitation.test.ts` içindedir (eski "HTML data-URI içerir" beklentisi bilinçli güncellendi).
+- Kurum e-posta şablonları (`EmailTemplate`, additive tablo): içerik alanları düzenlenebilir, logo bloğu + zorunlu
+  sistem alanları (düğme/kod/bağlantı) sabit kabuk + yayımlama doğrulamasıyla korunur. Şablon render edilemezse
+  varsayılana düşülür (e-posta asla yanıtsız kalmaz).
+
+### 2026-09-28 (10. tur iş #5) — modal odak efektine kararsız bağımlılık koyma
+- `ModalShell` odak efekti `[open, busy, onClose]` bağımlıydı; tüm kullanıcılar satır-içi `onClose` verdiği için
+  metin alanına yazılan HER karakterde efekt yeniden koşup odağı çalıyordu (temizlikteki `trigger?.focus?.()` ile
+  tetikleyiciye sıçrama dahil). Kural: modal odak efekti YALNIZCA `[open]` geçişine bağlı olur; `busy`/`onClose`
+  güncelliği ref aynasıyla korunur. El-yapımı diyaloglar (öğrenci tekli/kritik) aynı deseni kullanır.
+- Gerekçe `onChange` içindeki `.slice(0,500)` IME birleşimini bozma riski taşıyordu; sınır `maxLength` özniteliğine
+  taşındı (sunucu `z.string().max(500)` değişmedi — gerçek koruma sunucuda).
+
+### 2026-09-28 (10. tur kalite kapısı) — erişim çözümleyiciyi yenilerken bootstrap yedeğini düşürme
+- `portal-context.ts` (`resolvePortalStudent`) erişim satırı bulamayınca doğrudan `no-access` dönüyordu; oysa
+  `getActiveAccessType`/`hasActiveStudentAccess` DB-dışı modlarda kaydı olmayan demo (HASHED) kullanıcı için
+  `User.studentId` eşleşmesine dayanan bir bootstrap yedeği içerir. Sonuç: demo öğrenci girişi mobil
+  `/api/v1/mobile/session`'da `portalAccessType: null` + `studentId` yok döndü (web portal da aynı yoldan
+  etkilenirdi). Kural: erişim çözümleyen HER yeni yol, yedeği de uygulamalıdır — burada `getActiveAccessType`
+  ile doğrulanıp sentetik SELF satırı normal akışa sokulur (aktiflik/silinmişlik kuralları demo kullanıcıya da
+  uygulanır). Regresyon kilidi: `mobile-session-route.test.ts` STUDENT senaryosu.
+- Statik kaynak-kilitli testler (`toMatch(/const .../)`) davranışı değil METNİ kilitler: revizyon kipi
+  `needsFirstPaymentEntryBase` satırını genişletince `contract-duration-first-contract-due-date` testi kırıldı
+  (davranış initial/renewal için aynıydı). Kural: kilitli satıra dokunma, istisnayı TÜRETİLMİŞ satıra
+  (`needsFirstPaymentEntry`) taşı.
+- Neviios kurum-dili i18n'i giriş formundaki "Şifremi unuttum" sabit metnini `copy.forgot` anahtarına taşıyınca
+  `password-reset-ui` testi tabanda kırmızı kaldı (bağlantı çalışıyordu). Kural: etiketi sözlükten okuyan
+  bileşenlerde test de sözlüğü doğrular (`authCopy("tr").forgot`), bileşen kaynağında sabit metin aranmaz.
+
+### 2026-09-28 (11. tur iş #1) — kısıt kuralı tarihsel satırların düzenlemesini kilitlemesin
+- Deneme revizyonu "kaybolmadı", `9070140` (oluşturmayı 10/15/20 ile sınırladı) + `6e27662` (form her
+  kayıtta mevcut süreyi aynen geri gönderir) bileşimiyle 30/45/60 dk'lık TÜM eski denemeler için fiilen
+  ÖLDÜ: güncelleme şeması mevcut değeri bilmeden reddediyordu. Kural: değişmezlik (immutability) kuralı
+  şemaya değil, mevcut kaydı gören ARAÇ katmanına yazılır — aynen-koruma serbest, gerçek değişiklik
+  kurallı (dede kuralı). UI'da mevcut değer "(mevcut kayıt)" seçeneğiyle korunur.
+- Regresyon kilidi: `trial-lesson-legacy-duration.test.ts`.
+
+---
+
+## 2026-09-28 (11. tur iş #11) — sunucu alan-hatası anahtarı formsuz, T.C. kapısı kayıttan sonra
+- `actionAddStudent` geçersiz doğum tarihinde `fieldErrors.birthDate` üretiyordu ama `new-student-form.tsx`
+  bu anahtarı HİÇ okumuyordu (`<FieldError>` + `aria-invalid` yoktu) — kullanıcı "aşağıda işaretlendi" görüyor,
+  işaretli alan bulamıyordu. Kural: sunucunun üretebildiği HER `fieldErrors.<anahtar>` için formda render slotu
+  ZORUNLU (kardeş alanlarla aynı desen); kilit `registration-field-error-parity.test.ts` (sayım tabanlı —
+  birebir JSX kilidi 10. tur dersiyle yasak).
+- Geçersiz T.C. (checksum tutmayan) post-create `await setNationalIdTool(...)` sonucuna bakılmadan düşüyordu:
+  öğrenci oluşmuş, kimlik kaybolmuş, kullanıcı kaydedildi sanıyordu. Kural: PII yan-etkisi ya kayıt ÖNCESİ saf
+  kapıdan geçer (`isValidTurkishNationalId` + mevcut `ToolValidationFailure` deseni — öğrenci/öğretmen
+  action'larının ikisinde de) ya da sonucu kontrol edilir. Kilit: `registration-identity-field-errors.test.ts`
+  (kayıt oluşmaz + alan hatası + geçerli T.C.'de şifreli saklama, düz metin yok).
+- Güvenlik taraması notu (security-rbac-review): reveal/search/set T.C. yolları örnek durumda (pii:full +
+  audit, yanıtta/auditte/logda düz metin YOK); kiracı yalnız session'dan; bu turda rol genişletme yapılmadı.
+
+## 2026-09-28 (MEB Paneli) — strip `undefined` bırakma, anahtarı SİL
+- `updateStudentProfileTool`'da "sonuç MEB-değilse MEB değerlerini yazma" kuralı önce `{...patch, mebX: undefined}`
+  spread'iyle yapıldı: Prisma `undefined`'ı atlar ama json/memory spread'i anahtarı `undefined` değerle saklı verinin
+  ÜSTÜNE yazar → `JSON.stringify` anahtarı düşürür → tür kaldırınca kayıtlı MEB verisi sessizce SİLİNİYORDU
+  (test yakaladı). Kural: çok-modlu store'da "yazma" yasağı `undefined` atayarak değil `delete patch.anahtar` ile
+  uygulanır (yazılmayan anahtar hiçbir moda değmez). Kilit: `meb-student-tools.test.ts` (kalıcılık + korunum).
+- Sözleşme değişimi notu: "MEB ise zorunlu" kapısı `student-types.test.ts`'teki 3 eski testi kırdı (MEB kaydı
+  seviye/dönemsiz açılıyordu). Kullanıcı-onaylı sözleşme değişimidir: testler MEB alanlarıyla güncellendi,
+  pinledikleri davranış (senkron/türetme/korunum) korundu. Kural: kapı değişiminde testin AMACINI koruyarak
+  uyarla, davranışı değil.
+
+## 2026-09-28 (triyaj) — attendance-calendar-tools sıra-bağımlı flake
+- `collectAttendanceCalendarPaymentTool` idempotency/paid-amount testleri (6) yalnız tam-süitte kırılıyor; izolede
+  35/35 + 4 alt-kümede yeşil; erken sırada (2-3.) geçen dosya geç sırada (~35.) kırılıyor. Denenen ikili/blok
+  tekrarları kirleteni bulamadı. MEB diff'i dışlandı (MEB dosyaları sonra koşar, kapı yalnız yeni MEB anahtarlarına
+  bakar, eski testlerden hiçbiri kapıya takılmaz). Kural: tam-süit kırmızısında önce SIRA konumu + izole/alt-küme +
+  baz karşılaştırması yapılır; ilgisiz flake'e sezgisel "düzeltme" YOK (kök neden bulunmadan ellemek yasak).
+
+## 2026-09-28 (egress/guardrails) — uygulama dışı içerik repo'ya girdi, Supabase kotası aşıldı
+- Muse'un ürettiği `reklam-paketi/` (9.3 MB: 2× .mp4 + PNG/SVG/HTML) ve `pazarlama/` (yalnız md) repo kökünde
+  duruyordu — Neyse ki İZLENMİYORDU (`git status` `??`, `git log --all -- reklam-paketi/` boş): `~/Desktop/
+  nevii-reklam-paketi/` altına birebir kopyalanıp (`diff -r` doğrulandı) repo'dan silindi, `.gitignore`'a eklendi.
+  Geçmiş temizliği GEREKMEDİ (BFG/filter-repo yok, force-push yok). Aynı dönemde Supabase Free 5 GB egress
+  5.48 GB'a taştı (26 Eyl ~1.3 GB/gün). Kod taraması: Auth/Realtime/Edge/PostgREST kullanımı YOK (egress ancak
+  Database-pooler veya Storage olabilir); Storage'a giden TEK yol `announcement-attachments` (private, 2 MB
+  kapak, video allowlist DIŞI — .mp4 oraya kodla YÜKLENEMEZ); tüm dosya rotaları DB'den base64 okur + `no-store`;
+  test Supabase erişimi bu makinede YOK (yerel env production'ı gösterir, service-role anahtarı yok) — bucket
+  listesi ve per-servis kırılım owner'a kaldı. Kurallar:
+  - "Uygulama kodu dışı içerik (görseller, videolar, pazarlama materyalleri, storyboard'lar, ekran görüntüleri) repo'ya eklenmez. Muse bu tür dosyalar üretirse repo kökünde değil `~/Desktop/` veya kullanıcının göstereceği repo-dışı dizine yazar."
+  - "Supabase Storage'a dosya yüklemeden önce bucket tipi (public/private), dosya boyutu ve egress etkisi değerlendirilir. Büyük medya yüklemeleri kullanıcı onayı olmadan yapılmaz."
+  - "Her turda `reklam-paketi/`, `pazarlama/`, `marketing/`, `ads/`, `assets-temp/` gibi uygulama dışı dizinlerin repo'da izlenip izlenmediği kontrol edilir."
+- Kilit: `scripts/check-repo-hygiene.sh` (yasak dizin + 1 MB üstü = HATA, medya = UYARI; `--staged` pre-commit,
+  `--tree` CI) + `scripts/git-hooks/pre-commit` (`npm run hooks:install`) + CI adımı; `scripts/
+  check-cache-headers.mjs` dosya sunan GET rotalarında açık `Cache-Control` ZORUNLU kılar (3 gedik kapatıldı:
+  `export`, `contracts/[id]/html`, `payments/[id]/receipt` — hepsi `private, max-age=0, no-store`, davranış aynı).
+
+## 2026-09-28 (paket-kampanya) — %100 indirimde "ders başı" sıfırlanmıyordu
+- Belirti: nihai aylık ücret 0'a düşerken "ders başı hesap karşılığı" eski (sıfır-dışı) değeri
+  göstermeye devam ediyordu. Sunucu DOĞRUYDU (`createStudentTool` NET ücretten türetir, 0 yazar) —
+  hata YALNIZ istemci önizlemesindeydi, iki katmanlı: (1) form-seviyesi `onChange` → `recomputePreview`
+  `monthlyFee`'yi FormData'daki GİZLİ input'tan okuyordu; o input'un değeri alt bileşenin React
+  state'inden gelir ve olay anında henüz ESKİ değeri taşır (bir render geriden); (2) `monthlyFee <= 0`
+  önizlemeyi `null` yapıp kartı gizliyordu — 0 hiç gösterilmiyordu.
+- Düzeltme: fiyat bileşeni nihai ücreti `onPricingChange` ile üst forma bildirir; önizleme bildirimi
+  okur + bildirim değişiminde yeniden hesaplar; 0 geçerli önizlemedir (kart sıfırları gösterir).
+  Kural: "gizli input + FormData okuma" ile React state'ini köprülemek yasaktır — durum üste taşınır
+  (lift state up), FormData yalnız submit anında okunur.
+
+## 2026-09-29 (tarih girişi) — yıl yazılırken panel çöküyordu; kullanıcı ekranı yanlış tahmin edildi
+- Belirti "tarih yazarken 'Bu sayfa yüklenirken bir sorun oluştu'". İlk varsayım (kampanya formu) 27 ekranda
+  yeniden ÜRETİLEMEDİ; owner'a sorulunca gerçek ekran Ders Programı planlayıcısı çıktı. Ders: yeniden
+  üretemiyorsan tahminle düzeltme — ekranı sor, sonra stack trace al (prod build + `pageerror`).
+- Kök neden: `<input type=date>` yıl yazılırken `0002-10-15` üretir; `toYmd` (closed-days.ts) `getFullYear()`'ı
+  4 haneye doldurmadığı için `"2-10-17"` döndü → render'da `format(parseISO(...))` RangeError.
+- Kural: form durumundaki tarih yalnız `isCompleteDateOnlyInput` (date-input.ts) `true` iken hesaplanır/
+  formatlanır/sunucuya gider; ara değer normal düzenleme durumudur, alan altında Türkçe uyarı gösterilir.
+
+## 2026-09-30 — Tek statüye geçiş hakediş kaynağını sessizce kesti (Tuçe Avşar Eylül)
+
+Geldi/İşlendi bağımsız bayraklarken yoklama "Geldi + İşlendi" olabiliyordu; `c21e72b` bunları birbirini
+dışlayan tek statü yaptı ama hakediş yalnız İşlendi'yi saymaya devam etti → "Geldi" seçilen ders (testte
+Eylül'de 8 öğretmen, 61 ders) hakedişe hiç girmedi, ekran "Ders yok / 0 TL". Ek olarak DB'de
+`lessonProcessed @default(false)` olduğundan "legacy completed" dalı db modda ölüydü (json'da çalışıyordu).
+**Ders:** bir statü modelini değiştirirken o statüyü okuyan finans kuralını (`isLessonProcessedForPayout`)
+aynı değişiklikte güncelle; json'daki `undefined` ile DB'deki `false` varsayılanını aynı saymayan kural parity kırar.
+
+## 2026-09-30 — "Tek kaynak" kural, store içi doğrulamaya ulaşmıyordu (zorla açık gün)
+
+`resolveWorkDay` tek kaynaktı ve tool katmanı `readData()` ile istisnaları görüyordu; ama `addLesson`/taşıma/
+seri/telafi onayı store'un KENDİ `readData`'sıyla doğruluyordu ve istisnalar yalnız `store.ts` sarmalayıcısında
+ekleniyordu → zorla açık Pazartesi tool'u geçip store'da "günü Zorla açık işaretleyin" hatasıyla düşüyordu.
+**Ders:** doğrulamanın okuduğu veriyi, doğrulamanın ÇALIŞTIĞI katmanda üret (her store modunun readData'sı +
+dar dilim `narrowLessonScope`/`readLessonScope`); tool'dan store'a kadar giden bir entegrasyon testi yaz.
+Aynı turda: `validateLessonSlot` oda `active`'ini hiç okumuyordu → telafi pasif odaya yazılıyordu.
+
+## 2026-09-30 — %100 burslu kayıt: 0 TL "pozitif olmalı" şemasında sessizce takıldı
+- Belirti: %100 kampanyalı yeni kayıt genel "Formda düzeltilmesi gereken alanlar var" ile kalıyordu, hiçbir alan açıklaması yok.
+  Kök neden zod `amount.positive()`; hata iç içe nesnenin üst anahtarına (`firstPaymentCollected`) düşüyor ve formda o anahtar
+  için `FieldError` yok. Mevcut test bile "sembolik 1 TL + gerekçe" ile hatayı geçiştirmişti — iş kuralı testte yamalanmıştı.
+- Ayrıca iki indirim sözlüğü ("percent"/"amount" ↔ "percentage"/"fixed") aynı kolonda; biri diğerini TL saydı.
+- Kural: boş ile 0 ayrı ayrıştırılır; iç içe şema hatası formda gösterilen alan adına eşlenmeli. Aynı kolona iki sözlük
+  yazılıyorsa okuyan her yer ortak bir yardımcıdan (`isPercentDiscount`) geçer.
+
+## 2026-09-30 — Egress'in kaynağı "büyük sorgu" değil, her yere yayılmış TAM hidrasyon + tek bir 79 KB sütun
+- Supabase egress kotası aşıldı; `pg_stat_statements` (salt okunur) gösterdi: baytların çoğu `readData()`'nın
+  `School` + tüm ilişkiler okuması (istek başına ~1.8 MB) ve `School.logoUrl` data-URI'si. Logo, yalnız ad gereken
+  `include: { schools: true }` (kurum seçici, `getPlatformTenant` → her panel isteğinde birkaç kez) üzerinden sayfa
+  başına ~5 kez taşınıyordu. `select`siz `findFirst`/`include: true` satırın HER sütununu getirir.
+- Kural: sayfa/tool ihtiyacı kadar oku — `src/lib/reference-data.ts` dilimleri; dilim tipi ağır koleksiyonu içermez ki
+  yanlış kullanım DERLENMESİN. Satır süzen dilimde (öğrenci/pencere) tip koruyamaz: her erişimi satır satır denetle.
+  Öğretmenler kartı "tüm zamanların ders sayısı"nı gösteriyordu — pencereye çevirmek sayıyı sessizce değiştirirdi.
+- Ölçüm: gerçek sayfaları yerel `next start` + pg soket bayt sayacıyla ölç, görünen metni önce/sonra karşılaştır
+  (`scripts/bench/`); Suspense akışlı sayfada metin sırası değişebilir → sıradan bağımsız özet kullan.
+
+## 2026-09-30 — Ölçer `npx` sürecini ölçtü (0 sorgu); pencere dilimi kimlikle aranan satırı kaçırır
+- `NODE_OPTIONS=--import pg-meter.mjs npx tsx …`: seçenek `npx`'in kendi node sürecine de geçer, ölçer portunu o
+  kapar → mutasyon ölçümü "0 sorgu / 0 KB" döndü. Tek süreç: `node --import pg-meter.mjs --import tsx script.ts`
+  (sonuçta `pid === process.pid` kontrolü). Sıfır ölçüm = önce ölçerin doğru süreçte olduğunu kanıtla.
+- Dönem penceresi yalnız TARİHE göre süzen hesaba yeter; kayıttaki satırı KİMLİKLE arayan kod (`describeLineSources`:
+  sonradan taşınmış ders, seri demo etiketi) pencereyle sessizce "eksik" der → böyle yollar dilime çevrilmez.
+
+## 2026-10-01 — Vercel "Active CPU %75": Link önyüklemesi ve yoklamalar her sayfayı 10 kat çoğaltıyordu
+- Kök layout çerez okuduğu için tüm rotalar dinamik; `/panel`, `/ogretmen`, `/ogrenci` altında `loading.tsx` var.
+  Next.js bu durumda görünen HER `<Link>` için sunucuda layout render'ı yapan önyükleme isteği atar. Gerçek tarayıcı
+  ölçümü: tek `/panel/ogrenciler` açılışı 55 istek (49 önyükleme). Ayrıca oturum yoklaması 30 sn, canlı program
+  yenilemesi production'da 45 sn (her biri tam sayfa render'ı). Asistan da her menü geçişinde `/auth/me` ve her açılışta
+  `/chat` çağırıyordu. Sonuç: aynı sayfa 5 istek; CPU yerelde %26–63 düştü.
+- Kural: `next/link` yerine `@/components/link` (önyükleme kapalı, ESLint zorunlu kılar). Yoklama ≥5 dk, sekmeye
+  dönüşte ≥60 sn aralık. Yeni bir periyodik/yükleme anı isteği eklemeden önce çağrı sayısını tarayıcıyla say.
+- Ölçüm: yerel `next start` + yerel DB + Playwright; sunucu süreç ağacının `ps` CPU süresi; eski/yeni build aynı
+  düzenekle, 1 ısınma + 5 tur medyanı. Vercel Hobby'de rota bazında Active CPU API'den alınamıyor; çağrı sayısı
+  `get_runtime_logs` gruplamasıyla görülebiliyor. Ölçümden önce portun boş olduğunu kanıtla: eski bir `next-server`
+  açık kalmıştı ve ilk ölçüm ona gitti.
+
+## 2026-10-01 — Yazma dondurma: `ALTER DATABASE ... read_only` tek başına açık oturumları ve havuzu durdurmaz
+- Canlı geçiş provasında `default_transaction_read_only=on` sonrası açık oturumlar ve Supavisor havuzları (5432 ve
+  6543) yazmaya devam etti. Bir havuzdan bağlantı kapatmak o havuzun kendi bağlantısını sağ bırakıyor ve yeniden
+  kullanılıyordu. Çözüm: iki havuzdan çapraz kapatma + 12 yeni oturumda `pg_settings.source = database` kanıtı; son
+  yedekte tüm tablolara EXCLUSIVE kilit (zorlanan `BEGIN READ WRITE` bile duruyor).
+- Kural: "dondurdum" demeden önce yeni oturumlarda yazmanın reddedildiğini ve yazma sayaçlarının sabit kaldığını göster.
+
+## 2026-10-01 — Ortam kimlikleri değişti, korumalar eski kaldı
+- Geçişten sonra `test-target-guard.ts` canlıyı tanımıyordu ("unknown"); gerçek veriyi taşıyan eski test DB'sini ise
+  hâlâ "test" sayıp test betiklerine açıyordu. `seed-multi-tenant.ts` yalnız `NODE_ENV` kontrol ediyordu. Varsayılan
+  tenant canlıdaki gerçek kurum olduğu için `.env`'deki bir production URL'iyle o kurumun verisini silip demo veri
+  yazabilirdi. README boş DB için `prisma migrate deploy` diyordu; bu, MySQL sözdizimli 12 migration yüzünden çalışmaz.
+- Kural: proje/DB kimliği değişince `grep -rn "<eski-ref>"` ile src, scripts ve docs taranır; korumalar, seed
+  betikleri (`assertSeedTarget`) ve migration kapısı aynı commit'te güncellenir. Model:
+  `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
+## 2026-10-02 — DB hatasında kaynak koddaki demo şifrelere geri düşülüyordu; demo hesaplar dış e-posta alanlarında
+- `authenticateUser`/`findUserByEmail` db modunda sorgu hata verince bootstrap listesine düşüyordu. Test kanıtladı:
+  geçici DB hatasında AI_AGENT ve kurum sahibi koddaki demo şifreyle girebiliyordu (DB'deki şifre değişmiş olsa bile).
+  Düzeltme: db modunda fail-closed. Ayrıca "şifremi unuttum" AI_AGENT'a sıfırlama başlatıyordu; hesabın alanı
+  (`notaplan.app`) DNS'te kayıtsız → alan adını alan şifre belirleyebilirdi. Production'da 9 demo öğrenci hesabı
+  herkese açık `email.com` adresleriyle ve varsayılan şifreyle aktif (demo kayıtlara bağlı).
+- Kural: kilitlenen/servis hesabını tüm yollarla doğrula (giriş, mevcut/yenileme token'ı, sıfırlama, davet, mobil,
+  DB hatası geri düşüşü). Demo/servis hesaplarının e-posta alanı kontrol edilen bir alan olmalı ya da hesap pasif olmalı.
+
+## 2026-10-02 — Yerel Postgres saat dilimi ≠ canlı: ham SQL `now()` yerelde 3 saat ileri tarih yazdı
+- `timestamp without time zone` sütunlara (Prisma DateTime) ham SQL `now()` yerel sunucu saatini (İstanbul) yazar;
+  Prisma bunu UTC okur → yerelde `sessionsRevokedAt` 3 saat ileride göründü, provada yeni oturumlar da "iptal" sayıldı.
+  Canlı (Supabase) UTC olduğu için canlıdaki değer doğruydu (`gecmiste_mi=t` ile kanıtlandı).
+- Kural: ham SQL ile zaman yazarken `now() at time zone 'UTC'`; prova adımı başarısızsa önce ortam farkını ele.
+
+## 2026-10-03 — Eşzamanlı ders yazımı çift rezervasyon yapıyordu (anlık görüntü doğrulaması yetmez)
+- DB modunda `addLesson`/seri/telafi onayı `readData()` görüntüsünde `validateLessonSlot` çalıştırıp sonra yazıyordu;
+  aynı saate aynı anda iki istek ikisi de "boş" gördü (yerel provada 3/3 çift kayıt). Düzeltme: kurum içi advisory kilit
+  altında DB'den güncel çakışan dersleri okuyup merkezi kuralla (`findSlotConflict`) yeniden kontrol.
+- Ders: kapasite/çakışma gibi "tek olmalı" kuralları yazım anında kilit/kısıt altında yeniden doğrula.
+
+## 2026-10-03 — Prova düzeneği "sahte geçti" üretti (tek oturum kuralı)
+- Token iptal provasında ikinci giriş birinci oturumu kapattığı için sonraki "401 beklenir" adımları boş/yanlış token
+  ile kendiliğinden geçti. Düzeltme: her adım gerçek HTTP kodlarını yazar; senaryolar oturum kurallarına göre sıralanır.
+- Ders: negatif (reddedilmeli) adımlardan önce aynı kimlikle pozitif adımın gerçekten 200 verdiğini doğrula.
+
+## 2026-10-03 — Araç çıktısına körü körüne güvenme: regex ve komut zinciri
+- Varsayılan şifre envanterinde `process\.env\.[A-Z_]+` rakamlı değişken adlarını kaçırdı → hesaplar yanlış eşleşti;
+  bilinen sayılarla (19 hesap) karşılaştırınca yakalandı.
+- `tsc | head && git add && git commit` zinciri tsc hatasını yuttu (boru çıkış kodu `head`'in) → bozuk commit; ayrı
+  adımda `echo exit=$?`/`pipestatus` ile kontrol et. Eski (biçimlenmemiş) dosyaya prettier çalıştırma: 2 400 satır fark.
+
+
+## 2026-10-03 — Supabase transaction pooler'da oturum düzeyinde SET prod'u bozdu
+- Salt-okunur denetim betikleri `:6543` (Supavisor transaction modu) üzerinden `SET default_transaction_read_only = on`
+  çalıştırdı; uygulama aynı havuzu (tek backend) paylaştığı için ayar kaldı ve prod'da "cannot execute UPDATE in a
+  read-only transaction" (3 olay) oluştu. Aynı backend'de `SET ... = off` ile geri alındı.
+- Ders: ops/denetim bağlantısı 5432 (oturum modu) ya da `BEGIN TRANSACTION READ ONLY` / `SET LOCAL`; prod betiğinden sonra
+  Vercel runtime hatalarına bak.
+
+## 2026-10-05 — "Sözleşmesiz borç görünür" (B, 83c12e1) gerçek veride hiç borç satırı olmadan teslim edildi
+- B yalnız GÖSTERİM kuralını düzeltti; canlıda sözleşmesiz öğrencilerin ilk tahsilattan sonraki ayları hiç `Payment`
+  satırı olarak yazılmıyordu (`monthly_plan` yalnız tahsilat anında açılıyordu). Liste doğruydu, gösterecek borç yoktu.
+  Kapanış: `standalone-monthly-accrual.ts` + günlük cron (owner onayı); 14 öğrenciye Ekim borcu (owner onayı). İlk prova bir öğrenciye ikinci Ekim borcu yazacaktı: takvim tahsilatı vadeyi tahsilat günü yazar, ay açıklamadadır — kural ikisini de kontrol eder.
+- Ders: "X görünür" düzeltmesini teslim etmeden önce gerçek veride (izole kopya) en az bir gerçek örnekte X'in
+  kaydının VAR olduğunu ve ekranda çıktığını göster; görünürlük kuralı ile kaydın üretilmesi ayrı iştir.
+
+## 2026-10-07 — Prisma etkileşimli transaction'da `return fail(...)` geri ALMAZ
+- "Kulübe ekle" onayında dahil solfej dolu olunca araç `fail` döndürüyordu; geri çağrı normal döndüğü için Prisma
+  transaction'ı COMMIT etti ve ana üyelik yazılmış kaldı (json testinde yakalandı). Düzeltme: tüm kontroller yazımdan
+  önce kilit içinde; yazım başladıktan sonraki her ret `throw` (Abort) ile transaction'ı geri alır, dışarıda
+  `ServiceResult`'a çevrilir. Ders: `$transaction(async tx => …)` içinde iş hatası = throw; değer döndürmek commit'tir.
+
+
+## 2026-10-08 — Kapsayıcı bitiş tarihi + "bitiş = bugün" sonlandırma → sonlanan üye aktif listede kaldı
+- `isMembershipActive` `endDate >= bugün` (bitiş günü dahil) iken "Üyeliği sonlandır" `endDate = bugün` yazıyordu:
+  başarılı işlemden sonra üye aynı gün aktif listede, ikinci tıklama "zaten sonlandırılmış" hatası. Düzeltme: `endDate`
+  = sonlanma günü (hariç), tek tanım `isMembershipActive`/`membershipCoversDay`; sonlandırma idempotent.
+- Ders: "sonlandır/iptal" eylemi bir tarih yazıyorsa, aktiflik tanımının o tarihi yazıldığı GÜN nasıl yorumladığını
+  kontrol et; durum sözcüğü (aktif/sonlanmış) ile tarih karşılaştırması aynı fonksiyondan gelmeli.
+
+## 2026-10-09 — "Çoklu eğitim" yalnız etiketti; finans hâlâ öğrenci başınaydı
+- 10-04 çoklu eğitimde ikinci branşın İLK sözleşmesi kayıt ilk tahsilatını öğrenci başına arıyordu
+  (`getRegistrationFirstPayment(studentId)`): birinci branşın tahsilatı ikinci sözleşmenin 1. taksitine yeniden
+  bağlanabiliyordu; takvim iki branşın sözleşmesini görünce "birden fazla aktif sözleşme" diyip tahsilatı durduruyordu;
+  birincil sözleşme `enrollmentId=NULL` saklandığı için birincil değişince geçmiş sözleşme başka branşa kayıyordu.
+- Ders: bir varlığı "çoklu" yaptığında ona bağlı HER kaydın (ödeme, ilk tahsilat, takvim planı, kota, cron) anahtarını
+  da aynı branşa taşı; "NULL = birincil" gibi örtük eşleme yerine açık kimlik yaz, belirsiz eskiyi raporla.
+
+## 2026-10-10 — "Ek branş" modeli ana kaydı ayrıcalıklı bıraktı; ayna "gerçek" sanıldı
+- 10-09 çoklu branşta yalnız ek kayıtlar kendi koşullarını taşıyordu; ana kaydın koşulu öğrenci satırındaydı. Sonuç: ek branşta MEB
+  alanları yoktu, liste/MEB paneli/öğretmen ekranları/banka/kota ilk branşın değerini gösteriyordu, ilk tahsilat yalnız ilk branşa aitti.
+- Düzeltme: her kayıt `termsVersion: 2` ile kendi koşulunu taşır, satır yalnız ayna; yazımda hedef branş zorunlu; tek ortak form/doğrulama.
+- Ders (1): ayna alanı olan her model için "kim okuyor?" taraması yap (`student.<alan>` grep'i `services/tools.ts` ve `store*`'u dışlamasın).
+- Ders (2): tek-seferlik dönüştürme betiği dar `select` ile okursa kopyalanacak alanları kaçırır → veri kaybı; tam satır oku, dönüşümden
+  önce/sonra değerleri birebir karşılaştır, fark varsa yazma. Tip dökümü (`as unknown as`) bu hatayı tsc'den gizler.
+- Ders (3): sunucu ve istemci aynı eşiği FARKLI nesneden okursa (`settings` vs `settings.collectionsSettings`) önizleme ≠ kayıt olur;
+  ortak saf fonksiyona verilen girdiyi iki tarafta da aynı kaynaktan al.
+
+## 2026-10-10 — Prisma 7 `updateMany` bir transaction'dır; serverless'ta yanıttan sonra "fire-and-forget" yapma
+- UserSession presence yazımı `void (async () => updateMany(...))()` ile yanıttan sonra çalışıyordu. Prisma 7 +
+  adapter-pg `updateMany`'yi BEGIN → UPDATE → COMMIT (3 gidiş-dönüş) olarak yürütür (pg protokol logu ile görüldü);
+  Vercel örneği arada askıya alınınca satır kilidi + havuz bağlantısı açık kaldı → aynı oturuma UPDATE'ler 79 sn'ye kadar
+  bekledi. Düzeltme: tek ifade `update` (genişletilmiş where), DB'de koşullu aralık, yanıt sonrası iş `after()` ile.
+- Ders: yanıt sonrası DB işi `after()`'la; tek satır koşullu yazımda `updateMany` yerine `update`/tek ifade kullan.
+  Yeni "kontrol için" tam `readData()` ekleme — tek satır/dilim okuyucusu yoksa önce onu ekle (her yoklama tıklaması
+  ~1,8 MB okuyordu).
+
+
+## 2026-10-10 — Okuma yolunda "okul yoksa demo seed" canlıda tetiklendi (gece tahakkuk cron'u, P2002)
+- `monthly-accrual` cron'u `listTenants()`'ın TÜM aktif tenant'larını dolaşıyordu (sentetik platform tenant'ı dahil);
+  okulsuz tenant'ta `readPaymentsPageData` → `readData()` `seedDatabase(createSeedData())`'e düştü. Sabit demo id'leri
+  P2002 verdi; ama `seedDatabase`'in silme transaction'ı (o tenant'ın User satırları dahil) ve `tenant.upsert` (ad
+  değişimi) `school.create`'ten ÖNCE commit olur. İstisna döngüden kaçtığı için sonraki kurumlar her gece atlandı.
+- Ders: okuma yolunda yazan geri düşüş (seed/varsayılan oluştur) canlıda fail-closed olmalı (`readData` tek kapı).
+  Tenant döngüsü yapan her iş platform tenant'ını hariç tutar (`institution/context.ts` deseni) ve kurum başına
+  try/catch + log + yanıtta hata sayısı ile çalışır; hata varsa non-2xx döner ki cron başarısız görünsün.
+
+## 2026-10-13 — Kota denetimi yerel `main` üzerinde başladı; canlı kod 433 dosya ilerideydi
+- Yerel `main` (cf12bc0) güncellenmemişti; canlı `origin/main` 174bb2b'de 11 Ekim'de çoklu branş v2, mobil uçlar ve yeni tam okumalar vardı.
+  İlk bulgu taraması yanlış kod tabanında yapıldı, Vercel `list_deployments` ile fark edildi.
+- Bench fixture'ında ödev/teslim/materyal satırı 0 olduğu için dosya kolonlu tablolar ölçümde görünmüyordu; `pg_stat_statements`
+  satır sayısıyla sıraladığı için az ama büyük satırlar da gizleniyordu. Varsayım yerine owner'a boyut SQL'i çalıştırıldı.
+- Ders: performans/kota denetiminden önce `list_deployments target=production` ile canlı commit'i bul ve `git fetch` + o commit'te çalış;
+  "büyük satır" şüphesini `sum(octet_length(...))` ile canlıda doğrulamadan öncelik verme.
+
+## 2026-10-14 — "Bu ay karşılandı mı?" sorusunun iki cevabı vardı (ileri ay tahsilatı)
+- Sözleşmesiz kayıt ilk tahsilatında "takip eden ayı da ekle" yalnız bayraktı (dönem etiketi/kırılımı yok). Gece tahakkuku
+  bayrağı okuyup sonraki ayı borçlandırmıyor, yoklama takvimi okumuyordu → ay "ödeme kaydı yok" görünüyor ve ikinci tahsilata
+  açıktı. Sözleşmeli birleşik taksit ise iki ayda da TAM tutarla sayılıyordu (döküm toplamı çift). Ay kutusuna iki aylık tutar
+  girilince sözleşmesiz yeni satırın borcu girilen tutar oluyor, sonraki ay yine borçlanıyordu.
+- Düzeltme: tek kural `installmentMonthShares` (ay → borç payı + mahsup payı; takvim, döküm, tahakkuk aynı fonksiyon); yeni
+  kayıt satırı kırılımı kalıcı yazar; fazla tutar önce doğrulanıp sonraki dönemlere mahsup edilir.
+- Ders: "kapsam" kuralı (hangi ay) ile "tutar" kuralı (ne kadar) tek fonksiyonda olmalı; bir bayrağı okuyan her yeri `grep`
+  ile bul. Geçmiş kayıtta tutarı bugünkü ücretten TAHMİN etme — kırılımı kayıtta tut, eskiyi kuru çalıştırmayla ayır.
+
+## 2026-10-15 — Okulsuz platform tenant'ı her 10 dakikada notification-tick'i 500'e düşürdü
+- 10-10'da `readData()` canlıda okulsuz kurumda bilerek fırlatır hale geldi (demo seed yerine). `tenant_platform` (NeviiOS,
+  okul kaydı yok) `listTenants()`'te aktifti; `sweepUpcomingLessons` kurum bazında yakalamadığı için tüm tick 500. Teşhis
+  log'u yalnız `errorName` taşıdığından mesaj görünmedi; kök neden canlı DB sorgusu (okul sayısı 0) + kod yoluyla bulundu.
+- Düzeltme (PR #41): `listSchoolTenants()` + `forEachSchoolTenant()` (kurum hatası sayılır, diğerleri sürer, >0 ise tick 500).
+- Ders: kurum başına `readData` yapan her zamanlanmış iş platform tenant'ını dışlamalı; bir fonksiyonu fırlatır hale getirince
+  tüm çağıranlarını `grep` et. Log'a stack yazarken yalnız `at ...` satırları (çok satırlı mesaj stack'in başına girer).
+- Ayrıca: özel `Button`'a verilen `aria-*` JSX'te TS hatası vermeden düşer — ortak bileşen iletmiyorsa erişilebilirlik kaybolur.
+
+## 2026-10-16 — Bildirim tekilleştirmesi biriken bildirimle karesel okuma yaptı (egress)
+- `notifyUserIfEnabled` tekilleştirmek için kullanıcının TÜM bildirimlerini (`findMany`, limit/select yok) okuyordu. Ödeme
+  taraması bunu bekleyen ödeme × yönetici kez çağırdı; her tur bildirim eklediği için okunan satır her gün büyüdü. Tick 500
+  verdiği sürece (platform tenant'ı) görünmedi; #41 tick'i düzelttiği gün egress zirvesi başladı.
+- Düzeltme: aynı kural SQL'de (`hasRecentNotification`: kind + createdAt ≥ since + body contains, `select id`).
+- Ders: döngü içinde çağrılan yardımcıda "listele + bellekte ara" yasak; bir işi düzeltip ilk kez çalışır hale getirince
+  çağırdığı okumaların döngü başına maliyetini hesapla. Actions kotası tick'in sağlıklı çalıştığını kanıtlamaz.
+
+## 2026-10-20 — Saklanan türetilmiş statü bayatladı; ayar değişikliği mevcut kayıtlara yansımadı
+- `Payment.status = "overdue"` yalnız satır oluşturulurken damgalanıyordu; vadesi geçen satır "Bekliyor" kaldı. Ekranların bir
+  kısmı ham statüyü, bir kısmı kendi vade karşılaştırmasını (UTC/anlık) kullandı → dış liste ile öğrenci detayı çelişti.
+  Düzeltme: `payments/status.ts` `resolvePaymentDisplayStatus` (kurum saatinde gün bazlı, türetilir, DB'ye yazılmaz).
+- Telafi politika penceresi yalnız ayarı değiştiriyordu; öneri motoru yeni pencereyi, doğrulama talebin donmuş `expiresAt`'ini
+  kullandı ("hakkı var ama planlanamaz"). Düzeltme: `expiresAtForPolicyWindow` (asla kısaltmaz), üç store modunda.
+- Ders: zamana bağlı bir statüyü kolonda saklama; okurken türet. Bir politika ayarı değişince "bu kural mevcut kayıtları
+  nerede okuyor?" diye grep et — iki okuyucu farklı kaynağa bakıyorsa çelişki kaçınılmaz.
+
+## 2026-10-22 — Etiketsiz kayıt ilk tahsilatı: Ekim ödemesi takvimde Eylül'de, Ekim ikinci kez borçlandı
+
+10-14 öncesi sözleşmesiz kayıt ilk tahsilatı dönem etiketi taşımıyordu; `installmentMonthShares` dönemi vadeden okudu,
+vade = tahsilat günü (Eylül sonu) → dersleri Ekim'de başlayan öğrencinin ödemesi Eylül'de; gece tahakkuku Ekim'i
+"karşılanmamış" sanıp mükerrer `monthly_plan` yazdı (Arya U., Luna T., Denyse N.). "Sil-yeniden oluştur" etiketli yeni
+satır yazdığı için düzeltiyordu. **Ders:** kod kuralı düzeltilince ESKİ satırların backfill'i de aynı PR'da kapsanmalı
+(10-14 betiği yalnız "takip eden ay" satırlarını seçiyordu); dönem alanı yazıcıda zorunlu tip olmalı.
+
+## 2026-10-23 — Sözleşme taksit ibaresi saklanan sırayı gösterdi
+
+Birleşik ilk tahsilat `installmentSequence` 1 olarak yazılır (sonraki satır 3. aydır) ve açıklama "Sözleşme taksiti 1/N" diye saklanır. Ödenmiş taksit sayısı düzelince bu ibare ayrı kaldı. **Ders:** ekrandaki pay `contractInstallmentProgressIndex` (başlangıç sırası + kapanan dönem − 1). Saklanan açıklamayı, tutarı ve tarihi yeniden yazma.
+
+## 2026-10-23 — Sözleşmeli öğrencide tahsilatsız aylık plan ikinci borç kaldı
+
+`debtSourceOf` etiketi satırın `source`/`contractId` değerinden gelir; öğrencinin güncel sözleşmesi etiketi değiştirmez. Tahakkuk sözleşme taksitini ayı kapatan satır saymıyordu, sözleşme açılışı da taşınmayan `monthly_plan` satırını silmiyordu. **Ders:** yeni sözleşme çakışan tahsilatsız satırı iptal eder; özet kaydı eksik olsa bile yaşayan taksit ayı yeni tahakkuku keser; eski satır okumada borç sayılmaz, elle silinmez. İki branşta branşı boş satır tahmin edilmez.
+
+## 2026-10-22 — Ödenmiş taksit sayısı satır adedinden sayıldı
+
+İlk tahsilat iki ayı tek payment satırında kapatınca sayaç 1 kaldı. `installmentMonthShares` birleşik etiketin yalnız son ayını tutuyor, `firstCollectionIncludesNextMonth` etiket veya `contractId` varsa ikinci ayı eklemiyordu. **Ders:** taksit sayısı `payments.filter(paid).length` değil; `coveredInstallmentCount` (kapanan dönem). Tutar/tarih yeniden yazılmaz. Etiket + kırılım + bayrak yoksa dönem tahmin edilmez.
+
+## 2026-10-23 — Sözleşmesiz öğrencinin gelecek ay borcu hiçbir ekranda yoktu
+
+Gece tahakkuku yalnız İÇİNDE bulunulan ayı yazıyordu; takvim, Ödemeler ay panosu ve Açık borçlar satır okuduğu için
+sözleşmesiz öğrencinin Kasım'ı 1 Kasım'a kadar her yerde boştu (Darya Ö.), sözleşmelinin taksitleri baştan görünüyordu.
+**Ders:** yükümlülük üreten iş ile gösteren ekranların ufku aynı olmalı; gelecek ay satırı geçicidir, tahsilat görene
+kadar her gece aynı kuralla senkronlanır (uygunluk bitince iptal, yeniden fiyatlanmaz).
+Devamı (aynı gün): otomatik iptal ile yönetici iptali AYRI işaretlenmeli (`adjustedBy = system:*`) — aksi halde iptal
+satırı ayı "karşılar" ve öğrenci yeniden uygun olunca borç bir daha doğmaz. Satır açan/kapatan her akış (gece işi,
+sözleşme oluştur/iptal) öğrenci kilidi altında taze satırla ve sözleşme yeniden kontrolüyle tek noktadan yazar
+(`payments/accrual-rows.ts`); `upsertMonthlyPlanPayment` iptal satırını da eşlediği için açma yolu olarak kullanılmaz.
+
+## 2026-10-23 — Öğretmenin yazdığı 4 haftalık rapor "bekleyen dönem değil" diye reddediliyordu
+
+Bekleyen listesi dönemi 120 günlük ders penceresinden, gönderim ise öğrencinin TÜM geçmişinden yeniden türetip
+birebir eşitlik arıyordu. 4'lü ders grupları dizinin başından kesildiği için iki dilimde sınırlar kaydı; haftada 2 ders
+alan öğrencide listelenen dönemin gönderimi reddedildi, ilk ders tarihi boş öğrencide hepsi (eski kodla yeniden
+üretildi). Aynı fonksiyon 28 günlük takvim dönemlerini ilk dersten bugüne üretip her açılışta onlarca "bekleyen" biriktirdi.
+**Ders:** liste ile yazma aynı anahtarı FARKLI veri diliminden hesaplıyorsa eşitlik kontrolü veri kaybettirir; yazmada
+kural doğrula (kendi dersi aralıkta var mı, gönderilmiş raporla çakışıyor mu) ve @@unique'i idempotency için kullan.
+"Bekleyen" üreten kural geçmişe sınırsız bakmamalı (öğrenci×öğretmen başına en çok bir dönem, 60 gün taban).
+
+## 2026-10-24 — Telafi son günü iki çapadan hesaplanıyordu; bekleyen talepte uzatma düğmesi yoktu
+
+Ops "Telafi" işareti (`lesson-ops.ts`) son günü işaretleme anından (`now + pencere`), yoklama ve pencere
+değişimi ise kaynak dersten hesaplıyordu — geç işaretlenen derste pencere haksız uzuyor, karttaki dakika
+(:26 gibi) hangi kuralın yazdığını ele veriyordu (Kubilay O.: 28 Ağu 14:26 + 74 gün = 10 Kas 14:26).
+Ayrıca "Son günü uzat" yalnız geçmiş satırlardaydı; bekleyen karttaki "yetkili yönetici son günü uzatsın"
+yönergesi havada kalıyordu (sunucu uzatmayı destekliyordu, düğme yoktu).
+**Ders:** süre üreten TÜM yazım yolları tek çapayı (`makeupExpiresAtFromSource`) kullanmalı; hata mesajının
+vadettiği eylem aynı kartta erişilebilir olmalı; kalan-gün kartı sunucu diliminde değil kurum diliminde
+(`makeupDaysLeft`) hesaplanmalı — yoksa gece yarısına yakın kart "bugün son gün" derken yazım reddeder.
+
+## 2026-10-25 — Eski ücret kuralı "kullanılıyor" diye hiç silinemiyordu; yapılandırma ile defter birbirine karışmıştı
+
+`removeFeeRuleTool` kayıtlı hakedişte VEYA açık derste izi olan kuralın silinmesini koşulsuz reddedip yalnız
+devre-dışı bırakmayı öneriyordu; devre-dışı sonrası silme yine aynı mesajla reddediliyordu (çıkmaz akış, Şevval
+vakası). Oysa `TeacherPayoutSnapshotLine` tutarı ve `feeRuleId` izini donmuş taşır, şemada kurala FK yoktur ve
+`feeRuleId` ekranda hiçbir yerde dereference edilmez — yani fiziksel silme defteri bozmaz.
+**Ders:** "geçmiş iz kaybolmasın" gerekçesi silmeyi yasaklamaz, denetim izine dondurmayı gerektirir
+(silinen kuralın parametreleri `teacher_fee.delete` audit metasına yazılır); etki sayılarıyla önizleme + açık onay,
+ölü bir engel mesajından her zaman üstündür. Ayrıca kullanım sayaçları politika-bilinçli olmalı: sabit-ücret
+ayındaki ders kurala "çözümlense" bile tutarı ondan almaz (eski `feeRuleUsage` politika körü sayıyordu).

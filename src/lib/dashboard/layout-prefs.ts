@@ -18,6 +18,7 @@ export type { DashboardSectionSpan };
 
 export const DASHBOARD_SECTION_KEYS = [
   "actions",
+  "notes",
   "metrics",
   "todaySchedule",
   "trials",
@@ -34,6 +35,7 @@ export type DashboardSectionKey = BuiltinDashboardSectionKey | ScreenWidgetKey;
 
 export const DASHBOARD_SECTION_LABELS: Record<BuiltinDashboardSectionKey, string> = {
   actions: "Aksiyon gerekli",
+  notes: "Notlar",
   metrics: "Rakamlar şeridi",
   todaySchedule: "Bugünün programı",
   trials: "Deneme dersleri",
@@ -63,6 +65,7 @@ const SCREEN_WIDGET_DEFAULT_SPAN: DashboardSectionSpan = 4;
 
 const DEFAULT_SPANS: Record<BuiltinDashboardSectionKey, DashboardSectionSpan> = {
   actions: 12,
+  notes: 5,
   metrics: 12,
   todaySchedule: 7,
   trials: 5,

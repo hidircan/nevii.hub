@@ -157,3 +157,71 @@ describe("getAttendanceReportTool — içerik", () => {
     expect(res.ok).toBe(true);
   });
 });
+
+describe("getAttendanceReportTool — sayfalama (11. tur iş #4)", () => {
+  async function seedLessons(count: number): Promise<void> {
+    const data = await readDataJson();
+    for (let i = 0; i < count; i++) {
+      const startAt = new Date(Date.UTC(2026, 7, 5 + i, 10, 0, 0)).toISOString();
+      data.lessons.push({
+        id: uid("les-page"),
+        studentId: "s1",
+        teacherId: "t1",
+        roomId: "r1",
+        branchId: "erzene",
+        instrument: "Piyano",
+        startAt,
+        endAt: new Date(new Date(startAt).getTime() + 40 * 60_000).toISOString(),
+        type: "regular",
+        status: "scheduled",
+      } as Lesson);
+    }
+    await writeDataJson(data);
+  }
+
+  const monthFilter = { datePreset: "custom", from: "2026-08-01", to: "2026-08-31" } as const;
+
+  it("varsayılan çağrıda total == rows.length (sayfalama geriye uyumlu)", async () => {
+    await seedLessons(3);
+    const res = await getAttendanceReportTool(ctx(), { ...monthFilter });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.total).toBe(3);
+    expect(res.data.rows).toHaveLength(3);
+    expect(res.data.page).toBe(1);
+  });
+
+  it("rows dilimlenir ama summary TÜM satırlar üzerinden hesaplanır", async () => {
+    await seedLessons(5);
+    const res = await getAttendanceReportTool(ctx(), { ...monthFilter, page: 2, pageSize: 2 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.total).toBe(5);
+    expect(res.data.page).toBe(2);
+    expect(res.data.rows).toHaveLength(2);
+    // Özet dilimden etkilenmez — 5 dersin tamamını sayar.
+    expect(res.data.summary.totalPlanned).toBe(5);
+    // Sayfalar çakışmaz, sıralama startAt artanıdır.
+    const p1 = await getAttendanceReportTool(ctx(), { ...monthFilter, page: 1, pageSize: 2 });
+    expect(p1.ok).toBe(true);
+    if (!p1.ok) return;
+    const ids1 = new Set(p1.data.rows.map((r) => r.lessonId));
+    for (const r of res.data.rows) expect(ids1.has(r.lessonId)).toBe(false);
+  });
+
+  it("aralık dışı sayfa son sayfaya kırpılır", async () => {
+    await seedLessons(3);
+    const res = await getAttendanceReportTool(ctx(), { ...monthFilter, page: 99, pageSize: 10 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.page).toBe(1);
+    expect(res.data.rows).toHaveLength(3);
+  });
+
+  it("geçersiz sayfa VALIDATION_ERROR döner", async () => {
+    const res = await getAttendanceReportTool(ctx(), { ...monthFilter, page: 0 });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe("VALIDATION_ERROR");
+  });
+});

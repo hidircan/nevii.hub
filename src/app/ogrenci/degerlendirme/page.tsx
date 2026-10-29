@@ -1,17 +1,18 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { getPortalPageStudentId } from "@/lib/portal-context";
+import { readStudentScope } from "@/lib/store";
 import { getOwnTeacherFeedbackThisMonthTool } from "@/lib/services";
 import { TeacherFeedbackCards, type EligibleTeacher } from "@/components/teacher-feedback-cards";
 import { formatDate } from "@/lib/utils";
+import { eligibleFeedbackTeacherIds, FEEDBACK_RECENT_LESSON_WINDOW_DAYS } from "@/lib/teacher-feedback-eligibility";
 
 export const dynamic = "force-dynamic";
 
-/** Değerlendirmeye "yakın geçmiş" sayılan pencere. */
-const RECENT_LESSON_WINDOW_DAYS = 90;
+const RECENT_LESSON_WINDOW_DAYS = FEEDBACK_RECENT_LESSON_WINDOW_DAYS;
 
 export default async function StudentTeacherFeedbackPage() {
   let session;
@@ -25,23 +26,25 @@ export default async function StudentTeacherFeedbackPage() {
     redirect("/login?next=/ogrenci/degerlendirme");
   }
 
-  const data = await readData();
-  const studentId = session.studentId;
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
+  const studentId = await getPortalPageStudentId(session);
   if (!studentId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  // Kota (2026-10-13): sayfa yalnız bu öğrencinin derslerine bakar → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   const student = data.students.find((s) => s.id === studentId);
-  if (!student) redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  if (!student || (session.role === "STUDENT" && (!student.active || student.deletedAt))) {
+    redirect(PORTAL_RECORD_MISSING_REDIRECT);
+  }
 
   // Değerlendirilebilir öğretmenler: mevcut atanmış öğretmen + son
   // RECENT_LESSON_WINDOW_DAYS içinde bu öğrenciyle dersi olan öğretmenler.
   // URL/ID manipülasyonuyla ilişkisiz bir öğretmen asla bu listeye giremez
   // — liste tamamen sunucuda, öğrencinin GERÇEK ders kayıtlarından türetilir.
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - RECENT_LESSON_WINDOW_DAYS);
-  const recentLessons = data.lessons.filter(
-    (l) => l.studentId === student.id && new Date(l.startAt) >= cutoff
-  );
-  const teacherIds = new Set<string>(recentLessons.map((l) => l.teacherId));
-  if (student.teacherId) teacherIds.add(student.teacherId);
+  const nowMs = new Date().getTime();
+  const cutoffMs = nowMs - RECENT_LESSON_WINDOW_DAYS * 86_400_000;
+  const recentLessons = data.lessons.filter((l) => l.studentId === student.id && Date.parse(l.startAt) >= cutoffMs);
+  // 2026-10-14 — tek kural (kişiye özel link ile ortak): atanmış + aktif branş + son 90 gün ders öğretmenleri.
+  const teacherIds = eligibleFeedbackTeacherIds(student, data.lessons, nowMs, RECENT_LESSON_WINDOW_DAYS);
 
   const eligibleTeachers: EligibleTeacher[] = [];
   for (const teacherId of teacherIds) {

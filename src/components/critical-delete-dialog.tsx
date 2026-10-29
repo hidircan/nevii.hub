@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui";
@@ -52,16 +52,27 @@ export function CriticalDeleteDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // 10. tur iş #5 — ModalShell ile AYNI geçiş-odak deseni (bkz. oradaki kök neden notu).
+  const busyRef = useRef(busy);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  });
 
   useEffect(() => {
     if (!open) return;
+    triggerRef.current = document.activeElement as HTMLElement | null;
     dialogRef.current?.focus();
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) setOpen(false);
+      if (e.key === "Escape" && !busyRef.current) setOpen(false);
     }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, busy]);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      triggerRef.current?.focus?.();
+    };
+  }, [open]);
 
   async function openDialog() {
     setOpen(true);
@@ -174,8 +185,10 @@ export function CriticalDeleteDialog({
                   <span className="font-medium text-[var(--color-text)]">Silme gerekçesi (en az 5 karakter)</span>
                   <textarea
                     value={reason}
-                    onChange={(e) => setReason(e.target.value.slice(0, 500))}
+                    onChange={(e) => setReason(e.target.value)}
                     rows={2}
+                    maxLength={500}
+                    aria-label="Silme gerekçesi"
                     className="mt-1 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-sm"
                     placeholder="Örn. Yanlışlıkla iki kez oluşturuldu"
                   />

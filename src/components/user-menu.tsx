@@ -9,7 +9,7 @@
  * hâlâ `/gorunum-ayarlari` sayfasında (bağlantı burada).
  */
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { Bell, CircleHelp, KeyRound, LogOut, Monitor, Settings, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";

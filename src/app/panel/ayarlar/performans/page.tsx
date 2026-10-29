@@ -4,7 +4,7 @@ import { BackButton } from "@/components/back-button";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PerformanceWeightsEditor } from "@/components/performance-weights-editor";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import {
   STAFF_PERFORMANCE_METRICS,
   TEACHER_PERFORMANCE_METRICS,
@@ -24,7 +24,7 @@ export default async function PerformanceWeightsPage() {
   if (session.role !== "SUPER_ADMIN") redirect("/panel");
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const weights = resolvePerformanceWeights(data.settings.performanceWeights);
 
   return (

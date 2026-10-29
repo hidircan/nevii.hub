@@ -2,12 +2,13 @@ import { redirect } from "next/navigation";
 import { getAttendanceReportTool } from "@/lib/services";
 import { readData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
+import { withReturnTo } from "@/lib/safe-return-to";
 import { Card, Input, Label, PageHeader, Select, StatCard } from "@/components/ui";
 import { formatDateTime } from "@/lib/utils";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { computeAllStudentAttendanceRisks } from "@/lib/insights/attendance-risk";
 import { AiInsightTrigger } from "@/components/ai/ai-insight-trigger";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { TeacherAttendanceView } from "./teacher-view";
 
@@ -17,6 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
   planned: "Planlandı",
 };
@@ -51,6 +53,7 @@ export default async function AttendanceReportPage({
     status?: string;
     gorunum?: string;
     kategori?: string;
+    sayfa?: string;
   }>;
 }) {
   let session;
@@ -64,7 +67,7 @@ export default async function AttendanceReportPage({
   }
 
   const sp = await searchParams;
-  // 9. tur — öğrenci ve öğretmen yoklaması ayrı görünüm; öğrenci raporu aynen korunur.
+  // 9. tur — öğrenci yoklaması ve öğretmen aksamaları (iptal/telafi kaynağı) ayrı görünüm; öğrenci raporu aynen korunur.
   const view = sp.gorunum === "ogretmen" ? "ogretmen" : "ogrenci";
   const viewTabs = (
     <div className="mb-4">
@@ -73,7 +76,7 @@ export default async function AttendanceReportPage({
         active={view}
         items={[
           { key: "ogrenci", label: "Öğrenci yoklaması", href: "/panel/yoklama-raporu" },
-          { key: "ogretmen", label: "Öğretmen yoklaması", href: "/panel/yoklama-raporu?gorunum=ogretmen" },
+          { key: "ogretmen", label: "Öğretmen aksamaları", href: "/panel/yoklama-raporu?gorunum=ogretmen" },
         ]}
       />
     </div>
@@ -83,7 +86,7 @@ export default async function AttendanceReportPage({
       <div>
         <PageHeader
           title="Yoklama Raporu"
-          description="Öğretmen katılımı ve iptal/telafi kaynağı — derse kadar inilebilir."
+          description="İptal/telafi kaynağı (öğretmen kaynaklı aksamalar dahil) — derse kadar inilebilir."
         />
         {viewTabs}
         <TeacherAttendanceView session={session} data={await readData()} sp={sp} />
@@ -111,6 +114,10 @@ export default async function AttendanceReportPage({
       instrument: sp.instrument || undefined,
       roomId: sp.roomId || undefined,
       status: (sp.status as never) || undefined,
+      // 11. tur iş #4 — sayfa URL'den gelir; filtre formu method=get ile
+      // yalnız adlandırılmış alanları gönderdiğinden filtre değişince sayfa
+      // parametresi düşer ve liste başa döner.
+      page: sp.sayfa || undefined,
     }),
     readData(),
   ]);
@@ -135,7 +142,29 @@ export default async function AttendanceReportPage({
     );
   }
 
-  const { range, summary, rows } = result.data;
+  const { range, summary, rows, total, page: currentPage, pageSize } = result.data;
+  // 11. tur iş #4 — sayfalama + satır detayı bağlantıları mevcut filtreleri korur.
+  const pageParams = (sayfa: number) => {
+    const p = new URLSearchParams();
+    if (sp.datePreset) p.set("datePreset", sp.datePreset);
+    if (sp.from) p.set("from", sp.from);
+    if (sp.to) p.set("to", sp.to);
+    if (sp.studentId) p.set("studentId", sp.studentId);
+    if (sp.teacherId) p.set("teacherId", sp.teacherId);
+    if (sp.branchId) p.set("branchId", sp.branchId);
+    if (sp.instrument) p.set("instrument", sp.instrument);
+    if (sp.roomId) p.set("roomId", sp.roomId);
+    if (sp.status) p.set("status", sp.status);
+    if (sayfa > 1) p.set("sayfa", String(sayfa));
+    const qs = p.toString();
+    return `/panel/yoklama-raporu${qs ? `?${qs}` : ""}`;
+  };
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const rangeStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(total, currentPage * pageSize);
+  const currentHref = pageParams(currentPage);
+  const pagerLinkClass =
+    "rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]";
   const teachers = [...data.teachers].sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const students = [...data.students].sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const instruments = Array.from(new Set(data.lessons.map((l) => l.instrument))).sort((a, b) =>
@@ -326,9 +355,13 @@ export default async function AttendanceReportPage({
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <StatCard label="Planlanan" value={summary.totalPlanned} />
-        <StatCard label="Geldi" value={summary.attended} />
+        <StatCard
+          label={summary.attendedPlannedMakeup > 0 ? `Geldi (${summary.attendedPlannedMakeup} planlanan telafi)` : "Geldi"}
+          value={summary.attended}
+        />
         <StatCard label="İşlendi" value={summary.processed} />
         <StatCard label="Telafi" value={summary.makeup} />
+        <StatCard label="Planlanan telafi" value={summary.makeupPlanned} />
         <StatCard label="İptal" value={summary.cancelled} />
         <StatCard label="Riskli öğrenci" value={summary.riskyStudentCount} accent="warning" />
       </div>
@@ -362,7 +395,7 @@ export default async function AttendanceReportPage({
                   <td className="px-4 py-2.5 text-[var(--color-text)]">{r.teacherName}</td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{r.branchName ?? "—"}</td>
                   <td className="px-4 py-2.5">
-                    <LessonStatusBadge status={r.status} />
+                    <LessonStatusBadge status={r.status} plannedMakeup={r.plannedMakeup} />
                   </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
                     {r.processedReason ?? r.makeupReason ?? "—"}
@@ -376,13 +409,21 @@ export default async function AttendanceReportPage({
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/panel/ogrenciler/${r.studentId}`}
-                      className="text-xs font-medium text-cyan-700 hover:underline"
-                    >
-                      Öğrenciye git →
-                    </Link>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    <div className="flex flex-col gap-1">
+                      <Link
+                        href={withReturnTo(`/panel/program?week=${r.startAt.slice(0, 10)}`, currentHref)}
+                        className="text-xs font-medium text-[var(--color-primary)] hover:underline"
+                      >
+                        Programda aç →
+                      </Link>
+                      <Link
+                        href={`/panel/ogrenciler/${r.studentId}`}
+                        className="text-xs font-medium text-cyan-700 hover:underline"
+                      >
+                        Öğrenciye git →
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -390,6 +431,24 @@ export default async function AttendanceReportPage({
           </tbody>
         </table>
       </Card>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {total} kayıttan {rangeStart}–{rangeEnd} arası · sayfa {currentPage}/{totalPages}
+        </p>
+        <div className="flex items-center gap-2">
+          {currentPage > 1 ? (
+            <Link href={pageParams(currentPage - 1)} className={pagerLinkClass}>
+              ← Önceki
+            </Link>
+          ) : null}
+          {currentPage < totalPages ? (
+            <Link href={pageParams(currentPage + 1)} className={pagerLinkClass}>
+              Sonraki →
+            </Link>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

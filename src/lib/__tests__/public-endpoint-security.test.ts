@@ -109,7 +109,7 @@ describe("GET /api/v1/health — public-safe liveness", () => {
 
 describe("secret/imza korumalı public uçlar — yapılandırma durumu ve env adı sızmaz", () => {
   const saved: Record<string, string | undefined> = {};
-  const KEYS = ["NOTIFICATION_CRON_SECRET", "RETENTION_CRON_SECRET", "RELEASE_EVENT_SECRET"];
+  const KEYS = ["NOTIFICATION_CRON_SECRET", "CRON_SECRET", "RETENTION_CRON_SECRET", "RELEASE_EVENT_SECRET"];
   beforeEach(() => {
     for (const k of KEYS) {
       saved[k] = process.env[k];
@@ -135,10 +135,26 @@ describe("secret/imza korumalı public uçlar — yapılandırma durumu ve env a
     expect(JSON.parse(await wrong.text()).error.message).toBe(JSON.parse(unconfiguredText).error.message);
   });
 
+  it("notifications/tick Vercel Cron GET'i: yalnız CRON_SECRET/NOTIFICATION_CRON_SECRET ile, yanlışta 403", async () => {
+    const { GET } = await import("@/app/api/v1/notifications/tick/route");
+    const get = (auth?: string) =>
+      new Request("http://localhost/api/v1/notifications/tick", { headers: auth ? { authorization: auth } : {} });
+    expect((await GET(get())).status).toBe(403);
+    process.env.CRON_SECRET = "vercel-cron-secret-for-tests";
+    expect((await GET(get("Bearer yanlis"))).status).toBe(403);
+    expect((await GET(get())).status).toBe(403);
+    expect((await GET(get("Bearer vercel-cron-secret-for-tests"))).status).not.toBe(403);
+  });
+
   it("platform/jobs/retention ve platform/releases/events secret yokken 503 — env adı yok", async () => {
     const retention = await import("@/app/api/v1/platform/jobs/retention/route");
     const releases = await import("@/app/api/v1/platform/releases/events/route");
-    for (const res of [await retention.POST(post("/api/v1/platform/jobs/retention")), await releases.POST(post("/api/v1/platform/releases/events"))]) {
+    const accrual = await import("@/app/api/v1/platform/jobs/monthly-accrual/route");
+    for (const res of [
+      await retention.POST(post("/api/v1/platform/jobs/retention")),
+      await releases.POST(post("/api/v1/platform/releases/events")),
+      await accrual.POST(post("/api/v1/platform/jobs/monthly-accrual?apply=1")),
+    ]) {
       expect(res.status).toBe(503);
       expectPublicSafe(await res.text());
     }

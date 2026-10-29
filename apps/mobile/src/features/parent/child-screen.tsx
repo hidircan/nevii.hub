@@ -1,19 +1,12 @@
 import { useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
+import { Pressable, View } from "react-native";
 import { portalErrorMessage } from "../../components/mobile-ui/api-error-message";
-import {
-  AppHeader,
-  Avatar,
-  Card,
-  EmptyState,
-  ErrorState,
-  Icon,
-  LoadingSkeleton,
-  Screen,
-  SectionHeader,
-} from "../../components/ui";
+import { useSelectedStudentId } from "../../student/student-context";
+import { AppHeader, Avatar, Card, EmptyState, ErrorState, ListGroup, ListRow, LoadingSkeleton, Screen, SectionHeader, AppText } from "../../components/ui";
+import { useAppForegroundRefetch } from "../../hooks/use-app-foreground-refetch";
 import { useApiGet } from "../../hooks/use-api";
+import { useFocusRefetch } from "../../hooks/use-focus-refetch";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import type { StudentProfile } from "../../types/api";
 import { PARENT_QUICK_LINKS, toChildContextView } from "./child-context";
@@ -21,28 +14,29 @@ import { PARENT_QUICK_LINKS, toChildContextView } from "./child-context";
 /**
  * Veli "Çocuğum" ekranı — salt-okunur bağlam + hızlı erişim.
  *
- * Gösterilen öğrenci her zaman backend'in izin verdiği `ctx.studentId`
- * bağlamıdır (auth'tan gelir); istemcide ID tahmin edilmez, URL'de
- * uydurulmaz. Çoklu-çocuk seçici YOK — backend'de ilişkili çocukları
- * listeleyen bir endpoint bulunmuyor (bkz. MUSE_STUDENT_PARENT_BLOCKERS.md);
- * desteklenene kadar sahte selector yapılmaz.
+ * Gösterilen öğrenci her zaman seçili bağlamdır (`useSelectedStudentId` —
+ * sunucu oturumundan türetilir, istemcide ID tahmin edilmez, URL'de
+ * uydurulmaz). Çoklu çocukta seçim `/select-child` üzerinden yapılır;
+ * her profil isteği sunucuda `assertStudentAccess` ile doğrulanır.
  *
  * Gizlilik: telefon numaraları (öğrenci/veli) bu ekranda gösterilmez.
  */
 export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
-  const { user } = useAuth();
-  const studentId = user?.studentId;
+  const { t: tr } = useLocale();
+  const studentId = useSelectedStudentId();
 
   const res = useApiGet<StudentProfile>(studentId ? `/api/v1/students/${studentId}` : "");
+  useFocusRefetch(res.autoRefresh);
+  useAppForegroundRefetch(res.autoRefresh);
 
   if (!studentId) {
     return (
       <Screen>
-        <AppHeader title="Çocuğum" />
+        <AppHeader title={tr("parent.myChild")} />
         <EmptyState
           icon="alert-circle-outline"
-          title="Öğrenci bilgisi bulunamadı"
-          description="Bu hesapta görüntülenebilir bir öğrenci kaydı bağlı değil."
+          title={tr("home.noStudentTitle")}
+          description={tr("parent.noViewableChild")}
         />
       </Screen>
     );
@@ -50,7 +44,7 @@ export function ParentChildScreen({ basePath }: { basePath: "/(parent)" }) {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Çocuğum" subtitle="Aktif öğrenci bağlamı" />
+      <AppHeader title={tr("parent.myChild")} subtitle={tr("parent.activeContext")} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={3} />
@@ -77,6 +71,7 @@ function ChildContextBody({
   onRefresh: () => void;
 }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const view = toChildContextView(profile);
 
@@ -84,8 +79,8 @@ function ChildContextBody({
     return (
       <EmptyState
         icon="alert-circle-outline"
-        title="Öğrenci bilgisi yüklenemedi"
-        description="Öğrenci kaydı eksik görünüyor. Lütfen kurumunuzla iletişime geçin."
+        title={tr("parent.loadFailed")}
+        description={tr("parent.loadFailedBody")}
       />
     );
   }
@@ -96,52 +91,49 @@ function ChildContextBody({
         <View
           accessible
           accessibilityRole="text"
-          accessibilityLabel={`Aktif öğrenci: ${view.name}${view.line1 ? `. ${view.line1}` : ""}`}
+          accessibilityLabel={tr("parent.activeStudentA11y", { name: view.name, line: view.line1 ? `. ${view.line1}` : "" })}
           style={{ flexDirection: "row", alignItems: "center", gap: 12 }}
         >
           <Avatar name={view.name} size={52} />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
+            <AppText style={[t.typography.cardTitle, { color: t.colors.text }]} numberOfLines={1}>
               {view.name}
-            </Text>
+            </AppText>
             {view.line1 ? (
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]} numberOfLines={1}>
                 {view.line1}
-              </Text>
+              </AppText>
             ) : null}
             {view.line2 ? (
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]} numberOfLines={1}>
                 {view.line2}
-              </Text>
+              </AppText>
             ) : null}
           </View>
         </View>
       </Card>
 
-      <SectionHeader title="Hızlı erişim" />
-      <View style={{ gap: 10 }}>
+      <SectionHeader title={tr("parent.quickAccess")} />
+      <ListGroup>
         {PARENT_QUICK_LINKS.map((link) => (
-          <Card key={link.key} onPress={() => router.push(`${basePath}/${link.href}`)}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <Icon name={link.icon} size={20} color={t.colors.primary} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{link.label}</Text>
-                <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 2 }]}>{link.hint}</Text>
-              </View>
-              <Icon name="chevron-forward" size={16} color={t.colors.textFaint} />
-            </View>
-          </Card>
+          <ListRow
+            key={link.key}
+            icon={link.icon}
+            title={tr(link.labelKey)}
+            subtitle={tr(link.hintKey)}
+            onPress={() => router.push(`${basePath}/${link.href}`)}
+          />
         ))}
-      </View>
+      </ListGroup>
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Bilgileri yenile"
+        accessibilityLabel={tr("parent.refreshInfo")}
         onPress={onRefresh}
         hitSlop={8}
         style={{ marginTop: 16, alignItems: "center", justifyContent: "center", paddingVertical: 12, minHeight: 48 }}
       >
-        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>Bilgileri yenile</Text>
+        <AppText style={[t.typography.caption, { color: t.colors.primary, fontFamily: t.fonts.bold, fontWeight: "700" }]}>{tr("parent.refreshInfo")}</AppText>
       </Pressable>
     </>
   );

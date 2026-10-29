@@ -9,7 +9,7 @@ export type ProgramNotices<TCreated> = {
   gridError: string | null;
   actionSuccess: string | null;
   lastCreated: TCreated | null;
-  seriesSuccess: { createdCount: number; skippedCount: number } | null;
+  seriesSuccess: { createdCount: number; skippedCount: number; skipped?: { startAt: string; message: string }[]; overriddenCount?: number } | null;
 };
 
 export function emptyProgramNotices<TCreated>(): ProgramNotices<TCreated> {

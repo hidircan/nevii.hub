@@ -75,8 +75,11 @@ describe("Gloock menü markası — kaynak, fallback, dar kapsam", () => {
   const css = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
   const layout = readFileSync(path.join(ROOT, "src/app/layout.tsx"), "utf8");
 
-  it("menüdeki NeviiHub yazısı .brand-mark sınıfıyla Gloock kullanır", () => {
-    expect(nav).toMatch(/className="brand-mark[^"]*"/);
+  it("ana menüde logo/marka bloğu yok; yalnız daralt düğmesi var", () => {
+    // Kullanıcı kararı: menüdeki logo kaldırıldı (üst çubukta marka durur).
+    expect(nav).not.toMatch(/PLATFORM_BRAND/);
+    expect(nav).not.toMatch(/brand-mark/);
+    expect(nav).toMatch(/Menüyü daralt/);
   });
 
   it(".brand-mark Georgia/Times fallback'e düşer (font yüklenemezse okunur kalır)", () => {

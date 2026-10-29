@@ -1,10 +1,12 @@
 import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
-import { Icon } from "../../src/components/ui";
+import { Icon, TabBarLabel } from "../../src/components/ui";
+import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
 
 export default function ParentLayout() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <PersonaGuard persona="parent">
       <Tabs
@@ -12,33 +14,60 @@ export default function ParentLayout() {
           headerShown: false,
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border, minHeight: 64, paddingTop: 6, paddingBottom: 6 },
+          tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
+          tabBarItemStyle: { paddingVertical: 4, justifyContent: "center" },
+          tabBarIconStyle: { marginBottom: 0 },
         }}
       >
         <Tabs.Screen
           name="anasayfa"
-          options={{ title: "Ana Sayfa", tabBarIcon: ({ color, size }) => <Icon name="home-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.home"), tabBarIcon: ({ color }) => <Icon name="home-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="dersler"
-          options={{ title: "Dersler", tabBarIcon: ({ color, size }) => <Icon name="calendar-outline" size={size} color={color} /> }}
+          name="cocugum"
+          options={{ title: tr("tabs.myChild"), tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevler", tabBarIcon: ({ color, size }) => <Icon name="book-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.homework"), tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="gelisim"
-          options={{ title: "Gelişim", tabBarIcon: ({ color, size }) => <Icon name="trending-up-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.growth"), tabBarIcon: ({ color }) => <Icon name="trending-up-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="hesabim"
-          options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
+          name="odemeler"
+          options={{ title: tr("tabs.payments"), tabBarIcon: ({ color }) => <Icon name="card-outline" size={26} color={color} /> }}
         />
-        {/* Sekme çubuğunda gösterilmez (href:null) — "Ana Sayfa"daki ödeme özeti kartından erişilir, günlük birincil eylem değil. */}
-        <Tabs.Screen name="odemeler" options={{ href: null }} />
+        {/*
+          Program ("dersler") sekmede YOK — ana sayfadaki sıradaki ders /
+          "Bu haftanın dersleri → Tümü"nden ve push deep-link'lerinden açılır.
+          Route korunur (href:null yalnız sekmeyi gizler).
+        */}
+        <Tabs.Screen name="dersler" options={{ href: null }} />
+        {/*
+          Hesabım sekmesi kaldırıldı — hesap erişimi sekme köklerindeki üst
+          header'da zil ikonunun sağındaki profil ikonundadır. Route korunur.
+        */}
+        <Tabs.Screen name="hesabim" options={{ href: null }} />
         {/* Sekme çubuğunda gösterilmez (href:null) — "Çocuğum"daki hızlı erişimden açılır. */}
         <Tabs.Screen name="telafiler" options={{ href: null }} />
+        {/* Yoklama özeti "Çocuğum" hızlı erişiminden açılır; sekmede yer almaz. */}
+        <Tabs.Screen name="yoklama" options={{ href: null }} />
+        {/* Devam raporu sayaç/kart dokunuşlarıyla açılır (push-only); sekmede yer almaz. */}
+        <Tabs.Screen name="devam-raporu" options={{ href: null }} />
+        {/*
+          Sözleşmelerim YALNIZ Hesabım içinden açılır (ana panel/tab/hızlı
+          erişimde kısayol yok). Route korunur.
+        */}
+        <Tabs.Screen name="sozlesmeler" options={{ href: null }} />
+        {/*
+          app/(parent)/degerlendirme.tsx eski/yedek placeholder — gerçek
+          değerlendirme akışı gelisim/degerlendirme altındadır. Sekmede
+          gösterilmez (href:null); dosyaya/domain'e dokunulmadı.
+        */}
+        <Tabs.Screen name="degerlendirme" options={{ href: null }} />
         {/*
           app/(parent)/bildirimler.tsx eski/yedek düz bir route dosyası —
           gerçek bildirimler ekranı paylaşılan kök /notifications (AppHeader

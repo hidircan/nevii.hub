@@ -1,11 +1,12 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { Card, EmptyState, Badge } from "@/components/ui";
 import { listPendingPeriodicAssessmentsTool } from "@/lib/services";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +19,9 @@ export default async function TeacherAssessmentStudentsPage() {
     redirect("/login?next=/ogretmen/degerlendirme");
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const teacherId = session.teacherId || "t1";
-  const students = data.students.filter((s) => s.active && s.teacherId === teacherId);
+  const students = data.students.filter((s) => s.active && isOwnStudent(s, teacherId));
   const pendingResult = await listPendingPeriodicAssessmentsTool(
     { role: session.role, userId: session.userId, tenantId: session.tenantId, teacherId: session.teacherId, channel: "web" },
     {}

@@ -11,6 +11,8 @@ import {
 } from "@/lib/actions";
 import { EDUCATION_METHODS, STUDENT_TYPES, REFERRAL_SOURCES, REFERRAL_SOURCE_LABELS } from "@/lib/types";
 import type { ReferralSource, StudentType } from "@/lib/types";
+import { MEB_LEVEL_OPTIONS, isValidMebLevel } from "@/lib/student-level-rules";
+import { STUDENT_PROFILE_SECTIONS, pickSectionFields, sectionHas, type StudentProfileSection } from "@/lib/profile-sections";
 
 export type StudentProfileEditorBranch = { id: string; name: string };
 
@@ -24,7 +26,13 @@ type FieldErrors = Partial<
     | "parentName"
     | "parentPhone"
     | "birthDate"
-    | "nationalId",
+    | "nationalId"
+    /** MEB Paneli — sunucu MEB kapısından dönen alan hataları. */
+    | "level"
+    | "mebLevelStartDate"
+    | "mebLevelEndDate"
+    | "mebExamDate"
+    | "mebExamAttended",
     string
   >
 >;
@@ -104,8 +112,12 @@ export function StudentProfileEditor({
   hasNationalId = false,
   onSaved,
   showPortalInvite = true,
+  branchScopedTerms = false,
+  section,
 }: {
   studentId: string;
+  /** Bilgiler kartının bölümü: yalnız o bölümün alanları gösterilir, doğrulanır ve gönderilir. Verilmezse tam form. */
+  section?: StudentProfileSection;
   branches: StudentProfileEditorBranch[];
   initial: {
     name: string;
@@ -133,12 +145,28 @@ export function StudentProfileEditor({
     studentTypes?: StudentType[];
     /** C — ders süresi TEK kanonik alan; genel bilgilerde görüldüğü yerde düzenlenir. */
     lessonDurationMinutes?: number;
+    /**
+     * MEB Paneli — MEB bölümü başlangıç değerleri. `undefined` = "gönderilmedi"
+     * (dokunma sayılmaz — alakasız düzenlemeler eski eksik kayıtları kırmaz,
+     * bkz. src/lib/meb.ts `mergeMebForUpdate`).
+     */
+    level?: string;
+    mebLevelStartDate?: string;
+    mebLevelEndDate?: string;
+    mebExamDate?: string;
+    mebExamAttended?: boolean;
   };
   hasNationalId?: boolean;
   /** Called after a successful save (e.g. to collapse the section back to read-only). */
   onSaved?: () => void;
   /** Bu bileşen aynı sayfada birden fazla yerde render edilebiliyor — davet widget'ı yalnızca birinde gösterilsin. */
   showPortalInvite?: boolean;
+  /**
+   * 2026-10-10 — çok branşlı öğrencide branşa özgü bilgiler (ders süresi, öğrenci türü, MEB, kayıt/ders başlangıcı) bu kişi
+   * formunda DÜZENLENMEZ ve gönderilmez: öğrenci satırı yalnız bir uyumluluk aynasıdır, hangi branşın değeri olduğu belirsizdir.
+   * Her branş kendi kaydından ("Branş kayıtları" kartı → Düzenle) güncellenir.
+   */
+  branchScopedTerms?: boolean;
 }) {
   const router = useRouter();
   const [name, setName] = useState(initial.name);
@@ -149,6 +177,16 @@ export function StudentProfileEditor({
     initial.lessonDurationMinutes ? String(initial.lessonDurationMinutes) : ""
   );
   const [studentTypes, setStudentTypes] = useState<StudentType[]>(initial.studentTypes ?? []);
+  // MEB Paneli — MEB bölümü state'i. Başlangıç değerleri kayıtla birebir;
+  // değişmeyen alan `|| undefined` ile gönderilir ("gönderilmedi" sayılır).
+  const mebSelected = studentTypes.includes("MEB");
+  const [level, setLevel] = useState(initial.level ?? "");
+  const [mebLevelStartDate, setMebLevelStartDate] = useState(initial.mebLevelStartDate?.slice(0, 10) ?? "");
+  const [mebLevelEndDate, setMebLevelEndDate] = useState(initial.mebLevelEndDate?.slice(0, 10) ?? "");
+  const [mebExamDate, setMebExamDate] = useState(initial.mebExamDate?.slice(0, 10) ?? "");
+  const [mebExamStatus, setMebExamStatus] = useState<"" | "not_attended" | "attended">(() =>
+    initial.mebExamAttended === true ? "attended" : initial.mebExamAttended === false ? "not_attended" : ""
+  );
   const [phone, setPhone] = useState(initial.phone);
   const [parentName, setParentName] = useState(initial.parentName);
   const [parentPhone, setParentPhone] = useState(initial.parentPhone);
@@ -174,12 +212,15 @@ export function StudentProfileEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const fields = section ? STUDENT_PROFILE_SECTIONS[section] : undefined;
+  const show = (key: string) => sectionHas(fields, key);
 
   function onSave() {
     setError(null);
     setSaved(false);
 
-    const nextErrors = validateStudentForm({
+    // Yalnız bu bölümün alanları doğrulanır: gizli alan (gönderilmeyen) kullanıcının düzeltemeyeceği bir hata vermesin.
+    const allErrors = validateStudentForm({
       name,
       email,
       branchId,
@@ -191,6 +232,7 @@ export function StudentProfileEditor({
       nationalId,
       accountResponsibility,
     });
+    const nextErrors = Object.fromEntries(Object.entries(allErrors).filter(([k]) => show(k))) as FieldErrors;
 
     setFieldErrors(nextErrors);
 
@@ -200,13 +242,12 @@ export function StudentProfileEditor({
     }
 
     startTransition(async () => {
-      const result = await actionUpdateStudentProfile({
-        studentId,
+      const full = {
         name,
         email: email || undefined,
         branchId: branchId || undefined,
         educationMethod: educationMethod || undefined,
-        lessonDurationMinutes: lessonDurationMinutes ? Number(lessonDurationMinutes) : undefined,
+        ...(branchScopedTerms ? {} : { lessonDurationMinutes: lessonDurationMinutes ? Number(lessonDurationMinutes) : undefined }),
         phone,
         parentName,
         parentPhone,
@@ -219,18 +260,45 @@ export function StudentProfileEditor({
         birthPlace: birthPlace || undefined,
         schoolOrOccupation: schoolOrOccupation || undefined,
         communicationOptOut,
-        enrollmentStartDate: enrollmentStartDate || undefined,
-        lessonStartDate: lessonStartDate || undefined,
         accountResponsibility,
-        studentTypes,
-      });
+        ...(branchScopedTerms
+          ? {}
+          : {
+              enrollmentStartDate: enrollmentStartDate || undefined,
+              lessonStartDate: lessonStartDate || undefined,
+              studentTypes,
+              // MEB Paneli — MEB seçiliyken bölüm değerleri, değilken `undefined`
+              // ("gönderilmedi": kayıtlı eski MEB verisi korunur, bkz. meb.ts).
+              level: mebSelected ? level || undefined : undefined,
+              mebLevelStartDate: mebSelected ? mebLevelStartDate || undefined : undefined,
+              mebLevelEndDate: mebSelected ? mebLevelEndDate || undefined : undefined,
+              mebExamDate: mebSelected ? mebExamDate || undefined : undefined,
+              mebExamAttended: mebSelected
+                ? mebExamStatus === "attended"
+                  ? true
+                  : mebExamStatus === "not_attended"
+                    ? false
+                    : undefined
+                : undefined,
+            }),
+      };
+      const result = await actionUpdateStudentProfile({ studentId, ...pickSectionFields(full, fields) });
 
       if (!result.ok) {
+        // MEB alan hataları ilgili alanın altında, kalanı genel özet olarak gösterilir.
+        const serverFields = result.fieldErrors ?? {};
+        const mebKeys = ["level", "mebLevelStartDate", "mebLevelEndDate", "mebExamDate", "mebExamAttended"] as const;
+        const nextFieldErrors: FieldErrors = {};
+        for (const key of mebKeys) {
+          const message = serverFields[key];
+          if (message) nextFieldErrors[key] = message;
+        }
+        setFieldErrors((prev) => ({ ...prev, ...nextFieldErrors }));
         setError(resolveFriendlyError(result.message));
         return;
       }
 
-      if (nationalId.trim()) {
+      if (show("nationalId") && nationalId.trim()) {
         const idResult = await actionSetNationalId({
           entity: "student",
           entityId: studentId,
@@ -259,21 +327,27 @@ export function StudentProfileEditor({
   return (
     <div className="space-y-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="grid grid-cols-2 gap-2">
+        {show("name") ? (
         <div>
           <Label>Ad soyad</Label>
           <Input className={inputClassName(!!fieldErrors.name)} value={name} onChange={(e) => setName(e.target.value)} />
           {fieldErrors.name ? <p className="mt-1 text-xs text-red-600">{fieldErrors.name}</p> : null}
         </div>
+        ) : null}
+        {show("email") ? (
         <div>
           <Label>E-posta</Label>
           <Input className={inputClassName(!!fieldErrors.email)} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           {fieldErrors.email ? <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p> : null}
         </div>
+        ) : null}
       </div>
 
+      {show("branchId") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <Label>Şube</Label>
+          <Label>Ana şube</Label>
           <Select className={inputClassName(!!fieldErrors.branchId)} value={branchId} onChange={(e) => setBranchId(e.target.value)}>
             <option value="">Şube seçin</option>
             {branches.map((b) => (
@@ -283,6 +357,11 @@ export function StudentProfileEditor({
             ))}
           </Select>
           {fieldErrors.branchId ? <p className="mt-1 text-xs text-red-600">{fieldErrors.branchId}</p> : null}
+          {branches.length > 1 ? (
+            <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+              Başka şubede alınan branş için Branşlar kartında o branşın şubesini seçin (ek şube).
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -298,6 +377,7 @@ export function StudentProfileEditor({
           {fieldErrors.educationMethod ? <p className="mt-1 text-xs text-red-600">{fieldErrors.educationMethod}</p> : null}
         </div>
 
+        {branchScopedTerms ? null : (
         <div>
           <Label>Ders süresi</Label>
           <Select value={lessonDurationMinutes} onChange={(e) => setLessonDurationMinutes(e.target.value)}>
@@ -313,8 +393,16 @@ export function StudentProfileEditor({
             süreye göre yeniden hesaplanır. Mevcut planlı dersler değişmez.
           </p>
         </div>
+        )}
       </div>
 
+      {branchScopedTerms ? (
+        <p className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+          Bu öğrencinin birden fazla branşı var. Öğrenci türü, MEB bilgileri, ders süresi, kayıt ve ders başlangıç tarihleri her branşın kendi kaydındadır —
+          Özet sekmesindeki &quot;Branş kayıtları&quot; kartından ilgili branşın &quot;Düzenle&quot; bağlantısıyla güncellenir.
+        </p>
+      ) : (
+        <>
       <div>
         <Label>Öğrenci türleri (birden fazla seçilebilir)</Label>
         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -331,22 +419,112 @@ export function StudentProfileEditor({
             </label>
           ))}
         </div>
+        {!mebSelected && (level || mebLevelStartDate || mebLevelEndDate || mebExamDate || mebExamStatus) ? (
+          <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+            Bu kayıtta MEB bilgileri saklı duruyor (silinmedi); MEB türünü tekrar seçerseniz geri gelir.
+          </p>
+        ) : null}
       </div>
 
+      {/*
+        MEB Paneli — MEB seçiliyken seviye (1–8) + dönem tarihleri (opsiyonel)
+        bölüm görünür. Tür kaldırılınca gizlenir; kayıtlı MEB verisi
+        SİLİNMEZ. Sınav tarihi opsiyoneldir; "Girdi" tarih ister.
+      */}
+      {mebSelected ? (
+        <div className="space-y-2 rounded-lg border border-[var(--color-border)] p-3">
+          <p className="text-sm font-semibold text-[var(--color-text)]">MEB bilgileri</p>
+          <div>
+            <Label>MEB seviyesi</Label>
+            <Select className={inputClassName(!!fieldErrors.level)} value={level} onChange={(e) => setLevel(e.target.value)}>
+              <option value="">Seviye seçin</option>
+              {level && !isValidMebLevel(level) ? <option value={level}>{level} (eski değer — 1–8 seçin)</option> : null}
+              {MEB_LEVEL_OPTIONS.map((l) => (
+                <option key={l} value={l}>
+                  {l}. Seviye
+                </option>
+              ))}
+            </Select>
+            {fieldErrors.level ? <p className="mt-1 text-xs text-red-600">{fieldErrors.level}</p> : null}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>MEB seviye başlangıç tarihi</Label>
+              <Input
+                className={inputClassName(!!fieldErrors.mebLevelStartDate)}
+                type="date"
+                value={mebLevelStartDate}
+                onChange={(e) => setMebLevelStartDate(e.target.value)}
+              />
+              {fieldErrors.mebLevelStartDate ? <p className="mt-1 text-xs text-red-600">{fieldErrors.mebLevelStartDate}</p> : null}
+            </div>
+            <div>
+              <Label>MEB seviye bitiş tarihi</Label>
+              <Input
+                className={inputClassName(!!fieldErrors.mebLevelEndDate)}
+                type="date"
+                value={mebLevelEndDate}
+                onChange={(e) => setMebLevelEndDate(e.target.value)}
+              />
+              {fieldErrors.mebLevelEndDate ? <p className="mt-1 text-xs text-red-600">{fieldErrors.mebLevelEndDate}</p> : null}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>MEB sınav tarihi (opsiyonel)</Label>
+              <Input
+                className={inputClassName(!!fieldErrors.mebExamDate)}
+                type="date"
+                value={mebExamDate}
+                onChange={(e) => setMebExamDate(e.target.value)}
+              />
+              {fieldErrors.mebExamDate ? <p className="mt-1 text-xs text-red-600">{fieldErrors.mebExamDate}</p> : null}
+            </div>
+            <div>
+              <Label>Sınava girdi mi?</Label>
+              <Select
+                className={inputClassName(!!fieldErrors.mebExamAttended)}
+                value={mebExamStatus}
+                onChange={(e) => setMebExamStatus(e.target.value as "" | "not_attended" | "attended")}
+              >
+                <option value="">Bilinmiyor</option>
+                <option value="not_attended">Girmedi</option>
+                <option value="attended">Girdi</option>
+              </Select>
+              {fieldErrors.mebExamAttended ? <p className="mt-1 text-xs text-red-600">{fieldErrors.mebExamAttended}</p> : null}
+            </div>
+          </div>
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            Dönem tarihleri kayıt/ders tarihlerinden bağımsızdır. “Girdi” için sınav tarihi zorunludur ve gelecekte
+            olamaz.
+          </p>
+        </div>
+      ) : null}
+        </>
+      )}
+      </>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-2">
+        {show("phone") ? (
         <div>
           <Label>Öğrenci telefonu{accountResponsibility === "PARENT_MANAGED" ? " (opsiyonel)" : ""}</Label>
           <Input className={inputClassName(!!fieldErrors.phone)} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="05xx xxx xxxx" />
           {fieldErrors.phone ? <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p> : null}
         </div>
+        ) : null}
 
+        {show("birthDate") ? (
         <div>
           <Label>Doğum tarihi</Label>
           <Input className={inputClassName(!!fieldErrors.birthDate)} type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
           {fieldErrors.birthDate ? <p className="mt-1 text-xs text-red-600">{fieldErrors.birthDate}</p> : null}
         </div>
+        ) : null}
       </div>
 
+      {show("parentName") ? (
+      <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Veli adı{accountResponsibility === "SELF_MANAGED" ? " (opsiyonel)" : ""}</Label>
@@ -371,7 +549,11 @@ export function StudentProfileEditor({
           <Input value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
         </div>
       </div>
+      </>
+      ) : null}
 
+      {show("referralSource") ? (
+      <>
       <div>
         <Label>Bizi nereden buldunuz? (opsiyonel)</Label>
         <Select
@@ -402,6 +584,7 @@ export function StudentProfileEditor({
         alandır; ilk tahsilat/sözleşme dönemi ders başlangıcından itibaren
         hesaplanır (bkz. resolveLessonStartDay, period-lesson-billing.ts).
       */}
+      {branchScopedTerms ? null : (
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label>Kayıt tarihi</Label>
@@ -415,6 +598,7 @@ export function StudentProfileEditor({
           </p>
         </div>
       </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -449,7 +633,11 @@ export function StudentProfileEditor({
             : "T.C. kimlik numarası şifreli olarak saklanır."}
         </p>
       </div>
+      </>
+      ) : null}
 
+      {show("accountResponsibility") ? (
+      <>
       <div>
         <Label>Ödeme/iletişim muhatabı</Label>
         <Select
@@ -465,13 +653,15 @@ export function StudentProfileEditor({
         <input type="checkbox" checked={communicationOptOut} onChange={(e) => setCommunicationOptOut(e.target.checked)} />
         Tahsilat / hatırlatma mesajlarından çıkar
       </label>
+      </>
+      ) : null}
 
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
       {saved ? <p className="text-xs text-emerald-600">Kaydedildi.</p> : null}
 
       <div>
         <Button onClick={onSave} disabled={pending}>
-          {pending ? "Kaydediliyor..." : "Bilgileri Kaydet"}
+          {pending ? "Kaydediliyor..." : section ? "Bu bölümü kaydet" : "Bilgileri Kaydet"}
         </Button>
       </div>
 

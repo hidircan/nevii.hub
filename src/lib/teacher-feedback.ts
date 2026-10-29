@@ -265,6 +265,37 @@ export async function listTeacherFeedback(
     .map(toPublic);
 }
 
+/** Raporlar ekranı (2026-10-23): tarih filtreli + sayfalı — tüm tablo okunmaz. */
+export async function listTeacherFeedbackPage(
+  tenantId: string,
+  f: { teacherId?: string; fromIso: string; toIso: string; page: number; pageSize: number }
+): Promise<{ rows: TeacherFeedback[]; total: number }> {
+  const skip = Math.max(0, (f.page - 1) * f.pageSize);
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const where = {
+      tenantId,
+      ...(f.teacherId ? { teacherId: f.teacherId } : {}),
+      createdAt: { gte: new Date(f.fromIso), lte: new Date(f.toIso) },
+    };
+    const [rows, total] = await Promise.all([
+      prisma.teacherFeedback.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: f.pageSize }),
+      prisma.teacherFeedback.count({ where }),
+    ]);
+    return { rows: rows.map((r) => toPublic(mapDb(r))), total };
+  }
+  const all = (await loadAll())
+    .filter(
+      (x) =>
+        x.tenantId === tenantId &&
+        (!f.teacherId || x.teacherId === f.teacherId) &&
+        x.createdAt >= f.fromIso &&
+        x.createdAt <= f.toIso
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { rows: all.slice(skip, skip + f.pageSize).map(toPublic), total: all.length };
+}
+
 async function getByIdDb(tenantId: string, id: string): Promise<DbTeacherFeedback | null> {
   const { prisma } = await import("./db");
   return prisma.teacherFeedback.findFirst({ where: { id, tenantId } });

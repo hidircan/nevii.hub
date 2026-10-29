@@ -81,6 +81,9 @@ describe("veli portalı güvenlik kilitleri", () => {
       let match: RegExpExecArray | null;
       while ((match = urlPattern.exec(content)) !== null) {
         const expr = match[1]!.trim();
+        // İzinli: seçili bağlam (`useSelectedStudentId` — sunucu oturumundan
+        // türetilir) ve legacy tekil auth bağlamı. URL parametresinden gelen
+        // ID ile kurulan URL yasaktır.
         if (expr !== "studentId" && expr !== "user?.studentId" && expr !== "user.studentId") {
           problems.push(`${path.relative(PARENT_FEATURE_DIR, file)}: şüpheli ifade \`${expr}\``);
         }
@@ -114,14 +117,24 @@ describe("veli portalı güvenlik kilitleri", () => {
     expect(problems, `Guardian teacher/admin operasyonu şüphesi:\n${problems.join("\n")}`).toEqual([]);
   });
 
-  it("sahte çocuk seçici yoktur (çoklu-ilişki endpoint'i desteklenmiyor)", async () => {
+  it("çocuk seçimi sunucu-otritelidir — client üretimi ID ve URL-param otoritesi yoktur", async () => {
     const files = await readAll([PARENT_APP_DIR, PARENT_FEATURE_DIR]);
     const problems: string[] = [];
     for (const { file, content } of files) {
-      if (/childSelector|child-picker|switchChild|setStudentId|children\.map/i.test(content)) {
-        problems.push(path.relative(PARENT_FEATURE_DIR, file));
+      const rel = path.relative(PARENT_FEATURE_DIR, file);
+      // Seçim state'i yalnız paylaşılan sunucu-otriteli bağlamdan gelir.
+      if (/setStudentId/i.test(content)) {
+        problems.push(`${rel}: doğrudan studentId yazımı`);
+      }
+      // Route paramlarından öğrenci ID'si okunamaz (ders/ödev/ödeme
+      // kaynak ID'leri hariç — onlar kaynak, kapsam değildir).
+      const paramStudent = content.match(/useLocalSearchParams<\{[^}]*studentId[^}]*\}>/g);
+      if (paramStudent) problems.push(`${rel}: param'dan studentId: ${paramStudent.join(", ")}`);
+      // Sabit veli-çocuk eşleşmesi (hardcode) yasaktır.
+      if (/childIds\s*=\s*\[/.test(content)) {
+        problems.push(`${rel}: hardcoded çocuk listesi`);
       }
     }
-    expect(problems, `Sahte selector şüphesi:\n${problems.join("\n")}`).toEqual([]);
+    expect(problems, `Client-otriteli seçim şüphesi:\n${problems.join("\n")}`).toEqual([]);
   });
 });

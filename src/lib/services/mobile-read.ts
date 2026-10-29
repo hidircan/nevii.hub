@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readData } from "../store";
+import { readMakeupCenterData, readPaymentById, readReferenceData } from "../store";
 import { buildReceiptViewModel, canViewReceipt, receiptIneligibleReason } from "../receipt";
 import type { MakeupRequest, MakeupSlot } from "../types";
 import { assertStudentAccess, canAccessStudent, requireRole, type ServiceContext } from "./context";
@@ -40,7 +40,9 @@ export async function listMakeupRequestsTool(
   const auth = requireRole(ctx, ["TEACHER", "STUDENT", "SCHOOL_ADMIN", "SUPER_ADMIN"]);
   if (!auth.ok || isMobileExcluded(ctx)) return fail("FORBIDDEN", "Bu hesap telafi listesine erişemez.");
 
-  const data = await readData();
+  // DB egress (2026-10-17) — ödeme/yoklama/seri/hakediş satırları gerekmez (Telafi Merkezi ile aynı telafi
+  // süre-dolumu türetmesi). 2026-10-18: liste yalnız kaynak/onaylı dersin saatini gösterir → yalnız o dersler.
+  const data = await readMakeupCenterData({ lessons: "linked" });
   let rows: MakeupRequest[];
   if (ctx.role === "TEACHER") {
     if (!ctx.teacherId) return fail("FORBIDDEN", "Öğretmen kimliği bulunamadı.");
@@ -113,8 +115,8 @@ export async function getPaymentReceiptTool(
   const v = z.object({ paymentId: z.string().min(1) }).safeParse(input);
   if (!v.success) return fail("VALIDATION_ERROR", "Geçersiz ödeme kimliği.");
 
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === v.data.paymentId);
+  // DB egress (2026-10-17) — tek ödeme satırı + referans (öğrenci/kurum/şube); kurumun tüm ödemeleri okunmaz.
+  const [payment, data] = await Promise.all([readPaymentById(v.data.paymentId), readReferenceData()]);
   if (!payment) return fail("NOT_FOUND", "Ödeme kaydı bulunamadı.");
 
   const student = data.students.find((s) => s.id === payment.studentId);

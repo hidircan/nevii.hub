@@ -1,7 +1,8 @@
 /**
  * Faz 2 — öğretmen performans skoru. KURAL (kesinlikle bozulmaz): skor
- * YALNIZCA öğretmenin KENDİ ders katılımına (`Lesson.teacherAttendanceStatus`)
- * ve öğrenci geri bildirimine (`TeacherFeedback`) bakar. Öğrenci yoklaması
+ * YALNIZCA öğretmen kaynaklı aksamalara (iptal/telafide "Öğretmen kaynaklı",
+ * `teacherReliability` — lesson-disruption.ts) ve öğrenci geri bildirimine
+ * (`TeacherFeedback`) bakar. Ayrı öğretmen yoklaması yok (2026-10-21). Öğrenci yoklaması
  * (`studentAttended`/`studentAbsent`/`studentExcused`) veya öğrenci
  * devamsızlığı BU DOSYADA HİÇ OKUNMAZ — bkz. src/lib/__tests__/
  * teacher-performance.test.ts, bu ayrımı açıkça doğrulayan test.
@@ -14,8 +15,9 @@
  */
 import type { AppData } from "./types";
 import { computeTeacherFeedbackSummary } from "./teacher-feedback";
+import { teacherReliability } from "./lesson-disruption";
 
-export const TEACHER_PERFORMANCE_SCORE_VERSION = "teacher-performance-v1";
+export const TEACHER_PERFORMANCE_SCORE_VERSION = "teacher-performance-v1.1";
 
 const ATTENDANCE_WEIGHT = 0.6;
 const FEEDBACK_WEIGHT = 0.4;
@@ -25,12 +27,11 @@ export type TeacherPerformanceReport = {
   teacherId: string;
   periodStart: string;
   periodEnd: string;
+  /** Güvenilirlik tabanı: gerçekleşmiş dersler + öğretmen kaynaklı aksamalar. */
   plannedLessonCount: number;
-  attendedCount: number;
-  absentCount: number;
-  excusedCount: number;
-  pendingCount: number;
-  /** 0–1; işaretlenmiş (geldi+gelmedi+mazeretli) hiç ders yoksa null. */
+  /** "Öğretmen kaynaklı" iptal/telafi sayısı. */
+  teacherCausedCount: number;
+  /** 0–1 (1 − öğretmen kaynaklı / taban); tabanda ders yoksa null. */
   attendanceRate: number | null;
   /** 1–5; yeterli sayıda (anonimlik eşiği) geri bildirim yoksa null. */
   feedbackAverage: number | null;
@@ -50,22 +51,13 @@ export async function computeTeacherPerformanceReport(
   periodStart: string,
   periodEnd: string
 ): Promise<TeacherPerformanceReport> {
-  const rangeStart = new Date(periodStart).getTime();
-  const rangeEnd = new Date(periodEnd).getTime();
-
-  const lessons = data.lessons.filter((l) => {
-    if (l.teacherId !== teacherId) return false;
-    if (l.status === "cancelled") return false;
-    const t = new Date(l.startAt).getTime();
-    return t >= rangeStart && t <= rangeEnd;
-  });
-
-  const attendedCount = lessons.filter((l) => l.teacherAttendanceStatus === "geldi").length;
-  const absentCount = lessons.filter((l) => l.teacherAttendanceStatus === "gelmedi").length;
-  const excusedCount = lessons.filter((l) => l.teacherAttendanceStatus === "mazeretli").length;
-  const markedCount = attendedCount + absentCount + excusedCount;
-  const pendingCount = lessons.length - markedCount;
-  const attendanceRate = markedCount > 0 ? attendedCount / markedCount : null;
+  const reliability = teacherReliability(
+    data.lessons,
+    teacherId,
+    new Date(periodStart).getTime(),
+    new Date(periodEnd).getTime()
+  );
+  const attendanceRate = reliability.rate;
 
   const feedbackSummary = await computeTeacherFeedbackSummary(tenantId, teacherId);
   const feedbackAverage =
@@ -99,11 +91,8 @@ export async function computeTeacherPerformanceReport(
     teacherId,
     periodStart,
     periodEnd,
-    plannedLessonCount: lessons.length,
-    attendedCount,
-    absentCount,
-    excusedCount,
-    pendingCount,
+    plannedLessonCount: reliability.counted.length,
+    teacherCausedCount: reliability.teacherCaused.length,
     attendanceRate,
     feedbackAverage,
     feedbackCount: feedbackSummary.responseCount,

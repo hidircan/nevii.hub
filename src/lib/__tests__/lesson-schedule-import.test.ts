@@ -1,8 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parseCsv, rowsToRecords } from "../import/csv";
 import { validateLessonScheduleRows } from "../import/lesson-schedule";
 import { createSeedData } from "../seed";
+import { INSTRUMENTS } from "../types";
+
+const CATALOG = [...INSTRUMENTS, "Bas Gitar", "Ukulele"];
 import { addDays, format } from "date-fns";
+
+
+// Seed dersleri ve göreli tarihler "bugün"e göre üretilir; gün kapalı güne/geçmişe/müsaitlik dışına düşünce test
+// takvime bağlı kırılıyordu (2026-10 CI baseline). Saat sabit bir SALI sabahına dondurulur — yalnız Date sahte.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-15T06:00:00.000Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const HEADER =
   "ogrenci,ogretmen,sube,enstruman,oda,baslangic_tarihi,bitis_tarihi,baslangic_saati,ders_suresi_dk,tekrar_tipi,tekrar_gunleri,tekrar_araligi,toplam_tekrar,notlar";
@@ -21,7 +35,7 @@ function nextMonday(): string {
 
 function preview(csv: string, data = createSeedData()) {
   const { records } = rowsToRecords(parseCsv(csv));
-  return validateLessonScheduleRows(data, records);
+  return validateLessonScheduleRows(data, records, CATALOG);
 }
 
 describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı importu", () => {
@@ -46,7 +60,7 @@ describe("validateLessonScheduleRows — İş 1 tekrarlayan ders programı impor
     const { records } = rowsToRecords(
       parseCsv(`ogrenci,ogretmen,sube,enstruman,oda,tarih,saat,sure_dk\nZeynep Arslan,Turgay Hoşbaş,Erzene,Piyano,Stüdyo 1 — Piyano,${monday},11:00,40\n`)
     );
-    const result = validateLessonScheduleRows(data, records);
+    const result = validateLessonScheduleRows(data, records, CATALOG);
     expect(result.errorCount).toBe(0);
     expect(result.valid).toHaveLength(1);
   });

@@ -9,7 +9,7 @@ export const frContent: SiteContent = {
       "Planning, présence, rattrapages, contrats et recouvrement — avec portails enseignants et parents.",
   },
   skip: "Aller au contenu",
-  header: { login: "Se connecter", languageLabel: "Langue" },
+  header: { login: "Se connecter", languageLabel: "Langue", demo: "Demander une démo" },
   nav: [
     { label: "Accueil", href: "#ust" },
     { label: "À propos", href: "#hakkimizda" },
@@ -27,6 +27,12 @@ export const frContent: SiteContent = {
     login: "Se connecter",
     trial: "Essai gratuit de 30 jours",
     tour: "Découvrir la plateforme →",
+    highlights: [
+      "Un seul panneau pour les écoles multi-sites",
+      "Parcours KVKK + consentement photo/vidéo",
+      "Aucun message sans validation",
+      "Utilisable sur mobile",
+    ],
   },
   about: {
     title: "Conçu pour le quotidien de votre école",
@@ -300,6 +306,16 @@ export const frContent: SiteContent = {
       answer:
         "Une infrastructure sécurisée de paiement par carte est en préparation. Options actuelles et conditions pilotes : info@neviihub.com.",
     },
+    {
+      question: "Comment obtenir une démo ?",
+      answer:
+        "Écrivez à l'adresse e-mail de la section contact ; nous planifierons une courte démo adaptée à votre établissement.",
+    },
+    {
+      question: "Puis-je importer ma liste d'élèves existante ?",
+      answer:
+        "Oui. Les élèves de votre fichier CSV peuvent être importés ; les données d'inscription et les premiers encaissements sont conservés.",
+    }
   ],
   contact: {
     title: "Contact",
@@ -308,6 +324,8 @@ export const frContent: SiteContent = {
     email: "E-mail",
     address: "Adresse",
     pending: "Nos coordonnées seront publiées ici prochainement. Avec un compte école, contactez-nous depuis le panneau.",
+    demoTitle: "Demandez une démo gratuite",
+    demoCta: "Envoyer un e-mail de démo",
     follow: "Suivez-nous sur les réseaux",
     soon: "bientôt",
     mapTitle: "Carte de localisation",

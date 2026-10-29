@@ -26,13 +26,6 @@ export function formatDateTime(iso: string) {
   return format(toWallClockDate(parseISO(iso)), "d MMMM yyyy, HH:mm", { locale: tr });
 }
 
-/** Ödeme kaynağı — kullanıcıya görünen kısa etiket. */
-export function paymentSourceLabel(source: string | undefined, hasLessonId?: boolean): string | null {
-  if (source === "lesson_ops" || (!source && hasLessonId)) return "Yoklama takviminden tahsil edildi";
-  if (source === "monthly_plan") return "Aylık plan tahsilatı";
-  if (source === "manual") return "Manuel kayıt";
-  return null;
-}
 
 /** Merkezi ödeme yöntemi → Türkçe etiket (UI'da enum sızmasın). */
 export function paymentMethodLabelTr(method: string | undefined | null): string {
@@ -136,7 +129,7 @@ export function statusLabel(status: string) {
     late: "Geç kaldı",
     cancelled_by_school: "Okul iptal",
     pending: "Bekliyor",
-    suggested: "Slot önerildi",
+    suggested: "Saat önerildi",
     awaiting_info: "Bilgi bekleniyor",
     confirmed: "Onaylandı",
     completed: "Tamamlandı",
@@ -152,6 +145,7 @@ export function statusLabel(status: string) {
     no_show: "Gelmedi",
     regular: "Normal",
     makeup: "Telafi",
+    makeup_planned: "Planlanan telafi",
     trial: "Deneme",
     group: "Grup",
     draft: "Taslak",
@@ -194,6 +188,7 @@ export function statusColor(status: string) {
     /* P0 (2026-09-05) — Telafi her yerde SARI, İşlendi KIRMIZI (owner talimatı;
        tek kaynak ATTENDANCE_CALENDAR_COLORS ile aynı anlam/renk dili). */
     makeup: "bg-amber-100 text-amber-900",
+    makeup_planned: "bg-orange-100 text-orange-900",
     processed: "bg-rose-100 text-rose-900",
     /**
      * P0-F (2026-09-02) — Yoklama Raporu'nda Gelmedi/Mazeretli, paylaşılan

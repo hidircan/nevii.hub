@@ -1,10 +1,11 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField } from "../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { TaskItem } from "../../../src/types/api";
 
@@ -16,17 +17,33 @@ type TaskDetailResponse = {
   attachments: Array<{ id: string; type: "FILE" | "LINK"; title: string; url?: string; fileName?: string }>;
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  TODO: "Yapılacak",
-  IN_PROGRESS: "Devam ediyor",
-  BLOCKED: "Engellendi",
-  COMPLETED: "Tamamlandı",
-  CANCELLED: "İptal edildi",
-  ARCHIVED: "Arşivlendi",
+const STATUS_KEY: Record<string, string> = {
+  TODO: "tasks.stTodo",
+  IN_PROGRESS: "tasks.stInProgress",
+  BLOCKED: "tasks.stBlocked",
+  COMPLETED: "tasks.stCompleted",
+  CANCELLED: "tasks.stCancelled",
+  ARCHIVED: "tasks.stArchived",
+};
+
+const PRIORITY_KEY: Record<string, string> = {
+  URGENT: "ui.priorityUrgent",
+  HIGH: "ui.priorityHigh",
+  MEDIUM: "ui.priorityMedium",
+  LOW: "ui.priorityLow",
+};
+
+const CATEGORY_KEY: Record<string, string> = {
+  "Eğitim": "tasks.catEducation",
+  "Veli İletişimi": "tasks.catParentComm",
+  "Program": "tasks.catProgram",
+  "Evrak": "tasks.catDocs",
+  "Teknik": "tasks.catTech",
 };
 
 export default function TaskDetailScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   const res = useApiGet<TaskDetailResponse>(`/api/v1/tasks/${taskId}`);
   const [busyStatus, setBusyStatus] = useState<string | null>(null);
@@ -48,7 +65,7 @@ export default function TaskDetailScreen() {
     const submitRes = await apiPost(`/api/v1/tasks/${taskId}/comments`, { body: commentBody.trim() });
     setCommentBusy(false);
     if (!submitRes.ok) {
-      setCommentError(submitRes.error.message || "Yorum eklenemedi.");
+      setCommentError(submitRes.error.message || tr("tasks.commentFailed"));
       return;
     }
     setCommentBody("");
@@ -58,7 +75,7 @@ export default function TaskDetailScreen() {
   if (res.status === "loading") {
     return (
       <Screen>
-        <AppHeader title="Görev" showBack showNotifications={false} />
+        <AppHeader title={tr("tasks.detail")} showBack showNotifications={false} />
         <LoadingSkeleton rows={3} />
       </Screen>
     );
@@ -66,7 +83,7 @@ export default function TaskDetailScreen() {
   if (res.status === "error") {
     return (
       <Screen>
-        <AppHeader title="Görev" showBack showNotifications={false} />
+        <AppHeader title={tr("tasks.detail")} showBack showNotifications={false} />
         <ErrorState message={res.message} onRetry={res.refresh} />
       </Screen>
     );
@@ -80,25 +97,25 @@ export default function TaskDetailScreen() {
 
       <Card>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: task.description ? 10 : 0 }}>
-          <StatusBadge label={STATUS_LABEL[task.status] ?? task.status} tone={task.status === "COMPLETED" ? "success" : "neutral"} />
-          {task.priority ? <StatusBadge label={task.priority} tone="warning" /> : null}
-          {task.category ? <StatusBadge label={task.category} tone="info" /> : null}
+          <StatusBadge label={STATUS_KEY[task.status] ? tr(STATUS_KEY[task.status]!) : task.status} tone={task.status === "COMPLETED" ? "success" : "neutral"} />
+          {task.priority ? <StatusBadge label={PRIORITY_KEY[task.priority] ? tr(PRIORITY_KEY[task.priority]!) : task.priority} tone="warning" /> : null}
+          {task.category ? <StatusBadge label={CATEGORY_KEY[task.category] ? tr(CATEGORY_KEY[task.category]!) : task.category} tone="info" /> : null}
         </View>
-        {task.description ? <Text style={[t.typography.body, { color: t.colors.textMuted }]}>{task.description}</Text> : null}
+        {task.description ? <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{task.description}</AppText> : null}
         {task.dueDate ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 }}>
             <Icon name="calendar-outline" size={14} color={t.colors.textMuted} />
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>{relativeDayLabel(new Date(task.dueDate))}</Text>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{relativeDayLabel(new Date(task.dueDate))}</AppText>
           </View>
         ) : null}
       </Card>
 
-      <SectionHeader title="Durum değiştir" />
+      <SectionHeader title={tr("tasks.changeStatus")} />
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {["TODO", "IN_PROGRESS", "COMPLETED"].map((s) => (
           <Button
             key={s}
-            label={STATUS_LABEL[s]!}
+            label={STATUS_KEY[s] ? tr(STATUS_KEY[s]!) : s}
             size="sm"
             variant={task.status === s ? "primary" : "secondary"}
             loading={busyStatus === s}
@@ -109,14 +126,14 @@ export default function TaskDetailScreen() {
 
       {checklist.length > 0 ? (
         <>
-          <SectionHeader title="Kontrol listesi" />
+          <SectionHeader title={tr("tasks.checklist")} />
           <Card>
             {checklist.map((item, i) => (
               <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
                 <Icon name={item.isCompleted ? "checkbox" : "square-outline"} size={18} color={item.isCompleted ? t.colors.success : t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text, textDecorationLine: item.isCompleted ? "line-through" : "none" }]}>
+                <AppText style={[t.typography.body, { color: t.colors.text, textDecorationLine: item.isCompleted ? "line-through" : "none" }]}>
                   {item.title}
-                </Text>
+                </AppText>
               </View>
             ))}
           </Card>
@@ -125,48 +142,48 @@ export default function TaskDetailScreen() {
 
       {attachments.length > 0 ? (
         <>
-          <SectionHeader title="Ekler" />
+          <SectionHeader title={tr("tasks.attachments")} />
           <Card>
             {attachments.map((a, i) => (
               <View key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
                 <Icon name={a.type === "LINK" ? "link-outline" : "document-attach-outline"} size={16} color={t.colors.textMuted} />
-                <Text style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
-                  {a.title || a.fileName || "Ek"}
-                </Text>
+                <AppText style={[t.typography.body, { color: t.colors.text }]} numberOfLines={1}>
+                  {a.title || a.fileName || tr("tasks.attachment")}
+                </AppText>
               </View>
             ))}
           </Card>
         </>
       ) : null}
 
-      <SectionHeader title="Yorumlar" />
+      <SectionHeader title={tr("tasks.comments")} />
       <Card>
         {comments.length === 0 ? (
-          <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>Henüz yorum yok.</Text>
+          <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>{tr("tasks.noComments")}</AppText>
         ) : (
           comments.map((c, i) => (
             <View key={c.id} style={{ paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{c.body}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(c.createdAt))}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{c.body}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(c.createdAt))}</AppText>
             </View>
           ))
         )}
         <View style={{ marginTop: 12, gap: 8 }}>
-          <TextField label="Yorum ekle" value={commentBody} onChangeText={setCommentBody} placeholder="Yorumunuzu yazın" multiline numberOfLines={2} />
-          {commentError ? <Text style={{ color: t.colors.danger }}>{commentError}</Text> : null}
-          <Button label="Gönder" size="sm" onPress={onAddComment} disabled={!commentBody.trim()} loading={commentBusy} />
+          <TextField label={tr("tasks.addComment")} value={commentBody} onChangeText={setCommentBody} placeholder={tr("tasks.commentPlaceholder")} multiline numberOfLines={2} />
+          {commentError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{commentError}</AppText> : null}
+          <Button label={tr("tasks.send")} size="sm" onPress={onAddComment} disabled={!commentBody.trim()} loading={commentBusy} />
         </View>
       </Card>
 
-      <SectionHeader title="Etkinlik" />
+      <SectionHeader title={tr("tasks.activity")} />
       {activity.length === 0 ? (
-        <EmptyState icon="time-outline" title="Henüz etkinlik yok" />
+        <EmptyState icon="time-outline" title={tr("tasks.noActivity")} />
       ) : (
         <Card>
           {activity.slice(0, 10).map((a, i) => (
             <View key={a.id} style={{ paddingVertical: 8, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: t.colors.divider }}>
-              <Text style={[t.typography.body, { color: t.colors.text }]}>{a.summary}</Text>
-              <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(a.createdAt))}</Text>
+              <AppText style={[t.typography.body, { color: t.colors.text }]}>{a.summary}</AppText>
+              <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 2 }]}>{relativeDayLabel(new Date(a.createdAt))}</AppText>
             </View>
           ))}
         </Card>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { CircleDollarSign, MessageCircle } from "lucide-react";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";

@@ -1,146 +1,85 @@
-import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
-import { apiPost } from "../../../src/api/client";
+import { View } from "react-native";
 import { useAuth } from "../../../src/auth/auth-context";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, SectionHeader, StatusBadge, TextField } from "../../../src/components/ui";
+import { AppHeader, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, SectionHeader, StatusBadge, AppText } from "../../../src/components/ui";
 import { useApiGet } from "../../../src/hooks/use-api";
-import { relativeDayLabel } from "../../../src/lib/date";
-import {
-  AVAILABILITY_DAYS as DAYS,
-  buildProposedAvailability,
-  emptyAvailabilityRows,
-  isAvailabilitySubmittable,
-  type AvailabilityDayRow,
-} from "../../../src/lib/availability-form";
+import { relativeDayLabel, weekdayNameByIndex } from "../../../src/lib/date";
+import { useLocale } from "../../../src/i18n/locale-context";
 import { useTheme } from "../../../src/theme/theme-context";
 import type { AvailabilityRequestsResponse } from "../../../src/types/api";
 
-const STATUS_LABEL: Record<string, string> = { pending: "İnceleniyor", approved: "Onaylandı", rejected: "Reddedildi" };
+const STATUS_KEY: Record<string, string> = { pending: "avail.stPending", approved: "avail.stApproved", rejected: "avail.stRejected" };
 
+/**
+ * Müsaitlik — salt-okunur. Öğretmen yalnız onaylı güncel müsaitliğini ve
+ * geçmiş önerilerin durumunu görüntüler; düzenleme/öneri gönderme bu yüzeyde
+ * YOK (müsaitlik günleri yalnız kurum yöneticileri tarafından düzenlenir).
+ * Reddedilecek aksiyona götürmek yerine form hiç gösterilmez.
+ */
 export default function Musaitlik() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { user } = useAuth();
   const res = useApiGet<AvailabilityRequestsResponse>(user?.teacherId ? `/api/v1/teachers/${user.teacherId}/availability-requests` : "");
 
-  const [rows, setRows] = useState<AvailabilityDayRow[]>(emptyAvailabilityRows());
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sentAt, setSentAt] = useState<number | null>(null);
-
-  // Confirmation banner is transient so the teacher can keep adding and
-  // submitting more suggestions in the same session instead of it locking
-  // the form (that was the original bug: leave/re-enter was the only way
-  // to send a second batch).
-  useEffect(() => {
-    if (sentAt === null) return;
-    const timer = setTimeout(() => setSentAt(null), 4000);
-    return () => clearTimeout(timer);
-  }, [sentAt]);
-
-  function updateRow(i: number, patch: Partial<AvailabilityDayRow>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  }
-
-  const canSubmit = isAvailabilitySubmittable(rows) && !busy;
-
-  async function onSubmit() {
-    setBusy(true);
-    setError(null);
-    const proposedAvailability = buildProposedAvailability(rows);
-    const submitRes = await apiPost("/api/v1/teachers/availability/propose", { proposedAvailability });
-    setBusy(false);
-    if (!submitRes.ok) {
-      setError(submitRes.error.message || "Müsaitlik önerisi gönderilemedi.");
-      return;
-    }
-    setRows(emptyAvailabilityRows());
-    setSentAt(Date.now());
-    res.refresh();
-  }
+  // Savunmacı okuma — backend normalize etse de legacy/eksik alanlı yanıtlar
+  // render crash'e (Cannot read property 'length' of undefined) yol açmamalı.
+  const currentAvailability = res.status === "success" ? (res.data?.currentAvailability ?? []) : [];
+  const requests = res.status === "success" ? (res.data?.requests ?? []) : [];
 
   return (
     <Screen>
-      <AppHeader title="Müsaitlik" showBack showNotifications={false} />
+      <AppHeader title={tr("avail.title")} showBack showNotifications={false} />
 
-      <SectionHeader title="Şu anki müsaitlik" />
+      <SectionHeader title={tr("avail.current")} />
       <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 8 }]}>
-          Yönetici tarafından onaylanmış, şu anda geçerli müsaitliğiniz. Bunu değiştirmek için aşağıdan öneri gönderin.
-        </Text>
         {res.status === "loading" ? (
           <LoadingSkeleton rows={2} />
         ) : res.status === "error" ? (
           <ErrorState message={res.message} onRetry={res.refresh} />
-        ) : res.data.currentAvailability.length === 0 ? (
-          <Text style={[t.typography.body, { color: t.colors.textMuted }]}>Kayıtlı müsaitlik yok.</Text>
+        ) : currentAvailability.length === 0 ? (
+          <AppText style={[t.typography.body, { color: t.colors.textMuted }]}>{tr("avail.none")}</AppText>
         ) : (
           <View style={{ gap: 4 }}>
-            {[...res.data.currentAvailability]
+            {[...currentAvailability]
               .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
               .map((w, i) => (
-                <Text key={`${w.dayOfWeek}-${i}`} style={[t.typography.body, { color: t.colors.text }]}>
-                  {DAYS[w.dayOfWeek]}: {w.start}–{w.end}
-                </Text>
+                <AppText key={`${w.dayOfWeek}-${i}`} style={[t.typography.body, { color: t.colors.text }]}>
+                  {weekdayNameByIndex(w.dayOfWeek)}: {w.start}–{w.end}
+                </AppText>
               ))}
           </View>
         )}
       </Card>
 
-      <SectionHeader title="Yeni müsaitlik öner" />
-      <Card>
-        <Text style={[t.typography.caption, { color: t.colors.textMuted, marginBottom: 12 }]}>
-          Uygun olduğunuz günleri işaretleyip saat aralığını girin. Öneriniz yönetici onayına gider.
-        </Text>
-        <View style={{ gap: 14 }}>
-          {DAYS.map((day, i) => (
-            <View key={day}>
-              <Pressable
-                onPress={() => updateRow(i, { enabled: !rows[i]!.enabled })}
-                style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: rows[i]!.enabled ? 8 : 0 }}
-              >
-                <StatusBadge label={day} tone={rows[i]!.enabled ? "primary" : "neutral"} />
-              </Pressable>
-              {rows[i]!.enabled ? (
-                <View style={{ flexDirection: "row", gap: 10 }}>
-                  <View style={{ flex: 1 }}>
-                    <TextField label="Başlangıç" value={rows[i]!.start} onChangeText={(v) => updateRow(i, { start: v })} placeholder="09:00" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <TextField label="Bitiş" value={rows[i]!.end} onChangeText={(v) => updateRow(i, { end: v })} placeholder="18:00" />
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          ))}
-        </View>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 }}>
+        <Icon name="information-circle-outline" size={16} color={t.colors.textMuted} />
+        <AppText style={[t.typography.caption, { color: t.colors.textMuted, flex: 1 }]}>
+          {tr("avail.note")}
+        </AppText>
+      </View>
 
-        {error ? <Text style={{ color: t.colors.danger, marginTop: 12 }}>{error}</Text> : null}
-        {sentAt !== null ? <Text style={{ color: t.colors.success, marginTop: 12 }}>Öneriniz gönderildi. Dilerseniz yeni bir öneri daha ekleyip gönderebilirsiniz.</Text> : null}
-        <Button label="Öneriyi gönder" onPress={onSubmit} disabled={!canSubmit} loading={busy} style={{ marginTop: 16 }} />
-      </Card>
-
-      <SectionHeader title="Geçmiş öneriler" />
+      <SectionHeader title={tr("avail.pastTitle")} />
       {res.status === "loading" ? (
         <LoadingSkeleton rows={2} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
-      ) : res.data.requests.length === 0 ? (
-        <EmptyState icon="time-outline" title="Henüz öneri göndermediniz" />
+      ) : requests.length === 0 ? (
+        <EmptyState icon="time-outline" title={tr("avail.noProposals")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {[...res.data.requests].reverse().map((r) => (
+          {[...requests].reverse().map((r) => (
             <Card key={r.id}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</Text>
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint }]}>{relativeDayLabel(new Date(r.createdAt))}</AppText>
                 <StatusBadge
-                  label={STATUS_LABEL[r.status] ?? r.status}
+                  label={STATUS_KEY[r.status] ? tr(STATUS_KEY[r.status]) : r.status}
                   tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}
                 />
               </View>
-              <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
-                {r.proposedAvailability.map((w) => `${DAYS[w.dayOfWeek]} ${w.start}-${w.end}`).join(", ")}
-              </Text>
-              {r.reviewNote ? <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>Not: {r.reviewNote}</Text> : null}
+              <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 6 }]}>
+                {(r.proposedAvailability ?? []).map((w) => `${weekdayNameByIndex(w.dayOfWeek)} ${w.start}-${w.end}`).join(", ")}
+              </AppText>
+              {r.reviewNote ? <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>{tr("avail.notePrefix", { v: r.reviewNote })}</AppText> : null}
             </Card>
           ))}
         </View>

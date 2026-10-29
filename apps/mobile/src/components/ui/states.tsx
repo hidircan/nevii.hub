@@ -1,20 +1,24 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
 import { Button } from "./button";
 import { Icon } from "./icon";
 
-export function LoadingState({ label = "Yükleniyor…" }: { label?: string }) {
+export function LoadingState({ label }: { label?: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={styles.center}>
       <ActivityIndicator color={t.colors.primary} />
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10 }]}>{label}</Text>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 10 }]}>{label ?? tr("ui.loading")}</AppText>
     </View>
   );
 }
 
 export function ErrorState({ message, onRetry, code }: { message: string; onRetry?: () => void; code?: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   // FORBIDDEN/NOT_FOUND are access-scope facts, not failures — retrying won't
   // change them, so they get a neutral tone instead of the danger-red generic error.
   const isAccessScope = code === "FORBIDDEN" || code === "NOT_FOUND";
@@ -27,14 +31,14 @@ export function ErrorState({ message, onRetry, code }: { message: string; onRetr
           color={isAccessScope ? t.colors.textMuted : t.colors.danger}
         />
       </View>
-      <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>
-        {isAccessScope ? "Bu bilgiye erişiminiz yok" : "Bir şeyler ters gitti"}
-      </Text>
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, textAlign: "center" }]}>
+      <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>
+        {isAccessScope ? tr("ui.noAccess") : tr("ui.wentWrong")}
+      </AppText>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, textAlign: "center" }]}>
         {message}
-      </Text>
+      </AppText>
       {onRetry && !isAccessScope ? (
-        <Button label="Tekrar dene" onPress={onRetry} variant="secondary" size="sm" fullWidth={false} style={{ marginTop: 16 }} />
+        <Button label={tr("ui.retry")} onPress={onRetry} variant="secondary" size="sm" fullWidth={false} style={{ marginTop: 16 }} />
       ) : null}
     </View>
   );
@@ -43,14 +47,14 @@ export function ErrorState({ message, onRetry, code }: { message: string; onRetr
 /** Backend'e ulaşılamıyorsa (dev sırasında API_BASE_URL yanlış/kapalı) anlaşılır bir geliştirme ekranı. */
 export function DevUnreachableState({ apiBaseUrl }: { apiBaseUrl: string }) {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <View style={[styles.center, { padding: 24 }]}>
       <Icon name="cloud-offline-outline" size={26} color={t.colors.textMuted} />
-      <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>Sunucuya ulaşılamıyor</Text>
-      <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
-        {apiBaseUrl} adresine bağlanılamadı. Web uygulamasının (npm run dev) çalıştığından ve
-        EXPO_PUBLIC_API_URL değerinin doğru olduğundan emin olun.
-      </Text>
+      <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 14 }]}>{tr("ui.unreachableTitle")}</AppText>
+      <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 6, textAlign: "center" }]}>
+        {tr("ui.unreachableBody", { url: apiBaseUrl })}
+      </AppText>
     </View>
   );
 }

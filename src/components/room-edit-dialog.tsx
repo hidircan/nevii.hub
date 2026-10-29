@@ -12,14 +12,17 @@ import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { actionUpdateRoom } from "@/lib/actions";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { INSTRUMENTS, type Room } from "@/lib/types";
+import type { Room } from "@/lib/types";
 
 export function RoomEditDialog({
   room,
   branches,
+  instrumentOptions,
 }: {
   room: Pick<Room, "id" | "name" | "capacity" | "branchId" | "instruments">;
   branches: { id: string; name: string }[];
+  /** Kurumun AKTİF enstrüman kataloğu (activeInstrumentOptions). */
+  instrumentOptions: string[];
 }) {
   const router = useRouter();
   const titleId = useId();
@@ -32,8 +35,9 @@ export function RoomEditDialog({
   const [pending, startTransition] = useTransition();
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Katalog dışı (eski/özel) enstrümanlar da listede kalır — düzenleme onları sessizce silmez.
-  const options = Array.from(new Set([...INSTRUMENTS, ...room.instruments]));
+  // Yeni seçim aktif katalogdan; odada zaten olan (sonradan pasife alınmış) enstrüman listede kalır —
+  // düzenleme onu sessizce silmez.
+  const options = Array.from(new Set([...instrumentOptions, ...room.instruments]));
 
   useEffect(() => {
     if (!open) return;

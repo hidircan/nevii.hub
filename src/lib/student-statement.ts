@@ -5,7 +5,7 @@
 import { resolveAppTimezone, zonedHm } from "./timezone";
 import { planHasRows, resolveContractPlanForMonth, type CalendarMonthPlan } from "./attendance-calendar-plan";
 import { resolveStatementMonthPaymentMethodLabel } from "./contract-payment-plan-view";
-import { resolveLessonFinalStatus, type LessonFinalStatus } from "./lesson-live-status";
+import { ATTENDED_PLANNED_MAKEUP_LABEL, resolveLessonFinalStatus, type LessonFinalStatus } from "./lesson-live-status";
 import { attendanceCalendarTermMonths } from "./attendance-calendar";
 import { academicTermMonths, resolveAcademicTermDatesForAnchor, type AcademicTermDates } from "./academic-term-dates";
 import type { AppData, StudentTermType } from "./types";
@@ -15,6 +15,7 @@ export const LESSON_STATUS_TEXT: Record<LessonFinalStatus, string> = {
   attended: "Geldi",
   processed: "İşlendi",
   makeup: "Telafi",
+  makeup_planned: "Planlanan telafi",
   cancelled: "İptal",
   planned: "Planlı",
 };
@@ -121,7 +122,8 @@ export function buildStudentPaymentAttendanceStatement(input: {
           time: zonedHm(new Date(l.startAt), resolveAppTimezone()),
           branchName: lessonBranch?.shortName,
           status,
-          statusText: LESSON_STATUS_TEXT[status],
+          // Planlanan telafiye geldi: statü "attended" (aynı toplamlar), metin + T ile ayrışır (kaynak: ders tipi).
+          statusText: status === "attended" && l.type === "makeup" ? `${ATTENDED_PLANNED_MAKEUP_LABEL} (T)` : LESSON_STATUS_TEXT[status],
           teacherName: teacher?.name,
           instrument: l.instrument,
         };

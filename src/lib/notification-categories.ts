@@ -11,6 +11,10 @@ export type NotificationCategory =
   // Ders — zamanlı/scheduler gerektirenler henüz etkin değil.
   | "lesson_started"
   | "lesson_upcoming"
+  | "lesson_reminder_1d"
+  | "lesson_reminder_1h"
+  | "lesson_reminder_15m"
+  | "push_include_student_name"
   | "lesson_cancelled"
   | "lesson_rescheduled"
   | "lesson_reassigned"
@@ -29,12 +33,19 @@ export type NotificationCategory =
   // Personel ve izin
   | "leave_new_request"
   | "leave_pending_approval"
+  // İK / işe alım
+  | "recruitment_new_application"
   // Öğrenci operasyonları
   | "student_new_registration"
+  | "trial_new_application"
+  | "club_new_application"
   | "attendance_exception"
   | "student_attendance_risk"
+  | "student_contract_expiring"
   | "portal_request"
   | "teacher_feedback_submitted"
+  | "lesson_assessment_submitted"
+  | "periodic_assessment_submitted"
   | "student_feedback_submitted"
   | "teacher_feedback_shared"
   | "announcement_published";
@@ -101,6 +112,42 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN", "TEACHER", "STUDENT"],
     defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_1d",
+    group: "lessons",
+    label: "Ders hatırlatması: 1 gün önce",
+    description: "Her ders için 1 gün önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_1h",
+    group: "lessons",
+    label: "Ders hatırlatması: 1 saat önce",
+    description: "Her ders için 1 saat önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT", "TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_reminder_15m",
+    group: "lessons",
+    label: "Ders hatırlatması: 15 dakika önce",
+    description: "Her ders için 15 dakika önce ayrı hatırlatma (iptal/geçmiş derslere gitmez).",
+    implemented: true,
+    roles: ["STUDENT", "TEACHER"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "push_include_student_name",
+    group: "lessons",
+    label: "Bildirimde öğrenci adını göster",
+    description: "Kapalıysa (varsayılan) push metni PII-minimize edilir, çocuk adı yer almaz.",
+    implemented: true,
+    roles: ["STUDENT"],
+    defaultInAppEnabled: false,
   },
   {
     category: "lesson_cancelled",
@@ -229,6 +276,15 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     defaultInAppEnabled: true,
   },
   {
+    category: "recruitment_new_application",
+    group: "staff",
+    label: "Yeni iş başvurusu",
+    description: "Kariyer sayfasından yeni bir aday başvurusu geldiğinde (İK ayarlarından da kapatılabilir).",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
     category: "leave_pending_approval",
     group: "staff",
     label: "Bekleyen izin onayı",
@@ -242,6 +298,24 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     group: "students",
     label: "Yeni öğrenci kaydı",
     description: "Yeni bir öğrenci kaydedildiğinde.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "trial_new_application",
+    group: "students",
+    label: "Yeni deneme dersi başvurusu",
+    description: "Aday, herkese açık başvuru formundan deneme dersi başvurusu yaptığında.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "club_new_application",
+    group: "students",
+    label: "Yeni grup dersi (kulüp) başvurusu",
+    description: "Aday, herkese açık grup dersi başvuru portalından bir kulübe başvurduğunda.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,
@@ -267,10 +341,38 @@ export const NOTIFICATION_CATEGORIES: NotificationCategoryDef[] = [
     defaultInAppEnabled: true,
   },
   {
+    // 2026-09-30 — yalnız uygulama içi, yalnız bu kurumun yöneticileri; öğrenciye/veliye SMS/e-posta YOK.
+    category: "student_contract_expiring",
+    group: "students",
+    label: "Öğrenci sözleşmesi bitiyor",
+    description: "Öğrencinin güncel sözleşmesinin bitişine, aşağıda seçilen gün sayısı kadar süre kaldığında (öğrenci başına bir kez).",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
     category: "portal_request",
     group: "students",
     label: "Portal talebi",
     description: "Veli/öğrenci portalından gelen bir talep oluştuğunda.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "lesson_assessment_submitted",
+    group: "students",
+    label: "Ders gelişim raporu",
+    description: "Bir öğretmen öğrencisi için ders gelişim raporu gönderdiğinde yöneticilere bildirim gönderilir.",
+    implemented: true,
+    roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
+    defaultInAppEnabled: true,
+  },
+  {
+    category: "periodic_assessment_submitted",
+    group: "students",
+    label: "4 haftalık gelişim raporu",
+    description: "Bir öğretmen 4 haftalık genel değerlendirme gönderdiğinde yöneticilere bildirim gönderilir.",
     implemented: true,
     roles: ["SCHOOL_ADMIN", "SUPER_ADMIN"],
     defaultInAppEnabled: true,

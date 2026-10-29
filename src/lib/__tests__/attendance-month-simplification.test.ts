@@ -34,4 +34,26 @@ describe("Yoklama takvimi ay kutusu sadeleştirmesi", () => {
     expect(CODE).toContain("MonthPlanSummary");
     expect(CODE).toContain("amounts[key]");
   });
+
+  it("10. tur iş #7 — kompakt başlık: tutar+tarih bir satır, şekil+not+kaydet bir satır", () => {
+    // 1. satır: iki sütunlu grid (tutar + tarih).
+    expect(CODE).toMatch(/grid grid-cols-2 gap-1\.5/);
+    // 2. satır: sarma YOK (flex, wrap yok) — şekil + esnek not + sabit Kaydet.
+    expect(CODE).toMatch(/<div className="flex items-center gap-1\.5">/);
+    expect(CODE).not.toContain('<div className="flex flex-wrap items-center gap-1">');
+    // Tüm alanlar + erişilebilirlik korunur.
+    for (const key of ["amounts[key]", "dueDates[key]", "methods[key]", "collectionNotes[key]", "onSaveAmount(key)"]) {
+      expect(CODE).toContain(key);
+    }
+    expect(CODE).toContain("tutar\u0131");
+    // ec8efd7: girilen tarih ödeme (vade) değil TAHSİLAT tarihidir — etiket buna göre değişti.
+    expect(CODE).toContain("tahsilat tarihi");
+    expect(CODE).toContain("ödeme \u015fekli");
+    expect(CODE).toContain("tahsilat notu");
+    // Dar ekranda taşma yok: esnek alanlarda min-w-0.
+    expect(CODE).toContain("min-w-0 flex-1");
+    // Açıklama paragrafı kalktı; bilgi Kaydet düğmesinin başlık/ipucunda.
+    expect(CODE).not.toContain("Kaydet, bu ay\u0131n \u00f6demesini");
+    expect(CODE).toContain("tahsil edilmi\u015f (\u00d6dendi) olarak kaydeder");
+  });
 });

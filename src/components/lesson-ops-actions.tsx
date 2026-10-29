@@ -22,6 +22,7 @@ export function LessonOpsActions({
   opsMakeupFlag,
   studentAbsent,
   studentExcused,
+  attendanceNote,
   compact = false,
   onStatusChange,
   onSettled,
@@ -33,6 +34,8 @@ export function LessonOpsActions({
   opsMakeupFlag?: boolean;
   studentAbsent?: boolean;
   studentExcused?: boolean;
+  /** Geldi notu. Boş kaydedilebilir; statü değişince silinmez. */
+  attendanceNote?: string | null;
   compact?: boolean;
   /**
    * Yoklama Takvimi gün kutusu dolgusu bu bileşenin "etkin" (effective) tek
@@ -61,12 +64,28 @@ export function LessonOpsActions({
     excused: !!studentExcused,
   });
   /** ÖNCELİK 4 (devam) — farklı bir statüden geçiş istendiğinde onay bekleyen aksiyon. */
-  const [pendingSwitch, setPendingSwitch] = useState<{ from: Flag; to: Flag; reason?: string; disruption?: DisruptionBody } | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ from: Flag; to: Flag; reason?: string; disruption?: DisruptionBody; attendanceNote?: string } | null>(null);
   /** P0-2 — "İşlendi"/"Telafi" gerekçesi zorunlu; tıklamada önce bu prompt açılır. */
   const [reasonPrompt, setReasonPrompt] = useState<{ flag: "processed" | "makeup" } | null>(null);
   const [reasonDraft, setReasonDraft] = useState("");
   /** 9. tur — Telafi'de kaynak sorusu (öğretmen/kurum/öğrenci/diğer). */
   const [disruptionDraft, setDisruptionDraft] = useState<DisruptionFormValue>({});
+  /** 2026-09-29 — işaretli statüye tekrar basınca açılan "geri al" onayı. */
+  const [pendingUndo, setPendingUndo] = useState<Flag | null>(null);
+  const [attendedNoteOpen, setAttendedNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState(attendanceNote ?? "");
+  const [undoing, setUndoing] = useState(false);
+  /**
+   * 2026-10-04 — değişiklik ÖDENMİŞ bir hakedişi etkiliyorsa sunucu mali etkiyi döner; kullanıcı gerekçe +
+   * kritik şifreyle onaylarsa aynı istek onayla tekrar gönderilir (ödeme değişmez, fark düzeltme kaydı olur).
+   */
+  type PayoutConfirmFields = { paidPayoutConfirm: true; payoutReason: string; criticalPassword: string };
+  const [payoutPrompt, setPayoutPrompt] = useState<{
+    message: string;
+    retry: (fields: PayoutConfirmFields) => void;
+  } | null>(null);
+  const [payoutReasonDraft, setPayoutReasonDraft] = useState("");
+  const [payoutPasswordDraft, setPayoutPasswordDraft] = useState("");
   const inFlight = useRef(false);
 
   const effective = effectiveOf(local);
@@ -91,7 +110,14 @@ export function LessonOpsActions({
    * statüden geçişte önce onay popup'ı açılır; yalnızca onaylanırsa gerçek
    * geçiş `confirmSwitch:true` ile tetiklenir.
    */
-  async function onFlag(flag: Flag, confirmSwitch = false, reason?: string, disruption?: DisruptionBody) {
+  async function onFlag(
+    flag: Flag,
+    confirmSwitch = false,
+    reason?: string,
+    disruption?: DisruptionBody,
+    payoutConfirm?: PayoutConfirmFields,
+    attendanceNoteValue?: string
+  ) {
     if (inFlight.current) return;
     if (!confirmSwitch && effective !== null && effective !== flag) {
       setPendingSwitch({ from: effective, to: flag, reason, disruption });
@@ -117,15 +143,31 @@ export function LessonOpsActions({
       const res = await fetch(`/api/v1/lessons/${lessonId}/ops`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flag, confirmSwitch, reason, ...(disruption ?? {}) }),
+        body: JSON.stringify({
+          flag,
+          confirmSwitch,
+          reason,
+          ...(flag === "attended" && attendanceNoteValue !== undefined ? { attendanceNote: attendanceNoteValue } : {}),
+          ...(disruption ?? {}),
+          ...(payoutConfirm ?? {}),
+        }),
       });
       const json = (await res.json()) as {
         ok: boolean;
         data?: { alreadySet?: boolean; message?: string; needsConfirmation?: boolean; currentStatus?: string | null; warning?: string };
-        error?: { message: string };
+        error?: { message: string; details?: { paidPayoutImpact?: unknown } };
       };
       if (!json.ok) {
         setLocalAndEmit(previous);
+        if (json.error?.details?.paidPayoutImpact && !payoutConfirm) {
+          setPayoutReasonDraft("");
+          setPayoutPasswordDraft("");
+          setPayoutPrompt({
+            message: json.error.message,
+            retry: (fields) => void onFlag(flag, true, reason, disruption, fields, attendanceNoteValue),
+          });
+          return;
+        }
         setError(json.error?.message || "İşlem başarısız. Tekrar deneyin.");
         return;
       }
@@ -160,13 +202,75 @@ export function LessonOpsActions({
    * Gelmedi/Mazeretli) değişmeden anında `onFlag` çağırır.
    */
   function handleButtonClick(flag: Flag) {
+    // İşaretli statüye tekrar basış = geri alma isteği; önce onay (yanlış tıklama veri değiştirmez).
+    if (effective === flag) {
+      setPendingSwitch(null);
+      setReasonPrompt(null);
+      setPendingUndo(flag);
+      return;
+    }
     if (flag === "processed" || flag === "makeup") {
       setReasonDraft("");
       setDisruptionDraft({});
       setReasonPrompt({ flag });
       return;
     }
+    if (flag === "attended") {
+      setNoteDraft(attendanceNote ?? "");
+      setAttendedNoteOpen(true);
+      return;
+    }
     void onFlag(flag);
+  }
+
+  /**
+   * Onaylanan geri alma: iyimser temizle, sunucuya `expected` ile gönder (sunucu statü değişmişse
+   * reddeder; zaten boşsa no-op). Hata olursa önceki statü geri yüklenir. `inFlight` çift tıklamayı keser.
+   */
+  async function onClear(expected: Flag, payoutConfirm?: PayoutConfirmFields) {
+    if (inFlight.current) return;
+    setPendingUndo(null);
+    inFlight.current = true;
+    setUndoing(true);
+    setBusy(expected);
+    setError(null);
+    onPendingChange?.(lessonId, true);
+    const previous = { ...local };
+    setLocalAndEmit({ attended: false, processed: false, makeup: false, absent: false, excused: false });
+    try {
+      const res = await fetch(`/api/v1/lessons/${lessonId}/ops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear", expected, ...(payoutConfirm ?? {}) }),
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        data?: { warning?: string };
+        error?: { message: string; details?: { paidPayoutImpact?: unknown } };
+      };
+      if (!json.ok) {
+        setLocalAndEmit(previous);
+        if (json.error?.details?.paidPayoutImpact && !payoutConfirm) {
+          setPayoutReasonDraft("");
+          setPayoutPasswordDraft("");
+          setPayoutPrompt({ message: json.error.message, retry: (fields) => void onClear(expected, fields) });
+          return;
+        }
+        setError(json.error?.message || "Statü geri alınamadı. Sayfayı yenileyip tekrar deneyin.");
+        return;
+      }
+      if (json.data?.warning) setError(json.data.warning);
+      if (!onSettled) router.refresh();
+    } catch {
+      setLocalAndEmit(previous);
+      setError("Bağlantı hatası — statü geri alınmadı. Tekrar deneyin.");
+    } finally {
+      inFlight.current = false;
+      setUndoing(false);
+      setBusy(null);
+      onPendingChange?.(lessonId, false);
+      onSettled?.(lessonId);
+    }
   }
 
   function submitReasonPrompt() {
@@ -237,12 +341,121 @@ export function LessonOpsActions({
         zaten anında olduğu için bu yalnızca sunucu turunun sürdüğünü söyler.
       */}
       <p className="mt-1 text-[11px] text-[var(--color-text-muted)]" aria-live="polite">
-        {busy ? `${FLAG_LABEL[busy]} kaydediliyor…` : ""}
+        {busy ? `${FLAG_LABEL[busy]} ${undoing ? "geri alınıyor" : "kaydediliyor"}…` : ""}
       </p>
       {error ? (
         <p className="mt-1 text-[11px] font-medium text-[var(--color-danger)]" role="alert">
           {error}
         </p>
+      ) : null}
+      {attendedNoteOpen || effective === "attended" ? (
+        <div className="mt-2 space-y-1">
+          <label className="block text-[11px] text-[var(--color-text-muted)]">
+            Geldi notu (isteğe bağlı)
+            <textarea
+              value={noteDraft}
+              onChange={(event) => setNoteDraft(event.target.value)}
+              maxLength={500}
+              rows={2}
+              placeholder="Boş bırakılabilir"
+              className="mt-0.5 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-[11px] text-[var(--color-text)]"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setAttendedNoteOpen(false);
+              if (effective !== null && effective !== "attended") {
+                setPendingSwitch({ from: effective, to: "attended", attendanceNote: noteDraft });
+                return;
+              }
+              void onFlag("attended", false, undefined, undefined, undefined, noteDraft);
+            }}
+            className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] font-semibold"
+          >
+            {effective === "attended" ? "Notu kaydet" : "Geldi olarak kaydet"}
+          </button>
+        </div>
+      ) : null}
+      {pendingUndo ? (
+        <div
+          role="alertdialog"
+          aria-label="Statüyü geri almayı onayla"
+          className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900"
+        >
+          <p className="font-medium">
+            &quot;{FLAG_LABEL[pendingUndo]}&quot; işaretini geri almak istiyor musunuz? Ders statüsüz (planlandı) duruma döner.
+          </p>
+          <p className="mt-1">
+            {pendingUndo === "processed"
+              ? "Ders hakediş hesabından çıkar. Ödenmemiş hakediş kaydı varsa otomatik yeniden hesaplanır; ödenmiş hakedişte mali etki gösterilir ve kritik şifreli onay istenir."
+              : pendingUndo === "makeup"
+                ? "Bekleyen telafi talebi iptal edilir ve telafi hakkı iade olur. Telafi dersi planlandıysa önce onu iptal etmeniz gerekir."
+                : "Yoklama kaydı silinir. Ödeme kayıtları etkilenmez."}
+          </p>
+          <div className="mt-1.5 flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => void onClear(pendingUndo)}
+              className="rounded-md border border-amber-400 bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-200"
+            >
+              Evet, geri al
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingUndo(null)}
+              className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Vazgeç
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {payoutPrompt ? (
+        <div role="alertdialog" aria-label="Ödenmiş hakediş etkisi" className="mt-2 rounded-md border border-rose-300 bg-rose-50 p-2 text-[11px] text-rose-950">
+          <p className="font-semibold">Ödenmiş hakedişi etkileyen düzeltme</p>
+          <p className="mt-1">{payoutPrompt.message}</p>
+          <label className="mt-1.5 block font-medium">
+            Gerekçe (en az 5 karakter)
+            <input
+              value={payoutReasonDraft}
+              onChange={(e) => setPayoutReasonDraft(e.target.value.slice(0, 500))}
+              className="mt-0.5 w-full rounded border border-rose-300 bg-white px-1.5 py-1 text-[11px] text-[var(--color-text)]"
+            />
+          </label>
+          <label className="mt-1 block font-medium">
+            Kritik işlem şifresi
+            <input
+              type="password"
+              autoComplete="off"
+              value={payoutPasswordDraft}
+              onChange={(e) => setPayoutPasswordDraft(e.target.value)}
+              className="mt-0.5 w-full rounded border border-rose-300 bg-white px-1.5 py-1 text-[11px] text-[var(--color-text)]"
+            />
+          </label>
+          <div className="mt-1.5 flex gap-1.5">
+            <button
+              type="button"
+              disabled={payoutReasonDraft.trim().length < 5 || !payoutPasswordDraft}
+              onClick={() => {
+                const retry = payoutPrompt.retry;
+                setPayoutPrompt(null);
+                retry({ paidPayoutConfirm: true, payoutReason: payoutReasonDraft.trim(), criticalPassword: payoutPasswordDraft });
+                setPayoutPasswordDraft("");
+              }}
+              className="rounded-md border border-rose-400 bg-rose-100 px-2 py-1 text-[11px] font-semibold text-rose-900 hover:bg-rose-200 disabled:opacity-50"
+            >
+              Onayla ve düzelt
+            </button>
+            <button
+              type="button"
+              onClick={() => setPayoutPrompt(null)}
+              className="rounded-md border border-stone-300 bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Vazgeç
+            </button>
+          </div>
+        </div>
       ) : null}
       {pendingSwitch ? (
         <div
@@ -257,7 +470,7 @@ export function LessonOpsActions({
           <div className="mt-1.5 flex gap-1.5">
             <button
               type="button"
-              onClick={() => void onFlag(pendingSwitch.to, true, pendingSwitch.reason, pendingSwitch.disruption)}
+              onClick={() => void onFlag(pendingSwitch.to, true, pendingSwitch.reason, pendingSwitch.disruption, undefined, pendingSwitch.attendanceNote)}
               className="rounded-md border border-amber-400 bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-200"
             >
               Onayla ve değiştir
@@ -343,7 +556,10 @@ export function LessonOpsBadges({
   opsMakeupFlag,
   cancelled,
   missingHomework,
+  plannedMakeup,
 }: {
+  /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (`type === "makeup"`): Geldi → "Planlanan telafiye geldi" + T. */
+  plannedMakeup?: boolean;
   studentAttended?: boolean;
   lessonProcessed?: boolean;
   opsMakeupFlag?: boolean;
@@ -367,7 +583,7 @@ export function LessonOpsBadges({
 
   return (
     <div className="flex flex-wrap gap-1">
-      <LessonStatusBadge status={finalStatus} />
+      <LessonStatusBadge status={finalStatus} plannedMakeup={plannedMakeup} />
       {missingHomework ? (
         <span className="rounded-full bg-stone-300 px-2 py-0.5 text-[10px] font-semibold text-stone-800 dark:bg-stone-700 dark:text-stone-100">
           Ödev yok

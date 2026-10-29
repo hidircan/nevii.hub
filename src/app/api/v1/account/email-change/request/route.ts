@@ -19,6 +19,14 @@ const BodySchema = z.object({
  * + eski adrese güvenlik bildirimi (bkz. email-change.ts).
  */
 export const POST = withApiHandler(async ({ ctx, body }) => {
+  // 2026-10-14 (owner kuralı) — öğretmen portal giriş e-postasını yalnız kurum sahibi değiştirir; öğretmen self-servis
+  // isteği sunucuda reddedilir (UI'de gizlemek yetmez).
+  if (ctx.role === "TEACHER") {
+    return fail(
+      "FORBIDDEN",
+      "Öğretmen portal giriş e-postasını yalnız kurum sahibi değiştirebilir. Değişiklik için kurumunuzla iletişime geçin."
+    );
+  }
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) return fail("VALIDATION_ERROR", "Geçerli bir e-posta ve mevcut şifrenizi girin.");
 

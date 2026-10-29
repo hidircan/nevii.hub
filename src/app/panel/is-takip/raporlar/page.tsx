@@ -1,7 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Card, EmptyState, Input, Label, PageHeader, StatCard } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
@@ -38,7 +38,7 @@ export default async function IsTakipRaporlarPage({
 
   const sp = await searchParams;
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const staff = await listAssignableStaff(session.tenantId, data.teachers);
 
   const reportRes = await getTaskReportTool(session, {

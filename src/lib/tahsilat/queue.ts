@@ -1,5 +1,7 @@
 import { parseISO } from "date-fns";
+import type { PaymentListRow } from "../reference-data";
 import { isLiveObligation } from "../payment-profile";
+import { supersededUncollectedMonthlyPlanIds } from "../superseded-monthly-plan";
 import type { AppData, Payment } from "../types";
 import { formatMoney } from "../utils";
 import { calendarDaysBetween, DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
@@ -90,15 +92,16 @@ export type TahsilatQueueRow = {
  * mevcut verilerden okunabilir bir görünüm üretir.
  */
 export function buildTahsilatQueue(
-  data: AppData,
+  data: { payments: PaymentListRow[]; students: Pick<AppData["students"][number], "id" | "name" | "parentName" | "parentPhone">[] },
   cases: FollowUpCase[],
   now: Date = new Date(),
   studentFilter?: string,
   /** İptal/yenilenmiş sözleşme taksitleri kuyruğa (ve hatırlatma taslağına) girmez. */
   terminalContractIds: ReadonlySet<string> = new Set()
 ): TahsilatQueueRow[] {
+  const duplicatedPlan = supersededUncollectedMonthlyPlanIds(data.payments, terminalContractIds);
   const rows = data.payments
-    .filter((payment) => isLiveObligation(payment, terminalContractIds))
+    .filter((payment) => isLiveObligation(payment, terminalContractIds) && !duplicatedPlan.has(payment.id))
     .filter((payment) => !studentFilter || payment.studentId === studentFilter)
     .map((payment) => {
       const student = data.students.find((s) => s.id === payment.studentId);

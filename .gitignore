@@ -64,3 +64,8 @@ skills-lock.json
 
 # Local generated reports and design artifacts
 .local-artifacts/
+
+# Uygulama dışı içerik (reklam/tanıtım/pazarlama materyalleri) repo'ya eklenmez —
+# repo dışında tutulur (bkz. docs/agent-memory/LESSONS_LEARNED.md 2026-09-28).
+reklam-paketi/
+pazarlama/

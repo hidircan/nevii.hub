@@ -3,6 +3,8 @@ import { summarizeToolResults, isIdentityQuestion, describeIdentity } from "../a
 
 const ENV_KEYS = [
   "AI_PROVIDER",
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_MODEL",
   "OPENAI_API_KEY",
   "XAI_API_KEY",
   "GROK_API_KEY",
@@ -51,6 +53,14 @@ describe("describeIdentity", () => {
     const text = describeIdentity();
     expect(text).toMatch(/heuristic/i);
     expect(text).toMatch(/API anahtarı/i);
+  });
+
+  it("ANTHROPIC_API_KEY varsa Anthropic Claude olduğunu ve modeli söyler", () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.GEMINI_API_KEY = "test-key";
+    const text = describeIdentity();
+    expect(text).toMatch(/Anthropic Claude/);
+    expect(text).toMatch(/claude-opus-5-5/);
   });
 
   it("GEMINI_API_KEY varsa gerçek provider adını ve modeli döner", () => {

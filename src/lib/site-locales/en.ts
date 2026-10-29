@@ -9,7 +9,7 @@ export const enContent: SiteContent = {
       "Scheduling, attendance, makeup lessons, contracts and collections, with teacher and parent portals.",
   },
   skip: "Skip to content",
-  header: { login: "Sign in", languageLabel: "Language" },
+  header: { login: "Sign in", languageLabel: "Language", demo: "Request a Demo" },
   nav: [
     { label: "Home", href: "#ust" },
     { label: "About", href: "#hakkimizda" },
@@ -27,6 +27,12 @@ export const enContent: SiteContent = {
     login: "Sign in",
     trial: "Try free for 30 days",
     tour: "Discover the platform →",
+    highlights: [
+      "One panel for multi-branch schools",
+      "KVKK + photo/video consent flows",
+      "No message is sent without approval",
+      "Works on phones too",
+    ],
   },
   about: {
     title: "Designed for your school's daily operations",
@@ -300,6 +306,16 @@ export const enContent: SiteContent = {
       answer:
         "Secure infrastructure for online card payments is being prepared. Contact info@neviihub.com for current payment options and pilot terms.",
     },
+    {
+      question: "How can I get a demo?",
+      answer:
+        "Write to the email address in the contact section; we'll schedule a short demo tailored to your school.",
+    },
+    {
+      question: "Can I import my existing student list?",
+      answer:
+        "Yes. Students from your CSV file can be imported; enrollment details and initial collection records are preserved.",
+    }
   ],
   contact: {
     title: "Contact",
@@ -308,6 +324,8 @@ export const enContent: SiteContent = {
     email: "Email",
     address: "Address",
     pending: "Our contact details will be published here soon. If you have a school account, you can reach us from the panel.",
+    demoTitle: "Request a free demo",
+    demoCta: "Send demo email",
     follow: "Follow us on social media",
     soon: "soon",
     mapTitle: "Location map",

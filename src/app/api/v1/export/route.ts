@@ -117,6 +117,9 @@ export const GET = withApiHandler(
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="${entity}.csv"`,
+        // Kurum verisi + kullanıcıya özel: ara önbelleklerde tutulmaz (diğer
+        // dosya/ek rotalarıyla aynı desen; dynamic rota varsayılanını açık yazar).
+        "Cache-Control": "private, max-age=0, no-store",
       },
     });
   },

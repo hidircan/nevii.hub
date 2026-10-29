@@ -65,7 +65,7 @@ describe("§C.2 — ay kutusundan alınan tahsilatın notu KALICIDIR", () => {
 
   it("aynı ay yeniden tahsil edilirse not GÜNCELLENİR, eski not takılı kalmaz", async () => {
     await collectAttendanceCalendarPaymentTool(ctx(), {
-      studentId: "s1", month: "2026-09", amount: 3000, note: "İlk kayıt",
+      studentId: "s1", month: "2026-09", amount: 3200, note: "İlk kayıt",
     });
     await collectAttendanceCalendarPaymentTool(ctx(), {
       studentId: "s1", month: "2026-09", amount: 3500, note: "Düzeltildi — eksik tutar tamamlandı",

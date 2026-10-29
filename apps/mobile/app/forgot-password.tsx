@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useRouter } from "expo-router";
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiPost } from "../src/api/client";
-import { Button, Icon, TextField } from "../src/components/ui";
+import { Button, Icon, TextField, AppText } from "../src/components/ui";
+import { useLocale } from "../src/i18n/locale-context";
 import { useTheme } from "../src/theme/theme-context";
 
 type ForgotPasswordResponse = { message: string; devResetToken?: string };
@@ -17,6 +18,7 @@ type ForgotPasswordResponse = { message: string; devResetToken?: string };
  */
 export default function ForgotPasswordScreen() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,7 +31,7 @@ export default function ForgotPasswordScreen() {
     const res = await apiPost<ForgotPasswordResponse>("/api/v1/auth/forgot-password", { email: email.trim() });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "İstek gönderilemedi. Lütfen tekrar deneyin.");
+      setError(res.error.message || tr("forgot.failed"));
       return;
     }
     setSent(res.data);
@@ -39,56 +41,56 @@ export default function ForgotPasswordScreen() {
     <SafeAreaView style={[styles.flex, { backgroundColor: t.colors.bg }]}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.content}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Geri" onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel={tr("common.back")} onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
             <Icon name="chevron-back" size={22} color={t.colors.text} />
           </Pressable>
 
           <View style={[styles.logo, { backgroundColor: t.colors.primarySoft }]}>
             <Icon name="key-outline" size={28} color={t.colors.primary} />
           </View>
-          <Text style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>Şifremi unuttum</Text>
+          <AppText style={[t.typography.screenTitle, { color: t.colors.text, marginTop: 20 }]}>{tr("forgot.title")}</AppText>
 
           {sent ? (
             <>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 8, marginBottom: 28 }]}>
                 {sent.message}
-              </Text>
+              </AppText>
 
               {sent.devResetToken ? (
                 <View style={[styles.devBox, { backgroundColor: t.colors.warningSoft, borderColor: t.colors.warning }]}>
-                  <Text style={[t.typography.caption, { color: t.colors.warning, fontWeight: "700" }]}>
-                    Yalnızca geliştirme ortamı
-                  </Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
-                    Gerçek bir e-posta sağlayıcı henüz bağlı değil — kodu burada gösteriyoruz.
-                  </Text>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 8, letterSpacing: 2 }]}>
+                  <AppText style={[t.typography.caption, { color: t.colors.warning, fontFamily: t.fonts.bold, fontWeight: "700" }]}>
+                    {tr("forgot.devOnly")}
+                  </AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                    {tr("forgot.devHint")}
+                  </AppText>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text, marginTop: 8, letterSpacing: 2 }]}>
                     {sent.devResetToken}
-                  </Text>
+                  </AppText>
                 </View>
               ) : null}
 
               <Button
-                label="Kodu gir"
+                label={tr("forgot.enterCode")}
                 onPress={() =>
                   router.replace({ pathname: "/reset-password", params: sent.devResetToken ? { code: sent.devResetToken } : {} })
                 }
                 style={{ marginTop: sent.devResetToken ? 16 : 8 }}
               />
-              <Button label="Girişe dön" variant="ghost" onPress={() => router.replace("/login")} style={{ marginTop: 8 }} />
+              <Button label={tr("forgot.backToLogin")} variant="ghost" onPress={() => router.replace("/login")} style={{ marginTop: 8 }} />
             </>
           ) : (
             <>
-              <Text style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 28 }]}>
-                Hesabınıza bağlı e-posta adresini girin, size bir sıfırlama kodu gönderelim.
-              </Text>
+              <AppText style={[t.typography.body, { color: t.colors.textMuted, marginTop: 4, marginBottom: 28 }]}>
+                {tr("forgot.hint")}
+              </AppText>
 
               <View style={styles.form}>
                 <TextField
-                  label="E-posta"
+                  label={tr("auth.email")}
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="ornek@kurum.com"
+                  placeholder={tr("auth.emailPlaceholder")}
                   autoCapitalize="none"
                   autoComplete="email"
                   keyboardType="email-address"
@@ -97,11 +99,11 @@ export default function ForgotPasswordScreen() {
                 {error ? (
                   <View style={[styles.errorBox, { backgroundColor: t.colors.dangerSoft }]}>
                     <Icon name="alert-circle" size={16} color={t.colors.danger} />
-                    <Text style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</Text>
+                    <AppText style={[t.typography.caption, { color: t.colors.danger, flex: 1 }]}>{error}</AppText>
                   </View>
                 ) : null}
 
-                <Button label="Sıfırlama kodu gönder" onPress={onSubmit} disabled={!email.includes("@")} loading={busy} style={{ marginTop: 8 }} />
+                <Button label={tr("forgot.sendCode")} onPress={onSubmit} disabled={!email.includes("@")} loading={busy} style={{ marginTop: 8 }} />
               </View>
             </>
           )}

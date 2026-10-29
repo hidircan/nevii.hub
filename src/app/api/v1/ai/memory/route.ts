@@ -6,6 +6,8 @@ import {
   deleteMemory,
   rememberFact,
 } from "@/lib/ai/memory";
+import { criticalDeleteFields, guardCriticalDelete } from "@/lib/services/tools";
+import { recordAuditLog } from "@/lib/audit/log";
 
 export const dynamic = "force-dynamic";
 
@@ -64,17 +66,36 @@ export const POST = withApiHandler(
   { permission: "tools:catalog" }
 );
 
-const deleteSchema = z.object({ id: z.string().min(1) });
+const deleteSchema = z.object({ id: z.string().min(1), ...criticalDeleteFields });
 
-/** DELETE /api/v1/ai/memory — body: { id } */
+/** DELETE /api/v1/ai/memory — body: { id, criticalPassword, reason } (2026-09-29: kritik şifre + gerekçe zorunlu). */
 export const DELETE = withApiHandler(
   async ({ ctx, body }) => {
     const parsed = deleteSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonFail("VALIDATION_ERROR", "id required");
+      return jsonFail(
+        "VALIDATION_ERROR",
+        "Silme için kayıt, en az 5 karakterlik gerekçe ve kritik işlem şifresi gerekir; alanları doldurup tekrar deneyin."
+      );
     }
+    const denied = await guardCriticalDelete(
+      ctx,
+      { action: "ai_memory.delete", entityType: "AiMemory", entityId: parsed.data.id },
+      parsed.data.criticalPassword
+    );
+    if (denied) return fromServiceResult(denied);
     const ok = await deleteMemory(ctx.tenantId, parsed.data.id);
-    if (!ok) return jsonFail("NOT_FOUND", "Memory not found");
+    if (!ok) return jsonFail("NOT_FOUND", "Hafıza kaydı bulunamadı; başka biri silmiş olabilir. Sayfayı yenileyin.");
+    await recordAuditLog({
+      tenantId: ctx.tenantId,
+      actorUserId: ctx.userId,
+      actorRole: ctx.role,
+      action: "ai_memory.delete",
+      entityType: "AiMemory",
+      entityId: parsed.data.id,
+      outcome: "success",
+      meta: { reason: parsed.data.reason },
+    });
     return fromServiceResult({ ok: true, data: { deleted: true } });
   },
   { permission: "tools:catalog" }

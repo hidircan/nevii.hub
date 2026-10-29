@@ -1,5 +1,5 @@
 import Image from "next/image";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { getSessionContext, homePathForRole } from "@/lib/auth/session";
 import { LoginForm } from "@/components/login-form";
@@ -81,6 +81,15 @@ export default async function LoginPage({
             <p className="mt-1 text-xs text-amber-900/80">
               Bu hesap aynı anda tek cihazda kullanılabilir. Devam etmek için yeniden giriş yapın; diğer cihazdaki oturum
               kapatılacaktır.
+            </p>
+          </div>
+        ) : null}
+        {params.oturum === "zaman-asimi" ? (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3" role="status">
+            <p className="text-sm font-semibold text-amber-900">Uzun süre işlem yapılmadığı için oturumunuz kapatıldı.</p>
+            <p className="mt-1 text-xs text-amber-900/80">
+              Güvenlik için hareketsiz oturumlar otomatik kapanır. Yeniden giriş yaptıktan sonra kaydedilmemiş bir değişikliğiniz
+              olduysa ilgili ekranda kontrol edin.
             </p>
           </div>
         ) : null}

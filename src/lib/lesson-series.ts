@@ -6,6 +6,7 @@ import type { DayStatusReason } from "./work-days";
 import { dayName, uid } from "./utils";
 import { addDaysYmd, ymdToUtcNoon, zonedWallTimeToUtc } from "./timezone";
 import { canCancelLesson } from "./lesson-cancel-rules";
+import { narrowSlotScope } from "./lesson-scope";
 
 function parseHm(hm: string) {
   const [h, m] = hm.split(":").map(Number);
@@ -21,6 +22,8 @@ function formatHm(totalMinutes: number) {
 export type SeriesOccurrence = { startAt: string; endAt: string };
 
 export type SeriesParams = {
+  /** 2026-10-04 — serinin ve üretilen derslerin ait olduğu eğitim (Student.enrollments[].id). */
+  enrollmentId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -149,6 +152,16 @@ export function checkSeriesOccurrences(
   });
 }
 
+/**
+ * DB egress (2026-10-17) — seri doğrulamasının dar dilim günleri: her oluşumun günü (öğretmen/oda ±1 gün
+ * penceresi `narrowSlotScope` / `store-db.readSlotScope`'ta). `validateLessonSlot` yalnız bu günlere bakar.
+ */
+export function seriesScopeDays(
+  params: Pick<SeriesParams, "weekday" | "startTime" | "durationMinutes" | "startsOn" | "endsOn">
+): Date[] {
+  return computeSeriesOccurrences(params).map((o) => new Date(o.startAt));
+}
+
 export type CreateSeriesResult =
   | {
       ok: true;
@@ -248,10 +261,12 @@ export function createLessonSeriesData(
     academicYearStart: params.academicYearStart,
     demoTag: params.demoTag,
     contractId: params.contractId,
+    enrollmentId: params.enrollmentId,
   };
 
   const newLessons: Lesson[] = validChecks.map((c) => ({
     id: uid("les"),
+    enrollmentId: params.enrollmentId,
     studentId: params.studentId,
     teacherId: params.teacherId,
     roomId: params.roomId,
@@ -284,6 +299,29 @@ export function createLessonSeriesData(
     seriesId,
     createdLessonIds: newLessons.map((l) => l.id),
     skippedOccurrences: conflicts.map((c) => ({ startAt: c.startAt, code: c.code, message: c.message })),
+  };
+}
+
+/**
+ * json/memory — doğrulama db moduyla AYNI dar dilimde (`narrowSlotScope` + `seriesScopeDays`, db: `readSlotScope`),
+ * yazım tam veriye: yalnız yeni seri ve dersleri eklenir. Dilim yetersiz kalırsa json'da koşan testler yakalar.
+ */
+export function createLessonSeriesOnFullData(
+  data: AppData,
+  params: SeriesParams,
+  options: Parameters<typeof createLessonSeriesData>[2] = {}
+): CreateSeriesResult {
+  const scope = narrowSlotScope(data, { ...params, startAt: params.startsOn }, seriesScopeDays(params));
+  const result = createLessonSeriesData(scope, params, options);
+  if (!result.ok) return result;
+  const created = new Set(result.createdLessonIds);
+  return {
+    ...result,
+    data: {
+      ...data,
+      lessons: [...data.lessons, ...result.data.lessons.filter((l) => created.has(l.id))],
+      lessonSeries: [...data.lessonSeries, ...result.data.lessonSeries.filter((s) => s.id === result.seriesId)],
+    },
   };
 }
 

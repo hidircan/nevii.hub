@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listTeacherAvailabilityRequestsTool } from "@/lib/services";
 import { Badge, Card } from "@/components/ui";
@@ -27,7 +27,7 @@ export default async function TeacherAvailabilityPage() {
     redirect("/login?next=/ogretmen/musaitlik");
   }
 
-  const data = await readData();
+  const data = await readReferenceData();
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { listCallLogsTool, listMessageLogsTool } from "@/lib/services";
 import { Badge, Card, Input, Label, Select, PageHeader, Button } from "@/components/ui";
 import { CrmMessageReveal } from "@/components/crm-message-reveal";
@@ -40,7 +40,7 @@ export default async function CrmPage() {
   const [callsResult, messagesResult, data] = await Promise.all([
     listCallLogsTool(session, {}),
     listMessageLogsTool(session, {}),
-    readData(),
+    readReferenceData(),
   ]);
   const calls = callsResult.ok ? callsResult.data.calls : [];
   const messages = messagesResult.ok ? messagesResult.data.messages : [];

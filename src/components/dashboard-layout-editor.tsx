@@ -109,13 +109,25 @@ export function DashboardGrid({
   // Düzenlemede yeni eklenen widget'ın içeriği henüz yok (kayıttan sonra yüklenir) → yer tutucu.
   const visibleRows = rows.filter((r) => !r.hidden && (sections[r.key] != null || (editing && isScreenWidgetKey(r.key))));
   const addableWidgets = widgetCatalog.filter((w) => !rows.some((r) => r.key === w.key));
-  const [widgetPick, setWidgetPick] = useState("");
+  // 11. tur iş #8 — çoklu widget seçimi: tek tek açılır liste yerine
+  // onay kutulu panel; "Seçilenleri ekle" hepsini tek seferde satıra ekler.
+  const [widgetMenuOpen, setWidgetMenuOpen] = useState(false);
+  const [widgetChecked, setWidgetChecked] = useState<string[]>([]);
 
-  function addWidget(key: string) {
-    const w = widgetCatalog.find((x) => x.key === key);
-    if (!w || rows.some((r) => r.key === w.key)) return;
-    setRows((prev) => [...prev, { key: w.key, hidden: false, span: 4 }]);
-    setWidgetPick("");
+  function toggleWidgetCheck(key: string) {
+    setWidgetChecked((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  function addCheckedWidgets() {
+    const keys = widgetChecked.filter((k) => widgetCatalog.some((x) => x.key === k && !rows.some((r) => r.key === x.key)));
+    if (keys.length > 0) {
+      setRows((prev) => [
+        ...prev,
+        ...keys.map((k) => ({ key: k as DashboardSectionKey, hidden: false, span: 4 as DashboardSectionSpan })),
+      ]);
+    }
+    setWidgetChecked([]);
+    setWidgetMenuOpen(false);
   }
 
   function removeWidget(key: DashboardSectionKey) {
@@ -361,23 +373,71 @@ export function DashboardGrid({
             className="w-32 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)]"
           />
           {addableWidgets.length > 0 ? (
-            <select
-              aria-label="Widget ekle"
-              value={widgetPick}
-              onChange={(e) => addWidget(e.target.value)}
-              className="rounded-lg border border-[var(--color-primary)] bg-[var(--color-surface)] px-2 py-1.5 text-xs font-medium text-[var(--color-primary)]"
-            >
-              <option value="">+ Widget ekle…</option>
-              {groupByCategory(addableWidgets).map(([category, items]) => (
-                <optgroup key={category} label={category}>
-                  {items.map((w) => (
-                    <option key={w.key} value={w.key}>
-                      {w.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <div className="relative">
+              <button
+                type="button"
+                aria-expanded={widgetMenuOpen}
+                aria-label="Widget ekle — birden fazla seçilebilir"
+                onClick={() => setWidgetMenuOpen((v) => !v)}
+                className="rounded-lg border border-[var(--color-primary)] bg-[var(--color-surface)] px-2 py-1.5 text-xs font-medium text-[var(--color-primary)]"
+              >
+                + Widget ekle{widgetChecked.length > 0 ? ` (${widgetChecked.length})` : "…"}
+              </button>
+              {widgetMenuOpen ? (
+                <div
+                  role="dialog"
+                  aria-label="Eklenecek widget'ları seç"
+                  className="absolute right-0 z-40 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-lg"
+                >
+                  <fieldset>
+                    <legend className="px-1 text-[11px] font-medium text-[var(--color-text-muted)]">
+                      Birden fazla seçilebilir
+                    </legend>
+                    {groupByCategory(addableWidgets).map(([category, items]) => (
+                      <div key={category} className="mt-1">
+                        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+                          {category}
+                        </p>
+                        {items.map((w) => (
+                          <label
+                            key={w.key}
+                            className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-xs text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={widgetChecked.includes(w.key)}
+                              onChange={() => toggleWidgetCheck(w.key)}
+                              className="h-3.5 w-3.5 accent-[var(--color-primary)]"
+                            />
+                            {w.label}
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </fieldset>
+                  <div className="mt-2 flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
+                    <button
+                      type="button"
+                      disabled={widgetChecked.length === 0}
+                      onClick={addCheckedWidgets}
+                      className="rounded-lg bg-[var(--color-primary)] px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-[var(--color-primary-hover)] disabled:opacity-40"
+                    >
+                      Seçilenleri ekle
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWidgetMenuOpen(false);
+                        setWidgetChecked([]);
+                      }}
+                      className="rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
+                    >
+                      Kapat
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <ToolbarButton disabled={pending || !viewName.trim()} onClick={saveAsView}>
             Görünüm olarak kaydet

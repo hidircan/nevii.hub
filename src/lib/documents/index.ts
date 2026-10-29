@@ -815,7 +815,7 @@ type DbInstanceRow = {
   trialLessonId: string | null;
   branchId: string | null;
   fieldValues: unknown;
-  renderedHtml: string | null;
+  renderedHtml?: string | null; // liste sorgularında okunmaz (LIST_OMIT)
   printCount: number;
   createdBy: string;
   createdAt: Date;
@@ -862,12 +862,12 @@ export async function getDocumentInstance(
 ): Promise<DocumentInstance | null> {
   if (isDbMode) {
     const { prisma } = await import("../db");
-    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId } });
+    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId, status: { not: DELETED_DOCUMENT_STATUS } } });
     if (!r) return null;
     return mapDbInstance(r);
   }
   const all = await loadInst();
-  const r = all.find((x) => x.id === id && x.tenantId === tenantId);
+  const r = all.find((x) => x.id === id && x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS);
   if (!r) return null;
   const { tenantId: _t, ...pub } = r;
   void _t;
@@ -885,17 +885,25 @@ export type DocumentInstanceFilters = {
 
 /** Evraklar Merkezi ana tablosu — kurumun TÜM evrak örnekleri, isteğe bağlı filtrelerle. */
 /**
- * Ham dosya baytını (`fileData`) YANITTAN ÇIKARIR — liste görünümü yalnızca
+ * Ham dosya baytını (`fileData`) ve belge gövdesini (`renderedHtml`) YANITTAN ÇIKARIR — liste görünümü yalnızca
  * metadata'ya (fileName/fileMimeType/fileSize/signedUploadedAt) ihtiyaç
  * duyar; ham içerik yalnızca tekil `getDocumentInstance` (dosya indirme
  * rotasının okuduğu AYNI fonksiyon) üzerinden, sahiplik kontrolü geçtikten
  * sonra erişilebilir olmalı (kural E).
  */
 function stripFileData(doc: DocumentInstance): DocumentInstance {
-  const { fileData: _fd, ...rest } = doc;
+  const { fileData: _fd, renderedHtml: _html, ...rest } = doc;
   void _fd;
+  void _html;
   return rest;
 }
+
+/**
+ * Kota (2026-10-13): liste sorguları ağır kolonları DB'den hiç OKUMAZ — `fileData` (imzalı dosya) ve `renderedHtml`
+ * (belge gövdesi) yalnız tekil `getDocumentInstance` (detay/yazdırma/indirme) içindir; hiçbir liste tüketicisi
+ * kullanmıyor. Canlıda 126 belge ≈ 2,6 MB idi (QUOTA_AUDIT_2026_10_12.md).
+ */
+const LIST_OMIT = { fileData: true, renderedHtml: true } as const;
 
 export async function listDocumentInstances(
   tenantId: string,
@@ -907,7 +915,7 @@ export async function listDocumentInstances(
       where: {
         tenantId,
         ...(filters.kind ? { kind: filters.kind } : {}),
-        ...(filters.status ? { status: filters.status } : {}),
+        status: filters.status && filters.status !== DELETED_DOCUMENT_STATUS ? filters.status : { not: DELETED_DOCUMENT_STATUS },
         ...(filters.studentId ? { studentId: filters.studentId } : {}),
         ...(filters.teacherId ? { teacherId: filters.teacherId } : {}),
         ...(filters.branchId ? { branchId: filters.branchId } : {}),
@@ -916,12 +924,13 @@ export async function listDocumentInstances(
           : {}),
       },
       orderBy: { createdAt: "desc" },
+      omit: LIST_OMIT,
     });
     return rows.map(mapDbInstance).map(stripFileData);
   }
   const all = await loadInst();
   return all
-    .filter((x) => x.tenantId === tenantId)
+    .filter((x) => x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS)
     .filter((x) => !filters.kind || x.kind === filters.kind)
     .filter((x) => !filters.status || x.status === filters.status)
     .filter((x) => !filters.studentId || x.studentId === filters.studentId)
@@ -935,6 +944,32 @@ export async function listDocumentInstances(
     });
 }
 
+/**
+ * 2026-09-29 — evrak "Sil" = SOFT DELETE: yalnız arşivlenmiş ("cancelled") evrak
+ * "deleted" olur; satır, dosya baytı ve imzalı sürüm geçmişi VERİTABANINDA KALIR
+ * (yasal saklama), yalnız bu modülün tüm okuma yollarından (liste, detay, indirme,
+ * yazdırma, arşiv, yükleme) çıkar. Koşullu güncelleme: çift tıklama/eşzamanlı
+ * istek ikinci kez işlem yapmaz (`false` döner). Aktör/gerekçe denetim kaydındadır.
+ */
+export const DELETED_DOCUMENT_STATUS: DocumentInstanceStatus = "deleted";
+
+export async function softDeleteArchivedDocumentInstance(tenantId: string, id: string): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("../db");
+    const r = await prisma.documentInstance.updateMany({
+      where: { id, tenantId, status: "cancelled" },
+      data: { status: DELETED_DOCUMENT_STATUS },
+    });
+    return r.count === 1;
+  }
+  const all = await loadInst();
+  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId && x.status === "cancelled");
+  if (idx < 0) return false;
+  all[idx] = { ...all[idx], status: DELETED_DOCUMENT_STATUS, updatedAt: new Date().toISOString() };
+  await saveInst(all);
+  return true;
+}
+
 /** Silme yok — arşivleme "cancelled" durumuna geçirir (Faz 2 durum listesiyle aynı anlam). */
 export async function archiveDocumentInstance(
   tenantId: string,
@@ -942,13 +977,13 @@ export async function archiveDocumentInstance(
 ): Promise<DocumentInstance | null> {
   if (isDbMode) {
     const { prisma } = await import("../db");
-    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId } });
+    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId, status: { not: DELETED_DOCUMENT_STATUS } } });
     if (!r) return null;
     await prisma.documentInstance.update({ where: { id }, data: { status: "cancelled" } });
     return getDocumentInstance(tenantId, id);
   }
   const all = await loadInst();
-  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId);
+  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS);
   if (idx < 0) return null;
   all[idx] = { ...all[idx], status: "cancelled", updatedAt: new Date().toISOString() };
   await saveInst(all);
@@ -981,7 +1016,7 @@ export async function uploadSignedDocumentFile(
   };
   if (isDbMode) {
     const { prisma } = await import("../db");
-    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId } });
+    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId, status: { not: DELETED_DOCUMENT_STATUS } } });
     if (!r) return null;
     const existingVersions = Array.isArray(r.signedVersions) ? r.signedVersions : [];
     await prisma.documentInstance.update({
@@ -1001,7 +1036,7 @@ export async function uploadSignedDocumentFile(
     return getDocumentInstance(tenantId, id);
   }
   const all = await loadInst();
-  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId);
+  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS);
   if (idx < 0) return null;
   all[idx] = {
     ...all[idx],
@@ -1059,7 +1094,7 @@ export async function softDeleteSignedVersion(
     return getDocumentInstance(tenantId, documentId);
   }
   const all = await loadInst();
-  const idx = all.findIndex((x) => x.id === documentId && x.tenantId === tenantId);
+  const idx = all.findIndex((x) => x.id === documentId && x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS);
   if (idx < 0) return null;
   all[idx] = {
     ...all[idx],
@@ -1088,7 +1123,7 @@ export async function markDocumentPrinted(
 ): Promise<DocumentInstance | null> {
   if (isDbMode) {
     const { prisma } = await import("../db");
-    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId } });
+    const r = await prisma.documentInstance.findFirst({ where: { id, tenantId, status: { not: DELETED_DOCUMENT_STATUS } } });
     if (!r) return null;
     const u = await prisma.documentInstance.update({
       where: { id },
@@ -1097,7 +1132,7 @@ export async function markDocumentPrinted(
     return getDocumentInstance(tenantId, u.id);
   }
   const all = await loadInst();
-  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId);
+  const idx = all.findIndex((x) => x.id === id && x.tenantId === tenantId && x.status !== DELETED_DOCUMENT_STATUS);
   if (idx < 0) return null;
   all[idx] = {
     ...all[idx],
@@ -1118,14 +1153,15 @@ export async function listDocumentsForStudent(
   if (isDbMode) {
     const { prisma } = await import("../db");
     const rows = await prisma.documentInstance.findMany({
-      where: { tenantId, studentId },
+      where: { tenantId, studentId, status: { not: DELETED_DOCUMENT_STATUS } },
       orderBy: { createdAt: "desc" },
+      omit: LIST_OMIT,
     });
     return rows.map(mapDbInstance).map(stripFileData);
   }
   const all = await loadInst();
   return all
-    .filter((x) => x.tenantId === tenantId && x.studentId === studentId)
+    .filter((x) => x.tenantId === tenantId && x.studentId === studentId && x.status !== DELETED_DOCUMENT_STATUS)
     .map(({ tenantId: _t, ...pub }) => {
       void _t;
       return stripFileData(pub);

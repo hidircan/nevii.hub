@@ -14,6 +14,7 @@ export {
   findUserByEmail,
   updatePasswordHash,
   changeOwnPassword,
+  setTeacherInvitationPending,
 } from "./users";
 export { hashPassword, verifyPassword } from "./password";
 export { DEFAULT_TENANT_ID, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } from "./config";

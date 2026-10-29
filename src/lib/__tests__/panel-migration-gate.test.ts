@@ -37,10 +37,10 @@ describe("panel açılışı — uygulanmamış migration build kapısı", () =>
     expect(findPendingMigrations(committed, committed.map(applied))).toEqual([]);
   });
 
-  it("kapı build'e bağlı kalır (prebuild) ve yalnız test dalında çalışır", () => {
+  it("kapı build'e bağlı kalır (prebuild) ve yalnız test ile main (production) dallarında çalışır", () => {
     const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
     expect(pkg.scripts.prebuild).toContain("scripts/check-pending-migrations.ts");
     const script = readFileSync(path.join(process.cwd(), "scripts", "check-pending-migrations.ts"), "utf8");
-    expect(script).toContain('VERCEL_GIT_COMMIT_REF !== "test"');
+    expect(script).toContain('["test", "main"].includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")');
   });
 });

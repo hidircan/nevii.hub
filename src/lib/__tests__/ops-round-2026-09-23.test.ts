@@ -77,6 +77,8 @@ describe("K · hakediş revizyonu", () => {
     totalMinutes: 70,
     totalAmount: 700,
     missingFeeRuleLessonIds: [],
+    unsupportedDurationLessonIds: [],
+    pricingByMonth: {},
     canCreatePayout: true,
   };
   it("süre değişince tutar süre × saatlik ücretten, elle tutar girilince o geçerli", () => {

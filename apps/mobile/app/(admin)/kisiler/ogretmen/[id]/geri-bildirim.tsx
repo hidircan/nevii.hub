@@ -1,18 +1,20 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../../src/api/client";
-import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge } from "../../../../../src/components/ui";
+import { AppHeader, Button, Card, EmptyState, ErrorState, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../../../../src/components/ui";
 import { useApiGet } from "../../../../../src/hooks/use-api";
 import { relativeDayLabel } from "../../../../../src/lib/date";
+import { useLocale } from "../../../../../src/i18n/locale-context";
 import { useTheme } from "../../../../../src/theme/theme-context";
 import type { TeacherFeedbackReviewResponse } from "../../../../../src/types/api";
 
-const STATUS_LABEL: Record<string, string> = { pending: "İncelenmedi", reviewed: "İncelendi", actioned: "İşlem yapıldı", archived: "Arşivlendi" };
+const STATUS_KEY: Record<string, string> = { pending: "adm.tchFbStPending", reviewed: "adm.tchFbStReviewed", actioned: "adm.tchFbStActioned", archived: "adm.tchFbStArchived" };
 const NEXT_STATUS: Record<string, string | null> = { pending: "reviewed", reviewed: "actioned", actioned: "archived", archived: null };
 
 export default function TeacherFeedbackReview() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const { id } = useLocalSearchParams<{ id: string }>();
   const res = useApiGet<TeacherFeedbackReviewResponse>(`/api/v1/teacher-feedback/review?teacherId=${id}`);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -26,14 +28,14 @@ export default function TeacherFeedbackReview() {
 
   return (
     <Screen>
-      <AppHeader title="Geri bildirimler" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.tchFbTitle")} showBack showNotifications={false} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.feedback.length === 0 ? (
-        <EmptyState icon="star-outline" title="Henüz geri bildirim yok" />
+        <EmptyState icon="star-outline" title={tr("adm.tchFbEmpty")} />
       ) : (
         <View style={{ gap: 10 }}>
           {res.data.feedback.map((f) => {
@@ -42,16 +44,16 @@ export default function TeacherFeedbackReview() {
             return (
               <Card key={f.id}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>Ortalama {avg.toFixed(1)}/5</Text>
-                  <StatusBadge label={STATUS_LABEL[f.status] ?? f.status} tone={f.status === "pending" ? "warning" : "neutral"} />
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{tr("adm.tchFbAvg", { v: avg.toFixed(1) })}</AppText>
+                  <StatusBadge label={STATUS_KEY[f.status] ? tr(STATUS_KEY[f.status]) : f.status} tone={f.status === "pending" ? "warning" : "neutral"} />
                 </View>
-                <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
-                  {f.submitterRole === "PARENT" ? "Veli" : "Öğrenci"} · {relativeDayLabel(new Date(f.createdAt))}
-                </Text>
-                {f.comment ? <Text style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>{f.comment}</Text> : null}
+                <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 4 }]}>
+                  {f.submitterRole === "PARENT" ? tr("adm.stuRoleGuardian") : tr("adm.stuRoleStudent")} · {relativeDayLabel(new Date(f.createdAt))}
+                </AppText>
+                {f.comment ? <AppText style={[t.typography.body, { color: t.colors.text, marginTop: 8 }]}>{f.comment}</AppText> : null}
                 {next ? (
                   <Button
-                    label={`${STATUS_LABEL[next]} olarak işaretle`}
+                    label={tr("adm.tchFbMarkAs", { status: STATUS_KEY[next] ? tr(STATUS_KEY[next]) : next })}
                     size="sm"
                     variant="secondary"
                     loading={busyId === f.id}

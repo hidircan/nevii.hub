@@ -18,8 +18,11 @@ import {
   ReferencesSection,
   SiteFooter,
   SiteHeader,
+  StepsSection,
 } from "@/components/site/sections";
 import { SiteAppBanner } from "@/components/site/app-banner";
+import { BRAND } from "@/lib/brand";
+import { SITE_FAQ } from "@/lib/site-content";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +30,10 @@ export const dynamic = "force-dynamic";
  * GİRİŞ ÖNCESİ KURUMSAL SİTE. Bu dosya BİLEREK sadece bölümleri SIRALAR —
  * metinler locale sözlüğünden (`src/lib/site-locales/`) gelir ve her bölüme
  * `c` prop'uyla verilir. Dil, `nevii_lang` cookie'sinden okunur (tr/en/de/fr/es).
+ * JSON-LD yapısal verisi SSS bölümünden OTOMATİK üretilir; OG/Twitter kartı
+ * (`opengraph-image.tsx` konvansiyonu, harici asset yok).
  */
+const OG_LOCALE: Record<string, string> = { tr: "tr_TR", en: "en_US", de: "de_DE", fr: "fr_FR", es: "es_ES" };
 export async function generateMetadata(): Promise<Metadata> {
   const jar = await cookies();
   const { resolveSiteContent } = await import("@/lib/platform/site-content-overrides");
@@ -40,8 +46,45 @@ export async function generateMetadata(): Promise<Metadata> {
     title: c.meta.title,
     description: c.meta.description,
     alternates: { canonical: "/" },
+    openGraph: {
+      title: c.meta.title,
+      description: c.meta.description,
+      type: "website",
+      locale: OG_LOCALE[c.locale] ?? "tr_TR",
+      siteName: BRAND.name,
+      images: [{ url: "/opengraph-image", width: 1200, height: 630, alt: BRAND.name }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: c.meta.title,
+      description: c.meta.description,
+      images: ["/opengraph-image"],
+    },
     ...(appId ? { other: { "apple-itunes-app": `app-id=${appId}` } } : {}),
   };
+}
+
+function siteJsonLd() {
+  return [
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: BRAND.name,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      description: BRAND.description,
+      inLanguage: "tr-TR",
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: SITE_FAQ.map((f) => ({
+        "@type": "Question",
+        name: f.question,
+        acceptedAnswer: { "@type": "Answer", text: f.answer },
+      })),
+    },
+  ];
 }
 
 export default async function LandingPage() {
@@ -73,18 +116,23 @@ async function LandingContent() {
       >
         {c.skip}
       </a>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd()) }}
+      />
       <SiteHeader c={c} />
       <main id="icerik">
         <HeroSection c={c} />
         <AboutSection c={c} />
+        <StepsSection />
         <FeaturesSection c={c} />
         <PlatformSection c={c} />
+        <ReferencesSection c={c} />
         <PricingSection c={c} />
         <PurchaseSection c={c} />
         <MobileAppSection c={c} />
         <MediaSection c={c} />
         <FaqSection c={c} />
-        <ReferencesSection c={c} />
         <ContactSection c={c} />
       </main>
       <SiteFooter c={c} />

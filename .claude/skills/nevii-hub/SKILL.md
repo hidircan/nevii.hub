@@ -25,6 +25,7 @@ description: NeviiHub'da her görevin başlangıç yönlendiricisi — "şu hata
 | Hata düzeltme süreci | `bug-fix` + `testing-regression` | — |
 | Yeni özellik süreci | `feature-delivery` | — |
 | Deploy/env/cron/Vercel | `production-readiness` | `vercel.json`, `docs/operations/*` |
+| Performans, Supabase egress/kota, yavaş sorgu, Vercel CPU, oturum gecikmesi | `performance-db-egress` | `src/lib/store-db.ts`, `reference-data.ts`, `scripts/bench/*` |
 | Oturum sonu | `session-handoff` | — |
 
 ## 2. Değişiklik nereye yapılır
@@ -39,22 +40,44 @@ UI (`src/app/panel/*`, `src/components/*`) → server action (`src/lib/actions.t
 - İptal/yenilenmiş sözleşmenin satırları SİLİNMEZ/yeniden yazılmaz; gerçekleşmiş tahsilat her zaman görünür.
 - "Ödenmesi gereken" ile "tahsil edilen" ayrı alan ve ayrı başlık.
 
-## 4. Ortam sınırı
-- local (`STORE_MODE=json` testler) → `test` dalı → Vercel test → `test.neviihub.com` → production (yalnız owner kararıyla).
-- `.env` production'ı gösterebilir: DB komutu çalıştırmadan önce hedefi kanıtla. Migration gerekmiyorsa DB komutu yok.
-  Gerekiyorsa: `prisma validate` → `generate` → `migrate status` → owner'ın açık onayıyla ve test hedefi kanıtlanmışsa `migrate deploy`.
-- Test/prod DB'de gerçek öğrenci/sözleşme/ödeme verisini silme veya yeniden üretme. Sır/DB URL/şifreyi dosyaya yazma.
+## 4. Ortam sınırı (2026-10-01'den beri local-first — `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`)
+- Canlı: `main` → Vercel → `neviihub.com`, DB Supabase `ddskhtirzywbuucxeovz` (2026-10-18; önceki `wsbucznpujcfzhitzrbl` donmuş geri dönüş kaynağı). Sürekli açık test ortamı YOK:
+  `test.neviihub.com` geçici olarak canlıya yönlenir; eski test DB'si (`vxzewyiwfshobjizzetw`) gerçek veri taşıyan
+  salt-okunur geri dönüş kaynağıdır, test hedefi DEĞİL.
+- Düşük riskli, migration'sız iş: yerel doğrulama → `main`. Migration/finans/silme/auth/tenant/toplu veri/dış mesaj:
+  yerel → geçici test ortamı (sentetik veri) → owner UAT → planlı yayın.
+- `.env` production'ı veya artık olmayan bir projeyi gösterebilir: DB komutundan önce hedefi kanıtla, `DATABASE_URL`'i
+  açıkça ver. Seed yalnız yerel/test DB'ye (`assertSeedTarget`). Migration gerekmiyorsa DB komutu yok.
+- Canlı DB'de gerçek öğrenci/sözleşme/ödeme verisini silme veya yeniden üretme. Sır/DB URL/şifreyi dosyaya yazma.
 
 ## 5. Doğrulama ve teslim sırası
 1. Kök nedeni kanıtla (kod yolu + gerekirse yeniden üreten test). Yalnız UI metniyle veri hatası örtme.
 2. Hedef testler (`npx vitest run <dosya>`), sonra kapı: `npm run typecheck` → `npm run lint` → `npm test` (SON değişiklikten sonra) → `npx prisma validate` → `npm run build`.
    Tam paket kırmızıysa kaç test/neden yaz; "hepsi geçti" deme.
 3. Commit: yalnız kapsamdaki dosyalar; `Co-authored-by` + `Signed-off-by` (git config kullanıcısı). `apps/mobile/*`, `docs/notion-export/*`, `pazarlama/*` gibi ilgisiz dosyaları stage etme.
-4. **Migration içeren değişiklik:** push'tan ÖNCE owner onayıyla test DB'ye uygula (şema kodu migration'sız DB'ye giderse
-   panel P2022 ile çöker — 2026-09-27 P0). `test` build'i uygulanmamış migration varken `scripts/check-pending-migrations.ts`
-   ile durur. Sonra `origin/test`'e push (önce `git fetch` + güncel test üstüne rebase) → Vercel deployment READY → `test.neviihub.com` yanıt veriyor mu kontrol et.
-   Tarayıcıda giriş yapıp tıklamadıysan "testte hazır" deme; owner'a UAT adımlarını ver.
+4. **Migration içeren değişiklik:** önce owner onayı + canlı yedeği, migration canlıya session pooler (5432) ile, KODDAN
+   ÖNCE uygulanır (şema kodu migration'sız DB'ye giderse panel P2022 ile çöker — 2026-09-27 P0). `main` ve `test`
+   build'leri uygulanmamış migration varken `scripts/check-pending-migrations.ts` ile durur.
+   Canlıya çıkış: `git fetch` → hızlı ileri `main` push → deployment READY (fra1) → health/ready + giriş + ana sayfalar.
+   Tarayıcıda giriş yapıp tıklamadıysan "hazır" deme; yüksek riskli işte owner'a UAT adımlarını ver.
 
 ## 6. Oturum sonu (kısa tut)
 - `PROJECT_STATE.md`: yalnız "Güncel snapshot" bölümünü ÜZERİNE yaz (commit, ortam, açık iş, riskler — ~40 satır). Ayrıntı → `docs/testing/UAT_*.md` / `docs/operations/*`; eski snapshot → `docs/agent-memory/archive/`.
 - `LESSONS_LEARNED.md`: yalnız bu oturumda KANITLANIP düzeltilen yeni hata için 3–5 satır; var olan maddeyi tekrar etme.
+
+## 7. Supabase egress kuralı (2026-10-16, zorunlu)
+- Yeni `readData()`/`readScopedData(` = `egress-full-read-ratchet.test.ts` kırmızı. Dar dilim kullan
+  (`reference-data.ts`, `readScoped*`, `read*ById`, `readLessonsStartingBetween`, `readMakeupCenterData`).
+- Döngü/satır başına "hepsini listele + JS'te süz" yasak → SQL `where`/`select`/`take`.
+- Cron/tick: tur başına okuma × günlük tur sayısını PR'a yaz; 10 dk'lık iş yalnız penceresini okur.
+- Büyük kolon (logo, sözleşme snapshot'ı, dosya/HTML) yalnız onu gösteren tekil ekranda seçilir.
+- Mobil/API ucu ekliyorsan: tek öğrenci → `readStudentScope`, tarih aralığı → `readLessonWindow`, liste → `readReferenceData`;
+  `readData()` önüne önbellek koyma (instance'lar arası bayat finans verisi). Ölçüm/yöntem: `performance-db-egress` skill.
+- Yazım sonrası tüm veriyi yeniden okuma (`data: await readData()`); ders düzenleme → `readLessonEditScope`, e-posta logosu
+  → `readSchoolBranding`, sayaç → `count` sorgusu. Kalan yollar: son `docs/performance/DB_EGRESS_*.md` "Kalan" bölümü.
+- Yazım sonrası kanca (mesaj taslağı/bildirim) ve cron döngüsündeki store yazımı da tam okuma yapmaz; doğrulama
+  `scripts/bench/bench-flow-full-reads.ts` ile akış başına (bkz. performance-db-egress kural 17–18).
+- Önce ÜRETİMİ ölç: `scripts/ops/egress-top-queries.sql` (canlı `pg_stat_statements`, salt okuma) — "tüm dersler/tüm
+  bildirimler" okuyan dilimler log satırı basmaz, yalnız burada görünür (kural 19–21). Vercel CPU rota başına: `vercel metrics`.
+- Kota sıfırlamak için yeni Vercel team/hesap açma (Hobby ticari kullanım yasak; bkz. performance-db-egress §5).
+- Ayrıntı: CLAUDE.md "Egress rules — enforced".

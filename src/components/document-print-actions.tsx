@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowLeft, Printer } from "lucide-react";
 
 /** Basılı çıktıda hiç görünmeyen ekran-only aksiyon çubuğu — ReceiptActions ile aynı desen. */

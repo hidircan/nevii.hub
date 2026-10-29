@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Image, StyleSheet, View } from "react-native";
+import { lookup } from "../../i18n/locales";
+import { getActiveLocale } from "../../i18n/locale-store";
 import { useTheme } from "../../theme/theme-context";
 import { getAccessToken } from "../../auth/token-storage";
 import { API_BASE_URL } from "../../api/client";
+import { fonts } from "../../theme/tokens";
 
 const PALETTE_KEYS = ["primary", "success", "warning", "danger", "info"] as const;
 
@@ -84,15 +88,15 @@ export function Avatar({ name, size = 40, photoPath, onPhotoLoad, onPhotoError }
         }}
         onLoad={onPhotoLoad}
         // Kişinin fotoğrafı kimlik bilgisi taşır (dekoratif değil): ekran okuyucu adı okur.
-        alt={name.trim() || "Profil fotoğrafı"}
-        accessibilityLabel={name.trim() || "Profil fotoğrafı"}
+        alt={name.trim() || lookup(getActiveLocale(), "ui.profilePhoto")}
+        accessibilityLabel={name.trim() || lookup(getActiveLocale(), "ui.profilePhoto")}
       />
     );
   }
 
   return (
     <View style={[styles.base, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg }]}>
-      <Text style={{ color: fg, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</Text>
+      <AppText style={{ color: fg, fontFamily: fonts.bold, fontWeight: "700", fontSize: size * 0.38 }}>{initialsOf(name)}</AppText>
     </View>
   );
 }

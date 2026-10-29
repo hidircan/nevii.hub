@@ -49,11 +49,13 @@ function schemaKeys(schema: unknown): string[] {
 
 /**
  * `Student` kolonu olmayan, bilerek yalnız GİRDİ olan alanlar. Her biri
- * `tools.ts` `createStudentTool` içindeki destructuring süzgecinde
- * `_ignored...` olarak ayrılır. Buraya yeni bir alan eklerken süzgeci de
+ * `registerStudentCore` (tools.ts) açık alan listesinin DIŞINDA
+ * kalır (kayda yazılmaz). Buraya yeni bir alan eklerken o listeyi de
  * güncelleyin — aksi halde db-modu kırılır.
  */
 const EXPECTED_INPUT_ONLY = [
+  // Paket & Kampanya Motoru — ham seçim süzülür, çözümü `appliedCampaignIds` (kolon) yazılır.
+  "campaignIds",
   "createPortalAccess",
   // Payment.firstCollectionIncludesNextMonth olarak saklanır; Student kolonu yok.
   "firstCollectionIncludesNextMonth",
@@ -76,19 +78,47 @@ describe("studentSchema ↔ Prisma Student kolonları", () => {
     expect(inputOnly).toEqual(EXPECTED_INPUT_ONLY);
   });
 
-  it("bilinen girdi-only alanların HEPSİ createStudentTool'da süzülüyor", () => {
-    const tools = fs.readFileSync(
-      path.join(process.cwd(), "src", "lib", "services", "tools.ts"),
-      "utf8"
-    );
-    // `createStudentTool` içindeki `...studentInput` destructuring bloğu.
-    const block = /const \{([\s\S]*?)\.\.\.studentInput\s*\n\s*\} = v\.data;/.exec(tools);
-    expect(block, "…studentInput süzgeç bloğu bulunamadı").not.toBeNull();
-
+  it("bilinen girdi-only alanların HİÇBİRİ kaydedilen öğrenci satırına sızmaz (createStudentTool)", async () => {
+    // Çoklu branş v2 (9500a0c): kayıt artık `registerStudentCore` içinde öğrenci satırını AÇIK alan listesiyle kurar
+    // (eski `...studentInput` süzgeç bloğu yok). Korunan davranış aynı: girdi-only alan kayda yazılırsa db modunda
+    // Prisma "Unknown argument" verir. json store satırı olduğu gibi sakladığı için sızıntı burada görünür.
+    const { promises: fsp } = await import("node:fs");
+    const { resolveDataDir } = await import("../config");
+    const { createPackageTool, createStudentTool } = await import("../services/tools");
+    const { readData } = await import("../store");
+    const { DEFAULT_TENANT_ID } = await import("../auth/config");
+    await fsp.rm(path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json"), { force: true });
+    const ctx = { role: "SUPER_ADMIN" as const, userId: "u1", tenantId: DEFAULT_TENANT_ID, channel: "web" as const };
+    const pkg = await createPackageTool(ctx, { title: "Girdi Paket", price30Min: 2000, price40Min: 2500, price50Min: 3000 });
+    expect(pkg.ok).toBe(true);
+    if (!pkg.ok) return;
+    const res = await createStudentTool(ctx, {
+      name: "Girdi Alan Öğrenci",
+      email: "",
+      phone: "5551112244",
+      parentName: "Veli",
+      parentPhone: "5559998866",
+      branchId: "erzene",
+      instrument: "Piyano",
+      teacherId: "t1",
+      packageId: pkg.data.packageId,
+      packageName: "Bireysel Aylık — 4 ders",
+      weeklyLessonCount: 1,
+      monthlyFee: 1,
+      notes: "",
+      enrollmentStartDate: "2026-09-01",
+      lessonDurationMinutes: 40,
+      lessonDays: [2],
+      createPortalAccess: false,
+      firstPaymentCollected: { method: "cash", amount: 2000, collectedAt: "2026-09-01" },
+      firstPaymentAdjustmentReason: "Test",
+    });
+    expect(res.ok, res.ok ? "" : JSON.stringify(res.error)).toBe(true);
+    if (!res.ok) return;
+    const stored = (await readData()).students.find((st) => st.id === res.data.studentId) as Record<string, unknown> | undefined;
+    expect(stored).toBeDefined();
     for (const field of EXPECTED_INPUT_ONLY) {
-      expect(block![1], `${field} süzülmüyor — db-modunda "Unknown argument" verir`).toContain(
-        `${field}:`
-      );
+      expect(Object.prototype.hasOwnProperty.call(stored, field), `${field} öğrenci satırına yazıldı — db modunda "Unknown argument" verir`).toBe(false);
     }
   });
 });

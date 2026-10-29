@@ -16,7 +16,12 @@ import {
   listCommunicationMessages,
   transitionCommunicationMessage,
 } from "./store";
-import { BULK_SELECTABLE_STATUSES, canTransitionCommunication, type CommunicationStatus } from "./status";
+import {
+  BULK_SELECTABLE_STATUSES,
+  CommunicationTransitionError,
+  canTransitionCommunication,
+  type CommunicationStatus,
+} from "./status";
 import {
   toPublicCommunicationMessage,
   type CommunicationChannel,
@@ -29,9 +34,12 @@ import {
 import {
   LESSON_PLAN_PARENT_TEMPLATE,
   LESSON_PLAN_TEACHER_TEMPLATE,
+  LESSON_UPDATE_PARENT_TEMPLATE,
+  LESSON_UPDATE_TEACHER_TEMPLATE,
   renderLessonPlanTemplate,
   type LessonPlanTemplateVars,
 } from "./lesson-plan-templates";
+import { DEFAULT_APP_TIMEZONE, formatDateTr, toZonedYmd, zonedHm } from "../timezone";
 import { TEMPLATE_CATALOG } from "../whatsapp-templates";
 import { isEmailProviderConfigured } from "../email/config";
 
@@ -412,8 +420,8 @@ async function resolveDispatchContact(
   message: CommunicationMessage
 ): Promise<{ optOut: boolean; email?: string }> {
   try {
-    const { readData } = await import("../store");
-    const data = await readData();
+    const { readReferenceData } = await import("../store");
+    const data = await readReferenceData();
     if (message.recipientType === "TEACHER") {
       const teacher = data.teachers.find((t) => t.id === message.recipientId);
       // Öğretmen için izin deposu YOKTUR (bilinçli boşluk — backlog): açık
@@ -452,14 +460,22 @@ export async function dispatchCommunicationMessageTool(
   }
 
   const attemptCount = current.attemptCount + 1;
-  const sending = await transitionCommunicationMessage({
-    tenantId: ctx.tenantId,
-    id: current.id,
-    to: "sending",
-    actorUserId: ctx.userId,
-    reason: "dispatch_attempt",
-    patch: { attemptCount },
-  });
+  // 11. tur iş #6 — durum makinesi reddi YAKALANIR: ham 500 yerine anlaşılır
+  // VALIDATION_ERROR döner (kullanıcının gördüğü "Gönderim denemesi başarısız"ın kökü buydu).
+  let sending;
+  try {
+    sending = await transitionCommunicationMessage({
+      tenantId: ctx.tenantId,
+      id: current.id,
+      to: "sending",
+      actorUserId: ctx.userId,
+      reason: "dispatch_attempt",
+      patch: { attemptCount },
+    });
+  } catch (e) {
+    if (e instanceof CommunicationTransitionError) return fail("VALIDATION_ERROR", e.message);
+    throw e;
+  }
   if (!sending) return fail("NOT_FOUND", "Mesaj bulunamadı");
   audit(ctx, "communication.dispatch_attempt", sending.id, { attempt: attemptCount, channel: sending.channel });
 
@@ -500,6 +516,136 @@ export async function dispatchCommunicationMessageTool(
   if (!back) return fail("NOT_FOUND", "Mesaj bulunamadı");
   audit(ctx, "communication.dispatch_mock_noop", back.id, { channel: back.channel });
   return ok({ message: toPublicCommunicationMessage(back), outcome: { ok: true, status: "queued", note } });
+}
+
+/**
+ * 11. tur iş #2/#6 — wa.me manuel akışı, 1. adım: "WhatsApp'ta aç".
+ *
+ * Onaylı/queued WhatsApp mesajı için wa.me derin bağlantısını üretir ve mesajı
+ * `manual_send_pending` durumuna alır (aktör + zaman OLAYA yazılır — audit).
+ * Gerçek teslimi DOĞRULAMAZ: kullanıcı WhatsApp'ta gönderdikten sonra
+ * `markCommunicationDeliveredTool` ile ayrıca işaretler. Aynı durumdaysa
+ * olayı TEKRARLAMADAN mevcut kaydı döner (çift tıklama güvenliği).
+ */
+export function buildWhatsAppDeepLink(phoneE164: string, text: string): string {
+  const digits = phoneE164.replace(/\D/g, "");
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+}
+
+export async function markCommunicationManualSendTool(
+  ctx: ServiceContext,
+  input: { id: string }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage; waUrl: string }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı.");
+  if (current.channel !== "WHATSAPP") {
+    return fail("VALIDATION_ERROR", "Manuel WhatsApp akışı yalnız WhatsApp mesajlarında kullanılır.");
+  }
+  if (current.status === "manual_send_pending") {
+    const body = current.approvedBodySnapshot ?? current.draftBody;
+    return ok({
+      message: toPublicCommunicationMessage(current),
+      waUrl: buildWhatsAppDeepLink(current.recipientPhone, body),
+    });
+  }
+  if (current.status !== "approved" && current.status !== "queued") {
+    return fail("VALIDATION_ERROR", `Bu mesaj manuel gönderime uygun değil (durum: ${current.status}).`);
+  }
+  try {
+    const message = await transitionCommunicationMessage({
+      tenantId: ctx.tenantId,
+      id: current.id,
+      to: "manual_send_pending",
+      actorUserId: ctx.userId,
+      reason: "manual_wa_opened",
+      patch: { providerResultCode: "wa.me-manual", providerResultSummary: "WhatsApp'ta açıldı — gönderim kullanıcı onayı bekliyor." },
+    });
+    if (!message) return fail("NOT_FOUND", "Mesaj bulunamadı.");
+    audit(ctx, "communication.manual_send_opened", message.id, { channel: current.channel });
+    const body = message.approvedBodySnapshot ?? message.draftBody;
+    return ok({ message: toPublicCommunicationMessage(message), waUrl: buildWhatsAppDeepLink(message.recipientPhone, body) });
+  } catch (e) {
+    if (e instanceof CommunicationTransitionError) return fail("VALIDATION_ERROR", e.message);
+    throw e;
+  }
+}
+
+/**
+ * 11. tur iş #2/#6 — wa.me manuel akışı, 2. adım: "Gönderdim olarak işaretle".
+ *
+ * YALNIZCA kullanıcının açık onayıyla (`confirm: true`) `manual_send_pending`
+ * → `delivered` geçişi yapar; aktör + zaman olaya yazılır. Burası teknik teslim
+ * doğrulaması DEĞİLDİR — "kullanıcı WhatsApp'ta gönderdiğini onayladı" kaydıdır
+ * ve UI'da öyle gösterilir ("kullanıcı onaylı gönderim"). Aynı durumdaysa olayı tekrarlamaz.
+ */
+export async function markCommunicationDeliveredTool(
+  ctx: ServiceContext,
+  input: { id: string; confirm: true }
+): Promise<ServiceResult<{ message: PublicCommunicationMessage }>> {
+  const auth = assertAdmin(ctx);
+  if (!auth.ok) return fail("FORBIDDEN", auth.message);
+  if (input.confirm !== true) {
+    return fail("VALIDATION_ERROR", "Gönderim işareti için açık onay (confirm) gerekir.");
+  }
+  const current = await getCommunicationMessage(ctx.tenantId, input.id);
+  if (!current) return fail("NOT_FOUND", "Mesaj bulunamadı.");
+  if (current.status === "delivered") {
+    return ok({ message: toPublicCommunicationMessage(current) });
+  }
+  if (current.status !== "manual_send_pending") {
+    return fail(
+      "VALIDATION_ERROR",
+      "Yalnız manuel gönderim bekleyen (WhatsApp'ta açılmış) mesaj gönderildi olarak işaretlenebilir."
+    );
+  }
+  try {
+    const message = await transitionCommunicationMessage({
+      tenantId: ctx.tenantId,
+      id: current.id,
+      to: "delivered",
+      actorUserId: ctx.userId,
+      reason: "manual_wa_confirmed",
+      patch: { providerResultCode: "wa.me-manual-confirmed", providerResultSummary: "Kullanıcı WhatsApp'ta gönderdiğini onayladı (teknik teslim doğrulaması değil)." },
+    });
+    if (!message) return fail("NOT_FOUND", "Mesaj bulunamadı.");
+    audit(ctx, "communication.manual_send_confirmed", message.id, {});
+    return ok({ message: toPublicCommunicationMessage(message) });
+  } catch (e) {
+    if (e instanceof CommunicationTransitionError) return fail("VALIDATION_ERROR", e.message);
+    throw e;
+  }
+}
+
+/**
+ * Ders detayındaki "Bilgilendirme geçmişi" — tenant kapsamlı, maskeli satırlar.
+ * Personel görebilir; öğretmen yalnız KENDİ derslerini (teacherId eşleşmesi).
+ */
+export async function listLessonCommunicationMessagesTool(
+  ctx: ServiceContext,
+  input: { lessonId: string }
+): Promise<ServiceResult<{ messages: PublicCommunicationMessage[] }>> {
+  if (!input.lessonId) return fail("VALIDATION_ERROR", "Ders kimliği gerekli.");
+  const staff = requireRole(ctx, ["SCHOOL_ADMIN", "SUPER_ADMIN"]);
+  if (!staff.ok && ctx.role !== "TEACHER") return fail("FORBIDDEN", staff.message);
+  if (ctx.role === "TEACHER") {
+    // Öğretmen ctx'i tenant'a bağlıdır; sahiplik teacherId eşleşmesidir
+    // (canAccessStudent TEACHER dalıyla aynı kural). Satırlar zaten
+    // tenant kapsamlı listelenir (aşağıda).
+    // DB egress (2026-10-18) — sahiplik için tek ders satırı yeter (tam kurum okuması değil).
+    const { readLessonById } = await import("../store");
+    const lesson = await readLessonById(input.lessonId);
+    if (!lesson || lesson.teacherId !== ctx.teacherId) {
+      return fail("FORBIDDEN", "Bu dersin bilgilendirme geçmişini görme yetkiniz yok.");
+    }
+  }
+  const rows = await listCommunicationMessages(ctx.tenantId);
+  return ok({
+    messages: rows
+      .filter((r) => r.resourceType === "lesson" && r.resourceId === input.lessonId)
+      .map(toPublicCommunicationMessage),
+  });
 }
 
 /** Onaylı mesajı kuyruğa alır (`approved` → `queued`). */
@@ -726,6 +872,160 @@ export async function createLessonPlanCommunicationDrafts(input: {
     records.push(wa.record);
   }
   return { records };
+}
+
+/**
+ * 11. tur iş #2 — ders GÜNCELLEME taslakları (eski→yeni).
+ *
+ * Plan akışıyla AYNI iskelet: veliye SMS+WhatsApp, (yeni) öğretmene WhatsApp.
+ * Farklar: gövde güncelleme şablonundan (`{degisiklik}` zorunlu), idempotency
+ * anahtarı YENİ değerlerden türetilir (aynı güncelleme tekrarlanırsa taslak
+ * çoğalmaz; FARKLI bir güncelleme yeni taslak üretir), eski öğretmene taslak
+ * YOKTUR (artık onun dersi değil; uygulama-içi bildirim zaten gider).
+ * Geçersiz telefon/opt-out → taslak `blocked` düşer, ders akışı etkilenmez.
+ */
+export async function createLessonUpdateCommunicationDrafts(input: {
+  tenantId: string;
+  lessonId: string;
+  createdBy: string;
+  vars: LessonPlanTemplateVars;
+  degisiklik: string;
+  idempotencySuffix: string;
+  parent: LessonPlanDraftParty;
+  teacher: LessonPlanDraftParty | null;
+}): Promise<{ records: CommunicationMessage[] }> {
+  const parentBody = renderLessonPlanTemplate(LESSON_UPDATE_PARENT_TEMPLATE, {
+    ...input.vars,
+    veliAdi: input.parent.name,
+    degisiklik: input.degisiklik,
+  });
+  const teacherBody = input.teacher
+    ? renderLessonPlanTemplate(LESSON_UPDATE_TEACHER_TEMPLATE, {
+        ...input.vars,
+        ogretmenAdi: input.teacher.name,
+        degisiklik: input.degisiklik,
+      })
+    : { ok: false as const, message: "Öğretmen yok" };
+  const records: CommunicationMessage[] = [];
+  if (parentBody.ok) {
+    const base = {
+      tenantId: input.tenantId,
+      recipientType: "PARENT" as const,
+      recipientId: input.parent.studentId ?? input.lessonId,
+      recipientName: input.parent.name,
+      recipientPhone: input.parent.phone,
+      messageType: "LESSON" as const,
+      resourceType: "lesson" as const,
+      resourceId: input.lessonId,
+      body: parentBody.body,
+      createdBy: input.createdBy,
+      optOut: input.parent.optOut,
+      idempotencySuffix: input.idempotencySuffix,
+    };
+    const sms = await createCommunicationDraft({ ...base, channel: "SMS" });
+    const whatsapp = await createCommunicationDraft({ ...base, channel: "WHATSAPP" });
+    records.push(sms.record, whatsapp.record);
+  }
+  if (teacherBody.ok && input.teacher) {
+    const wa = await createCommunicationDraft({
+      tenantId: input.tenantId,
+      recipientType: "TEACHER",
+      recipientId: input.teacher.teacherId ?? input.lessonId,
+      recipientName: input.teacher.name,
+      recipientPhone: input.teacher.phone,
+      channel: "WHATSAPP",
+      messageType: "LESSON",
+      resourceType: "lesson",
+      resourceId: input.lessonId,
+      body: teacherBody.body,
+      createdBy: input.createdBy,
+      idempotencySuffix: input.idempotencySuffix,
+    });
+    records.push(wa.record);
+  }
+  return { records };
+}
+
+/**
+ * 11. tur iş #2 — güncelleme kancası (best-effort, asla fırlatmaz).
+ *
+ * Ders taşıma (tarih/saat) ve öğretmen/oda/şube ataması SONRASI çağrılır;
+ * gerçekten değişen parçalardan `{degisiklik}` özeti kurar, YENİ değerlerle
+ * veli (SMS+WA) + güncel öğretmen (WA) taslakları üretir. Değişiklik yoksa
+ * taslak ÜRETİLMEZ. Ders akışı (taşıma/atama) bu fonksiyonun sonucundan
+ * etkilenmez — hata olursa sessizce yutulur (ders zaten güncellendi).
+ */
+export async function queueLessonUpdateDraftsBestEffort(input: {
+  tenantId: string;
+  actorUserId: string;
+  lessonId: string;
+  previous: { startAt: string; teacherId: string; roomId: string; branchId: string; durationMinutes?: number };
+}): Promise<void> {
+  try {
+    // DB egress (2026-10-18) — her ders taşıma/atama sonrası çalışır: tek ders satırı + referans veri (öğrenci,
+    // öğretmen, oda, şube, kurum adı) yeter; önceden tam kurum verisi okunuyordu.
+    const { readLessonById, readReferenceData } = await import("../store");
+    const [lesson, data] = await Promise.all([readLessonById(input.lessonId), readReferenceData()]);
+    if (!lesson) return;
+    const student = data.students.find((s) => s.id === lesson.studentId);
+    if (!student) return;
+    const teacherName = (id: string) => data.teachers.find((t) => t.id === id)?.name ?? "—";
+    const roomName = (id: string) => data.rooms.find((r) => r.id === id)?.name ?? "—";
+    const branchName = (id: string) => data.settings.branches.find((b) => b.id === id)?.shortName ?? "—";
+    const oldDay = toZonedYmd(new Date(input.previous.startAt), DEFAULT_APP_TIMEZONE);
+    const newDay = toZonedYmd(new Date(lesson.startAt), DEFAULT_APP_TIMEZONE);
+    const oldHm = zonedHm(new Date(input.previous.startAt), DEFAULT_APP_TIMEZONE);
+    const newHm = zonedHm(new Date(lesson.startAt), DEFAULT_APP_TIMEZONE);
+    const parts: string[] = [];
+    if (oldDay !== newDay) parts.push(`tarih ${formatDateTr(input.previous.startAt)} → ${formatDateTr(lesson.startAt)}`);
+    if (oldHm !== newHm) parts.push(`saat ${oldHm} → ${newHm}`);
+    if (input.previous.teacherId !== lesson.teacherId) {
+      parts.push(`öğretmen ${teacherName(input.previous.teacherId)} → ${teacherName(lesson.teacherId)}`);
+    }
+    if (input.previous.branchId !== lesson.branchId) {
+      parts.push(`şube ${branchName(input.previous.branchId)} → ${branchName(lesson.branchId)}`);
+    }
+    if (input.previous.roomId !== lesson.roomId) {
+      parts.push(`oda ${roomName(input.previous.roomId)} → ${roomName(lesson.roomId)}`);
+    }
+    // Lesson modelinde süre alanı yok — başlangıç/bitişten türetilir.
+    const newDuration = Math.round(
+      (new Date(lesson.endAt).getTime() - new Date(lesson.startAt).getTime()) / 60000
+    );
+    const prevDuration = input.previous.durationMinutes;
+    if (prevDuration !== undefined && prevDuration !== newDuration) {
+      parts.push(`süre ${prevDuration} → ${newDuration} dk`);
+    }
+    if (parts.length === 0) return;
+    const teacher = data.teachers.find((t) => t.id === lesson.teacherId) ?? null;
+    await createLessonUpdateCommunicationDrafts({
+      tenantId: input.tenantId,
+      lessonId: lesson.id,
+      createdBy: input.actorUserId,
+      vars: {
+        veliAdi: student.parentName || student.name,
+        ogrenciAdi: student.name,
+        ogretmenAdi: teacher?.name ?? "Öğretmen",
+        dersAdi: lesson.instrument,
+        tarih: formatDateTr(lesson.startAt),
+        saat: newHm,
+        sube: branchName(lesson.branchId),
+        kurum: data.settings.name ?? "NeviiHub",
+        degisiklik: "",
+      },
+      degisiklik: parts.join("; "),
+      idempotencySuffix: `update:${lesson.startAt}:${lesson.teacherId}:${lesson.roomId}:${lesson.branchId}`,
+      parent: {
+        name: student.parentName || student.name || "Veli",
+        phone: student.parentPhone || student.phone || "",
+        studentId: student.id,
+        optOut: student.communicationOptOut,
+      },
+      teacher: teacher ? { name: teacher.name, phone: teacher.phone || "", teacherId: teacher.id } : null,
+    });
+  } catch {
+    // best-effort — ders güncellemesi başarılı sayılır.
+  }
 }
 
 export async function createMakeupLessonCommunicationDrafts(input: {

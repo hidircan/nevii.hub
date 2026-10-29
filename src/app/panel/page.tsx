@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import {
   AlertTriangle,
@@ -9,6 +9,7 @@ import {
   FileWarning,
   FlaskConical,
   Info,
+  StickyNote,
   Users,
 } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
@@ -19,7 +20,7 @@ import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { InstitutionWelcome } from "@/components/institution-welcome";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedDashboardData } from "@/lib/institution/context";
 import { getUserPreferences } from "@/lib/user-preferences";
 import { listContractSummariesByStudent, listTerminalContractIdsForScope } from "@/lib/contracts";
 import { listTasks } from "@/lib/tasks";
@@ -36,6 +37,8 @@ import {
 } from "@/lib/dashboard/screen-widgets";
 import { buildTrialDigest, type TrialDigestItem } from "@/lib/dashboard/trial-digest";
 import { listTrialLessonsTool } from "@/lib/services";
+import { listPanelNotesTool } from "@/lib/panel-notes";
+import { PanelNotes } from "@/components/panel-notes";
 import { canViewFinanceAndStaffSummary } from "@/lib/auth/platform-access";
 import { canAccessTeacherEarnings } from "@/lib/platform/teacher-earnings-access";
 import { computeSetupProgress } from "@/lib/setup-progress";
@@ -93,7 +96,18 @@ export default async function DashboardPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const now = new Date();
+  const today = toZonedYmd(now, DEFAULT_APP_TIMEZONE);
+  // DB egress: kurumun tüm dersleri yerine bu ayın (bugün dahil) ders penceresi, ödemelerin yalnız özet
+  // alanları, telafiler ve kayıtlı hakedişler (bkz. reference-data.ts `DashboardData`). Pencere, özet ve
+  // ay hakediş hesabının kendi gün süzgecinden ±2–3 gün geniş; "gelecekte planlı ders" DB'den.
+  const monthStartDay = `${today.slice(0, 7)}-01`;
+  const data = await readScopedDashboardData(
+    kurum.scope,
+    new Date(Date.parse(`${monthStartDay}T00:00:00Z`) - 2 * 86_400_000),
+    new Date(Date.parse(`${today}T00:00:00Z`) + 3 * 86_400_000),
+    now
+  );
   const prefs = await getUserPreferences(session.userId, session.tenantId);
   // Widget yetkisi = sidebar görünürlüğü (panel/layout.tsx ile aynı kapılar).
   const widgetAccess: ScreenWidgetAccess = {
@@ -109,19 +123,21 @@ export default async function DashboardPage({
   const defaultBranchId = savedDefault && (savedDefault === "all" || branchIds.has(savedDefault)) ? savedDefault : "all";
   const activeBranchId = sube && (sube === "all" || branchIds.has(sube)) ? sube : defaultBranchId;
 
-  const today = toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE);
-
   // Sözleşme özetleri ve görevler TEK sorguda; merged "tüm kurumlar"
   // görünümünde sözleşme okuması tek tenant'a bağlı olduğu için atlanır.
   // Deneme listesi yalnız bölüm görünürken çekilir (tek ek sorgu); ekran
   // widget'ları ek sorgu yapmaz — hepsi aşağıdaki özetten türetilir.
-  const [contractsByStudent, tasks, terminalContractIds, trialsResult] = await Promise.all([
+  const [contractsByStudent, tasks, terminalContractIds, trialsResult, notesResult] = await Promise.all([
     kurum.scope.mode === "single"
       ? listContractSummariesByStudent(kurum.scope.tenantId)
       : Promise.resolve(new Map()),
     kurum.scope.mode === "single" ? listTasks(kurum.scope.tenantId) : Promise.resolve([]),
     listTerminalContractIdsForScope(kurum.scope),
     kurum.scope.mode === "single" && visibleKeys.has("trials") ? listTrialLessonsTool(session) : Promise.resolve(null),
+    // Notlar yazımı oturumun kurumuna gider: başka kurum seçiliyken gösterilmez (okuma/yazma kurumu ayrışmasın).
+    kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId && visibleKeys.has("notes")
+      ? listPanelNotesTool(session, { limit: 5 })
+      : Promise.resolve(null),
   ]);
   const trialDigest =
     trialsResult && trialsResult.ok
@@ -145,7 +161,7 @@ export default async function DashboardPage({
   // Rol sınırı — sidebar'daki "Finans Özeti"/"Personel" ile AYNI: yalnız kurum sahibi.
   const isOwner = session.role === "SUPER_ADMIN";
   const payoutOverview = isOwner
-    ? computeTeacherPayoutOverview(data, `${today.slice(0, 7)}-01`, today)
+    ? computeTeacherPayoutOverview(data, monthStartDay, today)
     : null;
 
   const branchLabel =
@@ -161,6 +177,9 @@ export default async function DashboardPage({
     overdueTotal: summary.money.overdueTotal,
     overdueTotalLabel: formatMoney(summary.money.overdueTotal),
     openTasks: summary.taskSummary.open,
+    // 10. tur iş #6 — Günlük Özet'e YALNIZCA bu kompakt finans göstergesi eklenir.
+    collectedThisMonth: summary.money.collectedThisMonth,
+    collectedThisMonthLabel: formatMoney(summary.money.collectedThisMonth),
   };
   const widgetNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {};
   for (const key of layout.addedWidgets) {
@@ -202,6 +221,14 @@ export default async function DashboardPage({
   }
 
   const sectionNodes: Partial<Record<DashboardSectionKey, React.ReactNode>> = {
+    // Notlar: yalnız yetkili rolde ve tek kurum görünümünde (yazım tek kuruma gider).
+    notes:
+      notesResult && notesResult.ok ? (
+        <Card>
+          <SectionHeader icon={<StickyNote className="h-4 w-4" />} title="Notlar" href="/panel/notlar" hrefLabel="Tümü" />
+          <PanelNotes viewer={{ userId: session.userId, isOwner: session.role === "SUPER_ADMIN" }} initialNotes={notesResult.data} limit={5} />
+        </Card>
+      ) : null,
     ...widgetNodes,
     trials: trialDigest ? (
       <Card>

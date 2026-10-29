@@ -36,20 +36,39 @@ export function ModalShell({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // 10. tur iş #5 — odak YALNIZCA açılış geçişinde panele alınır, kapanışta
+  // tetikleyiciye döner. KÖK NEDEN: efekt `[open, busy, onClose]` bağımlıydı
+  // ve TÜM kullanıcılar satır-içi (her render'da yeni kimlikli) `onClose`
+  // veriyor → metin alanına yazılan HER karakterde efekt yeniden koşuyor,
+  // `ref.current?.focus()` odağı panel başına çekiyor, temizlikteki
+  // `trigger?.focus?.()` tetikleyiciye sıçratıyordu. `busy`/`onClose`
+  // güncelliği ref aynasıyla korunur (yeniden abone yok, odak çalma yok).
+  const busyRef = useRef(busy);
+  const onCloseRef = useRef(onClose);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  // Güncellik aynası — render sırasında ref yazımı lint tarafından yasaklı
+  // (`react-hooks/refs`); klavye olayları boyadan sonra dağıldığı için
+  // efekt-içi senkronizasyon Escape işleyici için yeterince tazedir.
+  useEffect(() => {
+    busyRef.current = busy;
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
-    const trigger = document.activeElement as HTMLElement | null;
+    triggerRef.current = document.activeElement as HTMLElement | null;
     ref.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busyRef.current) onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      trigger?.focus?.();
+      // Yalnızca açık→kapalı geçişinde (efekt `open` değişiminde koşar).
+      triggerRef.current?.focus?.();
     };
-  }, [open, busy, onClose]);
+  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
   const accent = tone === "danger" ? "var(--color-danger)" : tone === "warning" ? "var(--color-warning)" : "var(--color-primary)";

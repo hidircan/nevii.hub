@@ -37,6 +37,34 @@ const WEEKDAY_LABELS = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe"
  * Gün/saat BURADA SORULMAZ — sözleşmede dondurulmuş değer kullanılır. Aynı
  * bilgiyi üçüncü kez girdirmek bu işin çözmeye çalıştığı problemin ta kendisi.
  */
+const SCHEDULE_GEN_PREFS_PREFIX = "nevii:schedulegen:";
+
+type ScheduleGenPrefs = { teacherId?: string; roomId?: string };
+
+function readScheduleGenPrefs(contractId: string): ScheduleGenPrefs {
+  try {
+    if (typeof window === "undefined") return {};
+    const raw = window.sessionStorage.getItem(`${SCHEDULE_GEN_PREFS_PREFIX}${contractId}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as ScheduleGenPrefs;
+    return {
+      teacherId: typeof parsed.teacherId === "string" ? parsed.teacherId.slice(0, 128) : undefined,
+      roomId: typeof parsed.roomId === "string" ? parsed.roomId.slice(0, 128) : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function writeScheduleGenPrefs(contractId: string, prefs: ScheduleGenPrefs) {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(`${SCHEDULE_GEN_PREFS_PREFIX}${contractId}`, JSON.stringify(prefs));
+  } catch {
+    // Depolama kapalıysa (gizli pencere) tercihler korunmaz — akış yine çalışır.
+  }
+}
+
 export function ContractLessonScheduleGenerator({
   contractId,
   scheduleText,
@@ -51,8 +79,27 @@ export function ContractLessonScheduleGenerator({
   defaultTeacherId?: string;
 }) {
   const router = useRouter();
-  const [teacherId, setTeacherId] = useState(defaultTeacherId ?? teachers[0]?.id ?? "");
-  const [roomId, setRoomId] = useState(rooms[0]?.id ?? "");
+  // 10. tur iş #10 — seçilmiş ama henüz kaydedilmemiş öğretmen/oda tercihi
+  // sekme-içi saklanır: ödemelere gidip "Sözleşmeye dön" ile dönünce (veya
+  // sayfa yenilenince) seçim korunur. Yalnız kimlikler saklanır (hassas veri yok).
+  const [teacherId, setTeacherIdState] = useState(() => {
+    const saved = readScheduleGenPrefs(contractId).teacherId;
+    if (saved && teachers.some((t) => t.id === saved)) return saved;
+    return defaultTeacherId ?? teachers[0]?.id ?? "";
+  });
+  const [roomId, setRoomIdState] = useState(() => {
+    const saved = readScheduleGenPrefs(contractId).roomId;
+    if (saved && rooms.some((r) => r.id === saved)) return saved;
+    return rooms[0]?.id ?? "";
+  });
+  function setTeacherId(next: string) {
+    setTeacherIdState(next);
+    writeScheduleGenPrefs(contractId, { ...readScheduleGenPrefs(contractId), teacherId: next });
+  }
+  function setRoomId(next: string) {
+    setRoomIdState(next);
+    writeScheduleGenPrefs(contractId, { ...readScheduleGenPrefs(contractId), roomId: next });
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanResponse | null>(null);
@@ -121,13 +168,19 @@ export function ContractLessonScheduleGenerator({
         </div>
         <div>
           <Label>Oda</Label>
-          <Select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
+          {rooms.length > 0 ? (
+            <Select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              Aktif oda yok. Pasif odalara ders oluşturulamaz — önce Odalar ekranından bir odayı aktifleştirin.
+            </p>
+          )}
         </div>
       </div>
 

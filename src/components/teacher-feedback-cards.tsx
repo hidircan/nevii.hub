@@ -54,6 +54,7 @@ export function TeacherFeedbackCards({ studentId, teachers }: { studentId: strin
               <div className="mt-4 border-t border-[var(--color-border)] pt-4">
                 <TeacherFeedbackForm
                   studentId={studentId}
+                  teacherId={t.teacherId}
                   teacherName={t.name}
                   initialFeedback={t.initialFeedback}
                   onSubmitted={() => setJustUpdated((prev) => ({ ...prev, [t.teacherId]: true }))}

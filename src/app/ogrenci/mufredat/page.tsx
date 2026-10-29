@@ -1,7 +1,8 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
+import { getPortalPageStudentId } from "@/lib/portal-context";
 import { listCurriculumForStudentTool } from "@/lib/services";
 import { CurriculumSummaryCard } from "@/components/curriculum-summary-card";
 
@@ -16,7 +17,8 @@ export default async function StudentCurriculumPage() {
   }
   if (session.role === "TEACHER") redirect("/ogretmen");
 
-  const studentId = session.studentId;
+  // 10. tur iş #1 — çözümlenmiş aktif öğrenci bağlamı.
+  const studentId = await getPortalPageStudentId(session);
   if (!studentId) {
     redirect("/ogrenci");
   }

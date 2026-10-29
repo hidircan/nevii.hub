@@ -20,7 +20,7 @@ export type MobilePolicyDecision = {
   maintenance: { active: boolean; message: string };
   minVersion: { ios: string; android: string };
   updateRequired: boolean;
-  push: { policy: "disabled" | "allowed"; providerConfigured: false; active: false; note: string };
+  push: { policy: "disabled" | "allowed"; providerConfigured: boolean; active: boolean; note: string };
   contractVersion: 1;
   /** Tur 3 (additive): kurum config sürümü — istemci önbelleğini bununla tazeler (bkz. /api/v1/config/snapshot). */
   configVersion: number;
@@ -227,13 +227,23 @@ export async function getMobileControlMatrix(tenantId: string): Promise<ServiceR
   });
 }
 
-const ROLE_PORTAL_KEY: Record<string, string | undefined> = {
-  STUDENT: "mobile.studentPortalEnabled",
-  TEACHER: "mobile.teacherPortalEnabled",
-  SUPER_ADMIN: "mobile.adminPortalEnabled",
-  SCHOOL_ADMIN: "mobile.adminPortalEnabled",
-  BRANCH_MANAGER: "mobile.adminPortalEnabled",
+/**
+ * Rol → portal anahtarı. BRANCH_MANAGER bilinçli olarak YOK: mobil istemci
+ * şube müdürünü her durumda web paneline yönlendirir (role-to-persona
+ * `manager_web`); sunucu da aynı gerçeği söyler.
+ */
+const ROLE_PORTAL_KEY: Record<string, "studentPortal" | "teacherPortal" | "adminPortal" | undefined> = {
+  STUDENT: "studentPortal",
+  TEACHER: "teacherPortal",
+  SUPER_ADMIN: "adminPortal",
+  SCHOOL_ADMIN: "adminPortal",
 };
+
+/** Kapalı mobil anahtarın nedeni + düzeltildiği yer (NeviiOS › Kurum › Mobil). */
+function mobileToggleOffReason(key: keyof typeof MOBILE_SETTING_KEY): string {
+  const label = MOBILE_CONTROL_LABEL[key];
+  return `${label} kapalı. Platform yöneticisi NeviiOS › Kurum › Mobil ekranında «${label}» (${MOBILE_SETTING_KEY[key]}) ayarını açmalı.`;
+}
 
 export function compareSemver(a: string, b: string): number {
   const pa = a.split(".").map(Number);
@@ -258,20 +268,37 @@ export async function getMobilePolicy(
   const v = (k: string) => settings.find((s) => s.key === k)?.effectiveValue;
   const reasons: string[] = [];
   const mobile = features.find((f) => f.key === "mobileApp");
-  if (!mobile?.entitled) reasons.push("Paket mobil uygulamayı içermiyor.");
-  else if (!mobile.enabled) reasons.push("Mobil uygulama modülü kurum için kapalı.");
-  if (v("mobile.appEnabled") !== true) reasons.push("Mobil portal kapalı.");
-  if (opts?.platform === "ios" && v("mobile.iosEnabled") !== true) reasons.push("iOS uygulaması kapalı.");
-  if (opts?.platform === "android" && v("mobile.androidEnabled") !== true) reasons.push("Android uygulaması kapalı.");
+  if (!mobile?.entitled) {
+    reasons.push(
+      "Kurum paketinde mobil uygulama hakkı yok. Platform yöneticisi NeviiOS › Kurum › Mobil ekranındaki «Mobil uygulama hakkını ver» düğmesiyle (veya Paket & Limit sekmesinden) hakkı vermeli."
+    );
+  } else if (!mobile.enabled) {
+    reasons.push(
+      "Mobil uygulama modülü bu kurumda kapatılmış. Kurum sahibi Panel › Kurum Özellikleri (/panel/ayarlar/ozellikler) ekranından ya da platform yöneticisi NeviiOS › Kurum › Modüller sekmesinden «Mobil uygulama» modülünü açmalı."
+    );
+  }
+  if (v("mobile.appEnabled") !== true) reasons.push(mobileToggleOffReason("app"));
+  if (opts?.platform === "ios" && v("mobile.iosEnabled") !== true) reasons.push(mobileToggleOffReason("ios"));
+  if (opts?.platform === "android" && v("mobile.androidEnabled") !== true) reasons.push(mobileToggleOffReason("android"));
+  // Birleşik (unified) şube ön ayarında efektif rol SCHOOL_ADMIN olur; giriş rolü yine BRANCH_MANAGER'dır.
   const portalKey = ROLE_PORTAL_KEY[ctx.role];
-  if (!portalKey) reasons.push("Bu rol için mobil portal yok.");
-  else if (v(portalKey) !== true) reasons.push("Bu rolün mobil portalı kapalı.");
+  if (ctx.role === "BRANCH_MANAGER" || ctx.loginRole === "BRANCH_MANAGER") {
+    reasons.push("Şube müdürü hesapları mobil uygulamayı kullanmaz; web panelini (/panel) kullanın.");
+  } else if (!portalKey) {
+    reasons.push("Bu hesap türü için mobil uygulama portalı yok; web panelini kullanın.");
+  } else if (v(MOBILE_SETTING_KEY[portalKey]) !== true) {
+    reasons.push(mobileToggleOffReason(portalKey));
+  }
 
   const minVersion = (v("mobile.minVersion") as { ios: string; android: string } | undefined) ?? { ios: "1.0.0", android: "1.0.0" };
   const updateRequired = Boolean(
     opts?.platform && opts.appVersion && /^\d+\.\d+\.\d+$/.test(opts.appVersion) && compareSemver(opts.appVersion, minVersion[opts.platform]) < 0
   );
   const message = String(v("mobile.maintenanceMessage") ?? "");
+  // Push gerçek durumu — secret değer ASLA yanıta girmez, yalnız boole bayraklar.
+  const { isPushActive } = await import("../push/config");
+  const providerConfigured = !!process.env.EXPO_PUSH_ACCESS_TOKEN;
+  const pushActive = isPushActive();
   return ok({
     allowed: reasons.length === 0,
     reasons,
@@ -281,9 +308,11 @@ export async function getMobilePolicy(
     updateRequired,
     push: {
       policy: v("mobile.pushPolicy") === "allowed" ? "allowed" : "disabled",
-      providerConfigured: false,
-      active: false,
-      note: "Push sağlayıcısı (APNs/FCM) bağlı değil; bildirim gönderilmez.",
+      providerConfigured,
+      active: pushActive,
+      note: pushActive
+        ? "Push gönderimi etkin (Expo Push Service)."
+        : "Push gönderimi kapalı; bildirim gönderilmez (PUSH_ENABLED + EXPO_PUSH_ACCESS_TOKEN gerekli).",
     },
     contractVersion: 1,
     configVersion,

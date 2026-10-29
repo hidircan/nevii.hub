@@ -27,13 +27,19 @@ import {
 import { clampPreferencesToPolicy } from "./appearance-policy";
 import { auditLog } from "./auth/audit";
 import { isFormalContractDuration } from "./contracts";
+import { parseEnrollmentDraftsJson } from "./enrollment-form";
 import { formatDate, formatTime, uid } from "./utils";
 import {
   cancelMakeupLessonTool,
+  extendMakeupDeadlineTool,
+  reviseMakeupPlanTool,
+  deleteMakeupPlanTool,
+  cancelMakeupRightTool,
   confirmMakeupLessonTool,
   createPaymentTool,
   updatePaymentTool,
   createStudentTool,
+  registerStudentWithEnrollmentsTool,
   updateStudentProfileTool,
   pauseStudentLessonScheduleTool,
   reactivateStudentLessonScheduleTool,
@@ -45,6 +51,7 @@ import {
   reactivateStudentPortalAccessTool,
   sendStudentPortalPasswordResetTool,
   getTeacherAccountStatusTool,
+  changeTeacherPortalEmailTool,
   setTeacherAccountActiveTool,
   sendTeacherPasswordResetTool,
   getStaffAccountStatusTool,
@@ -80,25 +87,37 @@ import {
   suggestLessonSlotsTool,
   teacherDayAvailabilityTool,
   updateLessonScheduleTool,
-  cancelLessonTool,
   previewLessonSeriesTool,
   createLessonSeriesTool,
-  cancelSeriesFromLessonTool,
-  cancelEntireSeriesTool,
   changeLessonTeacherOrBranchTool,
   createPaymentRecordTool,
   createFeeRuleTool,
   updateFeeRuleTool,
+  setTeacherPayoutPolicyTool,
   computeTeacherPayoutTool,
+  teacherEarningsStatementTool,
   createTeacherPayoutTool,
   markTeacherPayoutPaidTool,
   updateTeacherPayoutPaymentMethodTool,
   updateFeeRoundingModeTool,
   updatePerformanceWeightsTool,
   getStudentDeletionImpactTool,
+  getTeacherDeletionImpactTool,
+  deleteTeacherTool,
+  getPersonPurgePreviewTool,
+  purgePersonTool,
+  getBulkStudentPurgePreviewTool,
+  bulkPurgeStudentsTool,
+  restoreDeletedTeacherTool,
+  getPaymentDeletionPlanTool,
+  deletePaymentTool,
   deleteStudentTool,
   getPackageDeletionImpactTool,
   deletePackageTool,
+  getDocumentDeletionImpactTool,
+  deleteDocumentInstanceTool,
+  getDiscountCampaignDeletionImpactTool,
+  deleteDiscountCampaignTool,
   getTaskDeletionImpactTool,
   deleteTaskTool,
   restoreDeletedTaskTool,
@@ -108,9 +127,27 @@ import {
   reviseTeacherPayoutTool,
   resetTeacherPayoutRevisionTool,
   unmarkTeacherPayoutPaidTool,
+  addTeacherPayoutPaymentTool,
+  reverseTeacherPayoutPaymentTool,
+  addTeacherPayoutAdjustmentTool,
+  reverseTeacherPayoutAdjustmentTool,
+  cancelTeacherPayoutTool,
+  deleteTeacherPayoutTool,
+  settleTeacherPayoutDriftTool,
+  setLessonPayoutExclusionTool,
+  removeFeeRuleTool,
+  previewFeeRuleRemovalTool,
+  type PayoutPolicyImpactRow,
+  type PayoutLineSource,
   type ExistingPayoutSummary,
   setCriticalActionPasswordTool,
   type StudentDeletionImpact,
+  type TeacherDeletionImpact,
+  type PersonPurgePreview,
+  type PersonPurgeResult,
+  type BulkPurgePreview,
+  type BulkPurgeItemResult,
+  type PaymentDeletionPlan,
   updateMakeupWindowDaysTool,
   updateSchoolLogoTool,
   importSchoolLogoFromCurrentUrlTool,
@@ -188,16 +225,29 @@ import {
   getNotificationPreferencesTool,
   setNotificationPreferencesTool,
   resetNotificationPreferencesTool,
+  listMebStudentsTool,
+  getMebStudentEditImpactTool,
+  updateMebStudentTool,
+  type MebEditImpact,
+  type MebPanelRow,
+  upsertStudentEnrollmentTool,
+  assignRecordEnrollmentTool,
 } from "./services/tools";
 import { runWithTenantAsync } from "./tenant-context";
 import { getSessionAppearancePolicy } from "./platform/access";
 import { isProfileAllowed } from "./platform/policies";
 import { getSessionContext, requireSessionContext } from "./auth/session";
-import { readData } from "./store";
-import { buildLessonCommunicationDraft, type LessonCommunicationDraft } from "./whatsapp-templates";
+import { readData, readReferenceData } from "./store";
+import { withEgressLabel } from "./egress-label";
 import type { LessonSlotSuggestion } from "./lesson-scheduling";
 import type { SeriesOccurrenceCheck } from "./lesson-series";
-import type { RevisedEarningsLine, TeacherEarningsResult, TeacherPayoutPaymentMethodInfo } from "./teacher-payout";
+import type {
+  FeeRuleRemovalPreview,
+  RevisedEarningsLine,
+  TeacherEarningsResult,
+  TeacherPayoutPaymentMethodInfo,
+  PayoutPolicyResolution,
+} from "./teacher-payout";
 import type { FeeRoundingMode, TeacherFeeRule, TeacherPayout, TaskStatus, TaskPriority, TaskCategory, PaymentDueRange, StudentType } from "./types";
 import type { ImportPreview } from "./import/types";
 import type { ImportCommitResult } from "./import/commit-result";
@@ -209,6 +259,8 @@ import type { HistoricalContractImportRow } from "./import/historical-contracts"
 import type { LessonImportRow } from "./import/lessons";
 import type { LessonScheduleImportPreview } from "./import/lesson-schedule";
 import type { ServiceContext } from "./services/context";
+import type { AppRole } from "./auth/types";
+import type { ServiceResult } from "./services/result";
 
 function revalidateAll() {
   revalidatePath("/", "layout");
@@ -301,7 +353,7 @@ async function withAuthContext<T>(
   }
 
   try {
-    const result = await runWithTenantAsync(writeScope.tenantId, () => fn(ctx));
+    const result = await runWithTenantAsync(writeScope.tenantId, () => withEgressLabel(actionName, () => fn(ctx)));
     auditLog({
       action: actionName,
       requestId,
@@ -689,6 +741,78 @@ export async function actionCancelMakeup(_prevState: SimpleActionFormState, form
   return null;
 }
 
+function lifecycleForm(formData: FormData) {
+  const acknowledge = String(formData.get("acknowledgeCorrection") || "") === "1";
+  const correctionNote = String(formData.get("correctionNote") || "");
+  const paidPayoutConfirm = String(formData.get("paidPayoutConfirm") || "") === "1";
+  return {
+    requestId: String(formData.get("requestId") || ""),
+    acknowledgeCorrection: acknowledge,
+    correctionNote,
+    paidPayoutConfirm,
+    payoutReason: String(formData.get("payoutReason") || ""),
+    criticalPassword: String(formData.get("criticalPassword") || ""),
+  };
+}
+
+async function runLifecycleAction(
+  label: string,
+  formData: FormData,
+  run: (
+    ctx: import("./services/context").ServiceContext
+  ) => Promise<{ ok: true } | { ok: false; error: { code: string; message: string; details?: unknown } }>
+): Promise<SimpleActionFormState> {
+  try {
+    await withAuthContext(label, async (ctx) => {
+      const result = await run(ctx);
+      if (!result.ok) throw new ToolValidationFailure(result.error);
+    });
+    revalidateAll();
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    if (error instanceof ToolValidationFailure) return { ok: false, message: error.serviceError.message };
+    logger.error(`${label} failed`, error);
+    return { ok: false, message: "Telafi kaydı güncellenemedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+  return null;
+}
+
+export async function actionExtendMakeupDeadline(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionExtendMakeupDeadline", formData, (ctx) =>
+    extendMakeupDeadlineTool(ctx, { ...common, lastDayYmd: String(formData.get("lastDayYmd") || "") })
+  );
+}
+
+export async function actionReviseMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionReviseMakeupPlan", formData, (ctx) =>
+    reviseMakeupPlanTool(ctx, {
+      ...common,
+      teacherId: String(formData.get("teacherId") || ""),
+      roomId: String(formData.get("roomId") || ""),
+      startAt: String(formData.get("startAt") || ""),
+      allowAvailabilityOverride: String(formData.get("allowAvailabilityOverride") || "") === "1",
+    })
+  );
+}
+
+export async function actionDeleteMakeupPlan(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  return runLifecycleAction("actionDeleteMakeupPlan", formData, (ctx) => deleteMakeupPlanTool(ctx, lifecycleForm(formData)));
+}
+
+export async function actionCancelMakeupRight(_prev: SimpleActionFormState, formData: FormData): Promise<SimpleActionFormState> {
+  const common = lifecycleForm(formData);
+  return runLifecycleAction("actionCancelMakeupRight", formData, (ctx) =>
+    cancelMakeupRightTool(ctx, {
+      ...common,
+      decisionNote: String(formData.get("decisionNote") || ""),
+      alsoCancelPlan: String(formData.get("alsoCancelPlan") || "") === "1",
+    })
+  );
+}
+
 
 export type MarkPaymentPaidDetailedInput = {
   paymentId: string;
@@ -794,6 +918,8 @@ export type NewStudentFormState = {
   formError?: string;
   fieldErrors?: Record<string, string>;
   values?: Record<string, string>;
+  /** 2026-10-10 — branş taslağı anahtarı → alan → Türkçe hata. Hangi branşın hangi alanı hatalı olduğunu forma taşır. */
+  enrollmentErrors?: Record<string, Record<string, string>>;
 } | null;
 
 /**
@@ -878,12 +1004,23 @@ const STUDENT_FORM_VALUE_KEYS = [
   "lessonStartDate",
   "level",
   "targetExam",
+  "mebLevelStartDate",
+  "mebLevelEndDate",
+  "mebExamDate",
+  "mebExamStatus",
   "notes",
   "kvkkConsent",
+  // 2026-10-10 — çoklu branş: tüm branş taslakları (JSON) + yeniden gönderim kimliği. Hata sonrası form branşları buradan kurar.
+  "enrollments",
+  "registrationId",
+  // 2026-10-07 — grup dersi başvurusundan kayıt: hata sonrası form başvuru modunda kalsın.
+  "registrationKind",
+  "clubApplicationId",
+  "clubApplicationClubId",
 ] as const;
 
 /** Aynı `name`'i birden çok checkbox paylaşan tek alan — virgülle birleştirilip taşınır (değerlerde virgül YOK, sabit STUDENT_TYPES enum'undan gelir). */
-const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes", "lessonDays"] as const;
+const STUDENT_FORM_MULTI_VALUE_KEYS = ["studentTypes", "lessonDays", "campaignIds"] as const;
 
 function captureStudentFormValues(formData: FormData): Record<string, string> {
   const out: Record<string, string> = {};
@@ -906,22 +1043,47 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
   // ile forma ulaşır (bkz. new-student-form.tsx).
   let newStudentId: string | undefined;
   let inviteWarning: string | undefined;
+  // 2026-10-07 — grup dersi başvurusundan kayıt: üyelik/ücret burada AÇILMAZ; kayıttan sonra başvuruya dönülür.
+  const clubApplicationId = String(formData.get("clubApplicationId") || "").trim() || undefined;
+  let clubApplicationLinked = false;
+  let draftRedirectResult: { durationMonths: number; enrollmentId?: string } | undefined;
   try {
     await withAuthContext("actionAddStudent", async (ctx) => {
-      // P0-C (2026-09-02) — "İlk ödeme türü seçilmelidir" alan-bazlı hata:
-      // yöntem seçilmezse aşağıdaki `firstPaymentCollected` builder'ı TÜM
-      // alt-alanları (yöntem/tutar/tarih) TEK bir `undefined`'a çöker,
-      // `createStudentTool` yalnız JENERİK "tahsil edilmeden kayıt
-      // tamamlanamaz" mesajı görür — HANGİ alanın eksik olduğunu bilemez.
-      // Burada, istemcinin `required` attribute'una GÜVENMEDEN, yöntem
-      // özel olarak ayrıca kontrol edilir ve gerçek bir öğrenci OLUŞMADAN
-      // (createStudentTool'a hiç ulaşmadan) reddedilir.
-      const firstPaymentMethodRaw = String(formData.get("firstPaymentMethod") || "");
-      if (!firstPaymentMethodRaw) {
+      // P0-C (2026-09-02) — ilk ödeme alanları istemcinin `required`'ına GÜVENMEDEN,
+      // öğrenci OLUŞMADAN burada alan-bazlı doğrulanır (hangi alanın eksik olduğu söylenir).
+      // 2026-09-30 — %100 burslu kayıt: boş tutar ile geçerli "0" ayrı ele alınır;
+      // 0 TL'de yöntem/tarih istenmez (tahsilat yok), > 0'da ikisi de zorunlu.
+      // 2026-10-05 — Kulüp: "course" | "course_club" | "club_only". Kulüp seçimi ÖĞRENCİ OLUŞMADAN doğrulanır.
+      const registrationKind = String(formData.get("registrationKind") || "course");
+      const clubOnly = registrationKind === "club_only";
+      // 2026-10-10 — yeni kayıt formu tüm branşları gizli `enrollments` JSON'unda gönderir (eşit branş kartları); ilk tahsilat,
+      // ders günü ve MEB doğrulaması BRANŞ BAŞINA ortak doğrulama modülünden geçer. Düz alanlar yalnız "sadece kulüp" kaydında kalır.
+      const draftMode = !clubOnly && formData.has("enrollments");
+      let clubPlan: import("./clubs").ClubRegistrationPlan | null = null;
+      if (registrationKind !== "course") {
+        const { parseClubRegistration } = await import("./clubs");
+        const parsedClubs = await parseClubRegistration(ctx.tenantId, formData, true, { skipCapacity: !!clubApplicationId });
+        if (!parsedClubs.ok) {
+          throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: parsedClubs.message, details: { fieldErrors: parsedClubs.fieldErrors } });
+        }
+        clubPlan = parsedClubs.value;
+      }
+      const { parseRegistrationFirstPaymentForm } = await import("./first-payment-adjustment");
+      // Sadece kulüp: kurs tahsilatı yok (0) — kulüp ücreti ayrı kutudan.
+      const firstPaymentParsed = clubOnly || draftMode
+        ? ({ ok: true, value: { amount: 0 } } as const)
+        : parseRegistrationFirstPaymentForm({
+        method: String(formData.get("firstPaymentMethod") || ""),
+        amount: String(formData.get("firstPaymentAmount") ?? ""),
+        collectedAt: String(formData.get("firstPaymentDate") || ""),
+        reference: String(formData.get("firstPaymentReference") || ""),
+        note: String(formData.get("firstPaymentNote") || ""),
+      });
+      if (!firstPaymentParsed.ok) {
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
-          message: "İlk ödeme türü seçilmelidir.",
-          details: { fieldErrors: { firstPaymentMethod: ["İlk ödeme türü seçilmelidir."] } },
+          message: firstPaymentParsed.message,
+          details: { fieldErrors: firstPaymentParsed.fieldErrors },
         });
       }
 
@@ -933,7 +1095,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       // kesin zorunlu kılınır.
       const lessonDaysRaw = formData.getAll("lessonDays").map(Number).filter((n) => Number.isInteger(n));
       const weeklyLessonCountRaw = Number(formData.get("weeklyLessonCount") || 1);
-      if (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length) {
+      if (!clubOnly && !draftMode && (lessonDaysRaw.length !== weeklyLessonCountRaw || new Set(lessonDaysRaw).size !== lessonDaysRaw.length)) {
         const msg = `Haftalık ${weeklyLessonCountRaw} ders için ${weeklyLessonCountRaw} farklı ders günü seçmelisiniz.`;
         throw new ToolValidationFailure({
           code: "VALIDATION_ERROR",
@@ -942,7 +1104,25 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         });
       }
 
-      const createdResult = await createStudentTool(ctx, {
+      // 11. tur iş #11 — T.C. checksum kapısı KAYITTAN ÖNCE: geçersiz numara
+      // aşağıdaki post-create `setNationalIdTool` yolunda sessizce düşüyordu
+      // (öğrenci oluşmuş, kimlik kaybolmuş, kullanıcı kaydedildi sanıyordu —
+      // PII bütünlük kaybı). Burada reddedilince kayıt HİÇ oluşmaz, form
+      // değerler korunarak açık kalır ve alan işaretlenir.
+      const nationalIdRaw = String(formData.get("nationalId") || "").trim();
+      if (nationalIdRaw) {
+        const { isValidTurkishNationalId } = await import("./pii");
+        if (!isValidTurkishNationalId(nationalIdRaw)) {
+          const msg = "T.C. kimlik no geçersiz — 11 haneli, doğru bir numara girin veya boş bırakın.";
+          throw new ToolValidationFailure({
+            code: "VALIDATION_ERROR",
+            message: msg,
+            details: { fieldErrors: { nationalId: [msg] } },
+          });
+        }
+      }
+
+      const studentPayload = {
           name: String(formData.get("name") || ""),
           email: String(formData.get("email") || ""),
           phone: String(formData.get("phone") || ""),
@@ -959,7 +1139,18 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           branchId: String(formData.get("branchId") || ""),
           instrument: String(formData.get("instrument") || "Piyano"),
           teacherId: String(formData.get("teacherId") || ""),
-          packageName: String(formData.get("packageName") || "Bireysel Aylık — 4 ders"),
+          // Paket & Kampanya Motoru — serbest metin paket alanı formdan KALDIRILDI;
+          // packageName sunucuda paket başlığından türetilir (paketsiz legacy akışta
+          // gizli varsayılan korunur). Eski kayıtların packageName değeri aynen durur.
+          packageName: await (async () => {
+            const pkgId = String(formData.get("packageId") || "");
+            if (pkgId) {
+              const data = await readReferenceData();
+              const title = data.packages.find((p) => p.id === pkgId)?.title?.trim();
+              if (title) return title;
+            }
+            return String(formData.get("packageName") || "Bireysel Aylık — 4 ders");
+          })(),
           weeklyLessonCount: Number(formData.get("weeklyLessonCount") || 1),
           lessonDays: lessonDaysRaw,
           monthlyFee: Number(formData.get("monthlyFee") || 3000),
@@ -982,6 +1173,16 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           lessonScheduleText: String(formData.get("lessonScheduleText") || "") || undefined,
           level: String(formData.get("level") || "") || undefined,
           targetExam: String(formData.get("targetExam") || "") || undefined,
+          // MEB Paneli — MEB alanları opsiyonel (2026-09-29).
+          // Biçim/tutarlılık sunucu kapısında (`createStudentTool` →
+          // `validateMebFields`); MEB-dışı kayda bu değerler YAZILMAZ (strip).
+          mebLevelStartDate: String(formData.get("mebLevelStartDate") || "") || undefined,
+          mebLevelEndDate: String(formData.get("mebLevelEndDate") || "") || undefined,
+          mebExamDate: String(formData.get("mebExamDate") || "") || undefined,
+          mebExamAttended: (() => {
+            const raw = String(formData.get("mebExamStatus") || "");
+            return raw === "attended" ? true : raw === "not_attended" ? false : undefined;
+          })(),
           termType: (() => {
             const raw = String(formData.get("termType") || "");
             return raw === "guz" || raw === "yaz" ? raw : undefined;
@@ -1005,6 +1206,11 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             const raw = String(formData.get("discountValue") || "");
             return raw ? Number(raw) : undefined;
           })(),
+          // Paket & Kampanya Motoru — çoklu kampanya seçimi (tek indirim kaynağı kuralı sunucuda).
+          campaignIds: (() => {
+            const values = formData.getAll("campaignIds").map(String).filter(Boolean);
+            return values.length > 0 ? values : undefined;
+          })(),
           paymentMethod: (() => {
             const raw = String(formData.get("paymentMethod") || "");
             return raw === "cash" || raw === "transfer" || raw === "credit_card" ? raw : undefined;
@@ -1026,19 +1232,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // alanlar olmadan TAMAMLANAMAZ (bkz. createStudentTool gate). Tutar alanı
           // metin/inputMode="decimal" ile alınır (native number spinner yok).
           firstCollectionIncludesNextMonth: formData.get("firstCollectionIncludesNextMonth") === "1",
-          firstPaymentCollected: (() => {
-            const method = String(formData.get("firstPaymentMethod") || "");
-            const amountRaw = String(formData.get("firstPaymentAmount") || "").replace(/[^\d]/g, "");
-            const collectedAt = String(formData.get("firstPaymentDate") || "");
-            if (!method || !amountRaw || !collectedAt) return undefined;
-            return {
-              method: method as "credit_card" | "cash" | "transfer",
-              amount: Number(amountRaw),
-              collectedAt,
-              reference: String(formData.get("firstPaymentReference") || "") || undefined,
-              note: String(formData.get("firstPaymentNote") || "") || undefined,
-            };
-          })(),
+          firstPaymentCollected: firstPaymentParsed.value,
           firstPaymentExceptionReason: String(formData.get("firstPaymentExceptionReason") || "") || undefined,
           // P0-B (2026-09-02) — kök neden: bu alan formda toplanıyor
           // (`new-student-form.tsx` `name="firstPaymentAdjustmentReason"`) ve
@@ -1057,18 +1251,114 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
           // YALNIZCA düzenleme ekranındaki `actionProvisionStudentPortalAccess`
           // (şifreyi bir kez, React state'te gösteren) üzerinden verilir.
           createPortalAccess: false,
-        });
+        };
+      // Sadece kulüp: kurs alanları kullanılmaz — enstrüman/öğretmen ilk kulüpten, kurs ücreti 0 (kurs borcu ve
+      // sözleşme oluşmaz), ders günü/paket/indirim yok. Şube formdan; boşsa kulübün şubesi.
+      const firstClub = clubPlan?.clubs[0]?.club;
+      const clubOnlyTeacher = firstClub
+        ? (await readReferenceData()).teachers.find((t) => firstClub.teacherIds.includes(t.id) && t.active && t.instruments.includes(firstClub.instrument as never))
+        : undefined;
+      if (clubOnly && !clubOnlyTeacher) {
+        const msg = `${firstClub?.name ?? "Kulüp"} için "${firstClub?.instrument ?? ""}" branşında aktif öğretmen yok. Kulüpler ekranından öğretmen seçimini düzeltin.`;
+        throw new ToolValidationFailure({ code: "VALIDATION_ERROR", message: msg, details: { fieldErrors: { clubs: [msg] } } });
+      }
+      const createdResult = draftMode
+        ? await (async () => {
+            const parsedDrafts = parseEnrollmentDraftsJson(String(formData.get("enrollments") ?? ""));
+            if (!parsedDrafts.ok) {
+              throw new ToolValidationFailure({
+                code: "VALIDATION_ERROR",
+                message: parsedDrafts.message,
+                details: { fieldErrors: { enrollments: [parsedDrafts.message] } },
+              });
+            }
+            const registrationId = String(formData.get("registrationId") || "").trim() || undefined;
+            const reg = await registerStudentWithEnrollmentsTool(ctx, {
+              ...studentPayload,
+              enrollmentDrafts: parsedDrafts.drafts,
+              registrationId,
+            });
+            if (reg.ok) {
+              const formalIdx = parsedDrafts.drafts.findIndex((d) => isFormalContractDuration(Number(d.intendedDurationMonths)));
+              const pickIdx = formalIdx >= 0 ? formalIdx : 0;
+              draftRedirectResult = {
+                durationMonths: Number(parsedDrafts.drafts[pickIdx]?.intendedDurationMonths) || 3,
+                enrollmentId: formalIdx >= 0 ? reg.data.enrollmentIds[formalIdx] : undefined,
+              };
+              if (reg.data.warnings?.length) inviteWarning = [inviteWarning, ...reg.data.warnings].filter(Boolean).join(" ");
+            }
+            return reg;
+          })()
+        : await createStudentTool(
+        ctx,
+        clubOnly && firstClub && clubOnlyTeacher
+          ? {
+              ...studentPayload,
+              instrument: firstClub.instrument,
+              teacherId: clubOnlyTeacher.id,
+              branchId: studentPayload.branchId || firstClub.branchId || "",
+              packageName: `Kulüp — ${firstClub.name}`,
+              // Kayıt tarihi kurs bölümünde (devre dışı) — kulüp kaydında bugün (kurum saati); üyelik de bugün başlar.
+              enrollmentStartDate:
+                studentPayload.enrollmentStartDate ??
+                (await import("./timezone")).toZonedYmd(new Date(), (await import("./timezone")).DEFAULT_APP_TIMEZONE),
+              lessonStartDate: undefined,
+              intendedDurationMonths: undefined,
+              packageId: undefined,
+              weeklyLessonCount: 1,
+              lessonDays: undefined,
+              monthlyFee: 0,
+              discountType: undefined,
+              discountValue: undefined,
+              campaignIds: undefined,
+              lessonDurationMinutes: undefined,
+              firstCollectionIncludesNextMonth: false,
+              firstPaymentCollected: { amount: 0 },
+              firstPaymentAdjustmentReason: undefined,
+            }
+          : studentPayload
+      );
       if (!createdResult.ok) {
         throw new ToolValidationFailure(createdResult.error);
       }
       const created = createdResult.data;
       newStudentId = created.studentId;
 
+      // 2026-10-05 — kulüp üyelikleri + ilk ay kulüp ücreti (ayrı kutudan tahsil). Hata kaydı geri almaz → uyarı.
+      if (clubApplicationId) {
+        const { linkStudentToClubApplication } = await import("./club-applications");
+        clubApplicationLinked = await linkStudentToClubApplication(ctx, clubApplicationId, created.studentId);
+      } else if (clubPlan && clubPlan.clubs.length > 0) {
+        const { applyClubRegistration } = await import("./clubs");
+        const clubWarnings = await applyClubRegistration(ctx, created.studentId, clubPlan);
+        if (clubWarnings.length) inviteWarning = [inviteWarning, ...clubWarnings].filter(Boolean).join(" ");
+      }
+
+      // 2026-10-04 — kayıtta seçilen EK eğitimler (enstrüman + öğretmen + süre birlikte). Birincil eğitim
+      // formun ana alanlarıdır; ek eğitim yazılamazsa öğrenci yine oluşur, neden sözleşme ekranında gösterilir.
+      const extraRaw = draftMode ? "" : String(formData.get("extraEnrollments") || "");
+      if (extraRaw) {
+        let extras: ({ instrument: string; teacherId: string; lessonDurationMinutes: number } & Record<string, unknown>)[] = [];
+        try {
+          extras = JSON.parse(extraRaw);
+        } catch {
+          extras = [];
+        }
+        for (const extra of extras.slice(0, 6)) {
+          const res = await upsertStudentEnrollmentTool(ctx, { studentId: created.studentId, enrollment: extra });
+          if (!res.ok) {
+            inviteWarning = [inviteWarning, `Ek branş (${extra.instrument}) eklenemedi: ${res.error.message} Öğrenci → Özet → Branş kayıtları kartından "Branş kaydı ekle" ile ekleyin.`]
+              .filter(Boolean)
+              .join(" ");
+          }
+        }
+      }
+
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (asla düz metin Student.nationalIdCipher dışında bir yere yazılmaz).
-      const nationalId = String(formData.get("nationalId") || "").trim();
-      if (nationalId) {
-        await setNationalIdTool(ctx, { entity: "student", entityId: created.studentId, nationalId });
+      // Checksum yukarıda kayıt ÖNCESİ doğrulandı; burası yalnızca yazar.
+      if (nationalIdRaw) {
+        await setNationalIdTool(ctx, { entity: "student", entityId: created.studentId, nationalId: nationalIdRaw });
       }
 
       // P0 (2026-09-05) — sosyal medya (fotoğraf/video) izni ARTIK kayıt
@@ -1172,6 +1462,8 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
         message: error.serviceError.message,
       });
       const fieldErrors = fieldErrorsFromZodFlatten(error.serviceError.details);
+      const enrollmentErrors = (error.serviceError.details as { enrollmentErrors?: Record<string, Record<string, string>> } | undefined)
+        ?.enrollmentErrors;
       return {
         ok: false,
         formError:
@@ -1179,6 +1471,7 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
             ? "Formda düzeltilmesi gereken alanlar var — aşağıda işaretlendi."
             : error.serviceError.message,
         fieldErrors,
+        ...(enrollmentErrors ? { enrollmentErrors } : {}),
         values: captureStudentFormValues(formData),
       };
     }
@@ -1192,12 +1485,19 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
       values: captureStudentFormValues(formData),
     };
   }
+  if (newStudentId && clubApplicationId && clubApplicationLinked) {
+    // Başvuru ekranına dön: öğrenci önceden seçili, "Kulübe ekle" önizleme + onayla tamamlanır.
+    redirect(
+      `/panel/kulupler/basvurular/${encodeURIComponent(clubApplicationId)}?ogrenci=${encodeURIComponent(newStudentId)}`,
+      RedirectType.replace
+    );
+  }
   if (newStudentId) {
     // Faz 3/4 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — Student modeline
     // İŞLENMEZ (yeni bir kolon/migration YOK); yalnızca başarı banner'ının
     // trial/formal sınıflandırmasını ve sözleşme formunun süre ön-doldurmasını
     // belirlemek için redirect query'sinde taşınır.
-    const rawDuration = Number(formData.get("intendedDurationMonths") || 3);
+    const rawDuration = draftRedirectResult?.durationMonths ?? Number(formData.get("intendedDurationMonths") || 3);
     const intendedDurationMonths = Number.isInteger(rawDuration) && rawDuration >= 1 && rawDuration <= 12 ? rawDuration : 3;
     // FAZ (2026-2027 SÖZLEŞME KAYNAĞI) — formal kayıt (3-12 ay) doğrudan
     // Bağımsız Sözleşme Merkezi'ne (bkz. [studentId]/sozlesmeler) yönlendirilir;
@@ -1205,22 +1505,155 @@ export async function actionAddStudent(_prevState: NewStudentFormState, formData
     // üretim CTA'sı GÖSTERİLMEZ — bkz. RegistrationSuccessPanel).
     // 2026-09-22 — sözleşme opsiyonel: "Sadece öğrenci kaydını oluştur" seçildiyse
     // Sözleşme Merkezi'ne yönlendirilmez; öğrenci detayında "Sözleşme bekliyor" görünür.
-    const studentOnly = formData.get("afterSave") === "student";
+    // Sadece kulüp kaydında sözleşme yoktur (kulüp sözleşmeye girmez) → öğrenci detayı.
+    const studentOnly = formData.get("afterSave") === "student" || formData.get("registrationKind") === "club_only";
+    const branchQuery = draftRedirectResult?.enrollmentId ? `?brans=${encodeURIComponent(draftRedirectResult.enrollmentId)}` : "";
     const destination = !studentOnly && isFormalContractDuration(intendedDurationMonths)
-      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler`
+      ? `/panel/ogrenciler/${newStudentId}/sozlesmeler${branchQuery}`
       : `/panel/ogrenciler/${newStudentId}`;
     const inviteWarningQuery = inviteWarning ? `&davetUyari=${encodeURIComponent(inviteWarning)}` : "";
     // UAT 2026-09-24 (D) — replace: kaydedilmiş formun geçmiş girdisi silinir; tarayıcı Geri
     // boş/eski "Yeni öğrenci" formuna dönüp aynı öğrenciyi İKİNCİ kez oluşturamaz.
-    redirect(`${destination}?yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
+    redirect(`${destination}${destination.includes("?") ? "&" : "?"}yeniKayit=1&sure=${intendedDurationMonths}${inviteWarningQuery}`, RedirectType.replace);
   }
   return null;
 }
 
-export type UpdateStudentProfileActionResult = { ok: true } | { ok: false; message: string };
+export type UpdateStudentProfileActionResult =
+  | { ok: true }
+  | { ok: false; message: string; fieldErrors?: Record<string, string> };
+
+export async function actionUpdateMebStudent(input: {
+  studentId: string;
+  /** 2026-10-10 — MEB bilgisi branşa özgüdür; çok branşlı öğrencide düzenlenen satırın branşı. */
+  enrollmentId?: string;
+  level?: string;
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  branchId?: string;
+  branchChangeConfirmed?: boolean;
+}): Promise<{ ok: true } | { ok: false; message: string; fieldErrors?: Record<string, string> }> {
+  try {
+    const result = await withAuthContext("actionUpdateMebStudent", (ctx) => updateMebStudentTool(ctx, input));
+    if (!result.ok) {
+      return {
+        ok: false,
+        message:
+          result.error.message === "Invalid input"
+            ? "Kaydetme başarısız oldu. Lütfen işaretli alanları kontrol edin."
+            : result.error.message,
+        fieldErrors: fieldErrorsFromZodFlatten(result.error.details),
+      };
+    }
+    revalidateAll();
+    return { ok: true };
+  } catch (error) {
+    logger.error("actionUpdateMebStudent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "MEB bilgileri güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionGetMebStudentEditImpact(input: {
+  studentId: string;
+  enrollmentId?: string;
+  branchId?: string;
+}): Promise<{ ok: true; impact: MebEditImpact } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionGetMebStudentEditImpact", (ctx) =>
+      getMebStudentEditImpactTool(ctx, input)
+    );
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, impact: result.data };
+  } catch (error) {
+    logger.error("actionGetMebStudentEditImpact failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Etki özeti alınırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionListMebStudents(input: {
+  search?: string;
+  branchId?: string;
+  teacherId?: string;
+  instrument?: string;
+  active?: "active" | "passive" | "all";
+  examStatus?: "unknown" | "not_attended" | "attended";
+  sort?: "name" | "level" | "mebLevelStartDate" | "mebLevelEndDate" | "mebExamDate";
+  sortDir?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}): Promise<
+  | { ok: true; rows: MebPanelRow[]; total: number; page: number; pageSize: number }
+  | { ok: false; message: string }
+> {
+  try {
+    const result = await withAuthContext("actionListMebStudents", (ctx) => listMebStudentsTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, ...result.data };
+  } catch (error) {
+    logger.error("actionListMebStudents failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "MEB listesi alınırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/** 2026-10-04 — öğrencinin eğitimini ekle/güncelle/kapat (bkz. upsertStudentEnrollmentTool). */
+export async function actionUpsertStudentEnrollment(input: {
+  studentId: string;
+  /** 2026-10-09 — branş kaydı alanları (bkz. tools.ts enrollmentInputSchema; doğrulama sunucuda). */
+  enrollment: Record<string, unknown> & { instrument: string; teacherId: string; lessonDurationMinutes: number };
+}): Promise<{ ok: true; warnings?: string[]; enrollmentId?: string } | { ok: false; message: string; fieldErrors?: Record<string, string> }> {
+  try {
+    const result = await withAuthContext("actionUpsertStudentEnrollment", (ctx) => upsertStudentEnrollmentTool(ctx, input));
+    if (!result.ok) {
+      const d = (result.error.details ?? {}) as { field?: string; fieldErrors?: Record<string, string[]> };
+      const fieldErrors: Record<string, string> = {};
+      for (const [k, msgs] of Object.entries(d.fieldErrors ?? {})) if (msgs?.[0]) fieldErrors[k] = msgs[0];
+      if (d.field && !fieldErrors[d.field]) fieldErrors[d.field] = result.error.message;
+      return { ok: false, message: result.error.message, ...(Object.keys(fieldErrors).length ? { fieldErrors } : {}) };
+    }
+    revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
+    return {
+      ok: true,
+      enrollmentId: result.data.enrollmentId,
+      ...(result.data.warnings?.length ? { warnings: result.data.warnings } : {}),
+    };
+  } catch (e) {
+    logger.error("actionUpsertStudentEnrollment failed", e);
+    return { ok: false, message: "Branş kaydı kaydedilemedi; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+/** 2026-10-09 — "Branşa bağla": branşı belirtilmemiş sözleşmeyi (zinciriyle) veya sözleşmesiz ödemeyi açıkça bağlar. */
+export async function actionAssignRecordEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  contractId?: string;
+  paymentId?: string;
+}): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionAssignRecordEnrollment", (ctx) => assignRecordEnrollmentTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidatePath(`/panel/ogrenciler/${input.studentId}`, "layout");
+    revalidatePath(`/panel/odemeler/${input.studentId}`);
+    const d = result.data;
+    return {
+      ok: true,
+      message: `Branşa bağlandı: ${d.contracts} sözleşme, ${d.payments} ödeme satırı, ${d.series} ders serisi, ${d.lessons} ders.`,
+    };
+  } catch (e) {
+    logger.error("actionAssignRecordEnrollment failed", e);
+    return { ok: false, message: "Kayıt branşa bağlanamadı; hiçbir değişiklik yapılmadı. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
 
 export async function actionUpdateStudentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — branş koşullarını (tür, seviye, MEB, süre, ödeme…) değiştirirken hedef branş. Çok branşlıda zorunlu. */
+  enrollmentId?: string;
   studentType?: string;
   /** Faz 1B — verilirse tekil studentType'ın YERİNE birincil kaynak olur. */
   studentTypes?: StudentType[];
@@ -1232,6 +1665,11 @@ export async function actionUpdateStudentProfile(input: {
   enrollmentEndDate?: string;
   level?: string;
   targetExam?: string;
+  /** MEB Paneli — MEB seviye dönemi + sınav (MEB kapısı `updateStudentProfileTool`'da). */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
   specialNotes?: string;
   /** ÖNCELİK 4 (devam) — yalnız SCHOOL_ADMIN/SUPER_ADMIN (updateStudentProfileTool RBAC'ı) set edebilir. */
   termType?: "guz" | "yaz";
@@ -1268,7 +1706,12 @@ export async function actionUpdateStudentProfile(input: {
     const result = await withAuthContext("actionUpdateStudentProfile", (ctx) =>
       updateStudentProfileTool(ctx, input)
     );
-    if (!result.ok) return { ok: false, message: result.error.message };
+    if (!result.ok)
+      return {
+        ok: false,
+        message: result.error.message,
+        fieldErrors: fieldErrorsFromZodFlatten(result.error.details),
+      };
     revalidateAll();
     return { ok: true };
   } catch (error) {
@@ -1347,7 +1790,7 @@ export async function actionProvisionStudentPortalAccess(input: {
 }
 
 export type SendInvitationActionResult =
-  | { ok: true; delivered: boolean; blocked?: boolean; activationLink?: string }
+  | { ok: true; delivered: boolean; blocked?: boolean; activationLink?: string; linkedExistingAccount?: boolean }
   | { ok: false; message: string };
 
 /**
@@ -1371,11 +1814,161 @@ export async function actionInviteStudentPortalAccess(input: {
       delivered: result.data.delivered,
       blocked: result.data.blocked,
       activationLink: result.data.activationLink,
+      linkedExistingAccount: result.data.linkedExistingAccount,
     };
   } catch (error) {
     logger.error("actionInviteStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Davet gönderilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/**
+ * 10. tur iş #1 — veli portalında kardeşler arası öğrenci seçimi. Seçim
+ * YALNIZCA sunucu tarafında doğrulanır: aktif `StudentPortalAccess` + aktif
+ * (silinmemiş) öğrenci kaydı ŞARTTIR. Pasif/silinmiş/yetkisiz bir id
+ * gönderilirse cookie YAZILMAZ ve hata dönülür — pasif veri asla açılmaz.
+ * Tenant kimliği SADECE oturumdan gelir (istemci girdisinden asla).
+ */
+export async function actionSelectPortalStudent(input: {
+  studentId: string;
+}): Promise<{ ok: true; studentId: string } | { ok: false; message: string }> {
+  try {
+    const target = String(input.studentId || "").trim().slice(0, 128);
+    if (!target) return { ok: false, message: "Öğrenci seçilmedi." };
+    const result = await withAuthContext("actionSelectPortalStudent", async (ctx) => {
+      if (ctx.role !== "STUDENT") return { ok: false as const, message: "Bu işlem yalnızca öğrenci/veli portalında kullanılabilir." };
+      const { hasActiveStudentAccess } = await import("./student-portal-access");
+      if (!(await hasActiveStudentAccess(ctx.tenantId, ctx.userId, target))) {
+        return { ok: false as const, message: "Bu öğrenciye erişim izniniz yok." };
+      }
+      const { readStudentById } = await import("./store");
+      const student = await readStudentById(target);
+      if (!student || student.deletedAt) return { ok: false as const, message: "Öğrenci kaydı bulunamadı." };
+      if (!student.active) {
+        return { ok: false as const, message: "Bu öğrencinin kaydı pasif durumda — aktif bir öğrenci seçin." };
+      }
+      const { PORTAL_STUDENT_COOKIE } = await import("./portal-context");
+      const jar = await cookies();
+      jar.set(PORTAL_STUDENT_COOKIE, target, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 90,
+      });
+      return { ok: true as const, studentId: target };
+    });
+    if (!result.ok) return { ok: false, message: result.message };
+    revalidatePath("/ogrenci");
+    revalidatePath("/veli");
+    return { ok: true, studentId: result.studentId };
+  } catch (error) {
+    logger.error("actionSelectPortalStudent failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Öğrenci seçilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+/**
+ * 10. tur iş #2 — kurum e-posta şablonları yönetim aksiyonları. İnce
+ * sarmalayıcılar: yetki + doğrulama tool katmanındadır.
+ */
+export async function actionListEmailTemplates(input: { locale?: "tr" | "en" }) {
+  try {
+    const { listEmailTemplatesTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionListEmailTemplates", (ctx) => listEmailTemplatesTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, templates: result.data.templates };
+  } catch (error) {
+    logger.error("actionListEmailTemplates failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablonlar okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionGetEmailTemplate(input: { key: string; locale?: "tr" | "en" }) {
+  try {
+    const { getEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionGetEmailTemplate", (ctx) => getEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, detail: result.data };
+  } catch (error) {
+    logger.error("actionGetEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablon okunurken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSaveEmailTemplateDraft(input: {
+  key: string;
+  locale?: "tr" | "en";
+  fields: { subject: string; preheader: string; introHtml: string; bodyHtml: string; signatureHtml: string; ctaLabel: string; showLogo: boolean };
+}) {
+  try {
+    const { saveEmailTemplateDraftTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionSaveEmailTemplateDraft", (ctx) => saveEmailTemplateDraftTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, version: result.data.version };
+  } catch (error) {
+    logger.error("actionSaveEmailTemplateDraft failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Taslak kaydedilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionPublishEmailTemplate(input: { key: string; locale?: "tr" | "en"; version: number }) {
+  try {
+    const { publishEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionPublishEmailTemplate", (ctx) => publishEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, version: result.data.version };
+  } catch (error) {
+    logger.error("actionPublishEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Şablon yayımlanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionResetEmailTemplate(input: { key: string; locale?: "tr" | "en" }) {
+  try {
+    const { resetEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionResetEmailTemplate", (ctx) => resetEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    revalidatePath("/panel/e-posta-sablonlari");
+    return { ok: true as const, archivedCount: result.data.archivedCount };
+  } catch (error) {
+    logger.error("actionResetEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Varsayılana dönülürken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionPreviewEmailTemplate(input: { key: string; locale?: "tr" | "en"; version?: number }) {
+  try {
+    const { previewEmailTemplateTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionPreviewEmailTemplate", (ctx) => previewEmailTemplateTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, preview: result.data };
+  } catch (error) {
+    logger.error("actionPreviewEmailTemplate failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Önizleme üretilirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export async function actionSendEmailTemplateTest(input: { key: string; locale?: "tr" | "en"; version?: number }) {
+  try {
+    const { sendEmailTemplateTestTool } = await import("./email-templates/tools");
+    const result = await withAuthContext("actionSendEmailTemplateTest", (ctx) => sendEmailTemplateTestTool(ctx, input));
+    if (!result.ok) return { ok: false as const, message: result.error.message };
+    return { ok: true as const, delivered: result.data.delivered, to: result.data.to };
+  } catch (error) {
+    logger.error("actionSendEmailTemplateTest failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false as const, message: "Test e-postası gönderilirken beklenmeyen bir hata oluştu." };
   }
 }
 
@@ -1397,15 +1990,32 @@ export async function actionInviteTeacherAccount(input: { teacherId: string }): 
 /* Portal erişim yönetimi kartı — öğrenci/öğretmen detay ekranı         */
 /* ------------------------------------------------------------------ */
 
+/** Kartta gösterilen efektif MOBİL erişim — tek kaynak getMobilePolicy (salt-okur). */
+export type MobileAccessSummary = { allowed: boolean; reasons: string[] } | null;
+
+/**
+ * Kişinin rolü için bu kurumdaki mobil kararı. Tenant yalnız oturumdan gelir;
+ * yönetici ctx'i yayılmaz (loginRole sızmasın), yeni ctx kurulur.
+ */
+async function mobileAccessFor(ctx: ServiceContext, role: string | null): Promise<MobileAccessSummary> {
+  if (!role) return null;
+  const { getMobilePolicy } = await import("./platform/mobile-policy");
+  const r = await getMobilePolicy({ role: role as AppRole, userId: "portal_access_card", tenantId: ctx.tenantId, channel: "mobile" });
+  return r.ok ? { allowed: r.data.allowed, reasons: r.data.reasons } : null;
+}
+
 export type StudentPortalAccessListResult =
-  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[] }
+  | { ok: true; accounts: import("./services/tools").StudentPortalAccessSummaryRow[]; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStudentPortalAccess(input: { studentId: string }): Promise<StudentPortalAccessListResult> {
   try {
-    const result = await withAuthContext("actionGetStudentPortalAccess", (ctx) => getStudentPortalAccessTool(ctx, input));
+    const result = await withAuthContext("actionGetStudentPortalAccess", async (ctx) => {
+      const r = await getStudentPortalAccessTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "STUDENT") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, accounts: result.data.accounts };
+    return { ok: true, accounts: result.data.accounts, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStudentPortalAccess failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -1455,14 +2065,35 @@ export async function actionSendStudentPortalPasswordReset(input: { studentId: s
 }
 
 export type TeacherAccountStatusResult =
-  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").TeacherAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
+
+/** 2026-10-14 — öğretmen portal giriş e-postası (yalnız kurum sahibi; yetki tool'da). */
+export async function actionChangeTeacherPortalEmail(input: {
+  teacherId: string;
+  newEmail: string;
+  confirm: true;
+}): Promise<{ ok: true; mode: "pending_invitation_updated" | "verification_sent"; newEmail: string; delivered: boolean } | { ok: false; message: string }> {
+  try {
+    const result = await withAuthContext("actionChangeTeacherPortalEmail", (ctx) => changeTeacherPortalEmailTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    revalidateAll();
+    return { ok: true, mode: result.data.mode, newEmail: result.data.newEmail, delivered: result.data.delivered };
+  } catch (error) {
+    logger.error("actionChangeTeacherPortalEmail failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Portal e-postası değiştirilirken beklenmeyen bir hata oluştu. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
 
 export async function actionGetTeacherAccountStatus(input: { teacherId: string }): Promise<TeacherAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetTeacherAccountStatus", (ctx) => getTeacherAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetTeacherAccountStatus", async (ctx) => {
+      const r = await getTeacherAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, "TEACHER") } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetTeacherAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -1502,14 +2133,17 @@ export async function actionSendTeacherPasswordReset(input: { teacherId: string 
 /* ------------------------------------------------------------------ */
 
 export type StaffAccountStatusResult =
-  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary }
+  | { ok: true; status: import("./services/tools").StaffAccountStatusSummary; mobile: MobileAccessSummary }
   | { ok: false; message: string };
 
 export async function actionGetStaffAccountStatus(input: { staffId: string }): Promise<StaffAccountStatusResult> {
   try {
-    const result = await withAuthContext("actionGetStaffAccountStatus", (ctx) => getStaffAccountStatusTool(ctx, input));
+    const result = await withAuthContext("actionGetStaffAccountStatus", async (ctx) => {
+      const r = await getStaffAccountStatusTool(ctx, input);
+      return r.ok ? { ...r, mobile: await mobileAccessFor(ctx, r.data.exists ? r.data.role : null) } : r;
+    });
     if (!result.ok) return { ok: false, message: result.error.message };
-    return { ok: true, status: result.data };
+    return { ok: true, status: result.data, mobile: result.mobile };
   } catch (error) {
     logger.error("actionGetStaffAccountStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
@@ -1567,6 +2201,8 @@ export type UpdateStudentPaymentProfileActionResult =
  */
 export async function actionUpdateStudentPaymentProfile(input: {
   studentId: string;
+  /** 2026-10-10 — ödeme profili BRANŞA özgüdür; çok branşlıda hedef branş zorunlu. */
+  enrollmentId?: string;
   packageId?: string;
   lessonDurationMinutes?: number;
   discountType?: "percent" | "amount";
@@ -1770,9 +2406,13 @@ export async function actionUpdateRoom(input: {
 }
 
 /** 8. tur (E) — pasif oda silme (soft delete, geçmiş dersler korunur). */
-export async function actionDeleteRoom(roomId: string): Promise<UpdateRoomActionResult> {
+export async function actionDeleteRoom(input: {
+  roomId: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<UpdateRoomActionResult> {
   try {
-    const result = await withAuthContext("actionDeleteRoom", (ctx) => deleteRoomTool(ctx, { roomId }));
+    const result = await withAuthContext("actionDeleteRoom", (ctx) => deleteRoomTool(ctx, input));
     if (!result.ok) return { ok: false, message: result.error.message };
     revalidateAll();
     return { ok: true };
@@ -2228,6 +2868,10 @@ export async function actionUpdateCollectionsSettings(input: {
   autoSendEnabled: boolean;
   vakifbankIban?: string;
   halkbankIban?: string;
+  paymentReminderEnabled?: boolean;
+  paymentReminderDaysBefore?: number;
+  paymentReminderRepeatDays?: number;
+  paymentReminderMaxRepeats?: number;
 }): Promise<UpdateCollectionsSettingsActionResult> {
   try {
     const result = await withAuthContext("actionUpdateCollectionsSettings", (ctx) =>
@@ -2309,6 +2953,21 @@ export async function actionAddTeacher(_prevState: NewTeacherFormState, formData
           // geçersiz JSON — varsayılan müsaitliğe düş
         }
       }
+      // 11. tur iş #11 — T.C. checksum kapısı KAYITTAN ÖNCE (öğrenci
+      // action'ındaki AYNI desen): geçersiz numara post-create yolunda
+      // sessizce düşüyordu.
+      const teacherNationalIdRaw = String(formData.get("nationalId") || "").trim();
+      if (teacherNationalIdRaw) {
+        const { isValidTurkishNationalId } = await import("./pii");
+        if (!isValidTurkishNationalId(teacherNationalIdRaw)) {
+          const msg = "T.C. kimlik no geçersiz — 11 haneli, doğru bir numara girin veya boş bırakın.";
+          throw new ToolValidationFailure({
+            code: "VALIDATION_ERROR",
+            message: msg,
+            details: { fieldErrors: { nationalId: [msg] } },
+          });
+        }
+      }
       const createdResult = await createTeacherTool(ctx, {
         name: String(formData.get("name") || ""),
         email: String(formData.get("email") || ""),
@@ -2348,9 +3007,9 @@ export async function actionAddTeacher(_prevState: NewTeacherFormState, formData
 
       // T.C. kimlik — şifreli saklama, mevcut setNationalIdTool üzerinden
       // (öğrenci create formuyla aynı desen — asla düz metin bir yere yazılmaz).
-      const nationalId = String(formData.get("nationalId") || "").trim();
-      if (nationalId) {
-        await setNationalIdTool(ctx, { entity: "teacher", entityId: created.teacherId, nationalId });
+      // Checksum yukarıda kayıt ÖNCESİ doğrulandı; burası yalnızca yazar.
+      if (teacherNationalIdRaw) {
+        await setNationalIdTool(ctx, { entity: "teacher", entityId: created.teacherId, nationalId: teacherNationalIdRaw });
       }
 
       // Portal erişim yönetimi görevi — `actionAddStudent`'taki AYNI desen:
@@ -2517,6 +3176,10 @@ export async function actionCreatePackage(formData: FormData): Promise<CreatePac
         defaultPaymentDueDay: formData.get("defaultPaymentDueDay")
           ? Number(formData.get("defaultPaymentDueDay"))
           : undefined,
+        applicableBranchIds: (() => {
+          const values = formData.getAll("applicableBranchIds").map(String).filter(Boolean);
+          return values.length > 0 ? values : undefined;
+        })(),
         notes: String(formData.get("notes") || "") || undefined,
       });
       if (!result.ok) return { ok: false as const, message: result.error.message };
@@ -2545,6 +3208,7 @@ export async function actionUpdatePackage(input: {
   groupLessonCount?: number;
   defaultDurationMinutes?: number;
   defaultPaymentDueDay?: number;
+  applicableBranchIds?: string[];
   notes?: string;
 }): Promise<UpdatePackageActionResult> {
   try {
@@ -2561,11 +3225,16 @@ export async function actionUpdatePackage(input: {
 
 export type CreateDiscountCampaignInput = {
   name: string;
+  description?: string;
   kind: "sibling";
   discountPercent: number;
   validFrom?: string;
   validTo?: string;
   branchId?: string;
+  applicableBranchIds?: string[];
+  stackingRule?: "none" | "additive" | "override" | "yield";
+  priority?: number;
+  maxUsageCount?: number;
 };
 
 export type CreateDiscountCampaignActionResult = { ok: true; campaignId: string } | { ok: false; message: string };
@@ -2590,10 +3259,16 @@ export async function actionCreateDiscountCampaign(
 export type UpdateDiscountCampaignInput = {
   campaignId: string;
   name?: string;
+  description?: string;
   discountPercent?: number;
   active?: boolean;
   validFrom?: string;
   validTo?: string;
+  branchId?: string | null;
+  applicableBranchIds?: string[];
+  stackingRule?: "none" | "additive" | "override" | "yield";
+  priority?: number;
+  maxUsageCount?: number | null;
 };
 
 export type UpdateDiscountCampaignActionResult = { ok: true } | { ok: false; message: string };
@@ -2982,14 +3657,13 @@ export async function actionAddRoom(_prevState: AddRoomFormState, formData: Form
 }
 
 export type LessonActionResult =
-  | { ok: true; lessonId: string; communication: LessonCommunicationDraft | null }
+  | { ok: true; lessonId: string }
   | { ok: false; message: string; overridable?: boolean };
 
 /**
  * Hata durumunda fırlatmaz — Program Stüdyosu client bileşeni sonucu
  * doğrudan gösterip forma bağlamında Türkçe bir hata göstersin diye
- * `{ ok: false, message }` döner. Başarıda, ders için otomatik gönderim
- * yapılmayan veli/öğretmen iletişim taslağını da birlikte döndürür.
+ * `{ ok: false, message }` döner. Ders planlama mesaj taslağı ÜRETMEZ (sahip kararı 2026-10-18).
  */
 export async function actionAddLesson(formData: FormData): Promise<LessonActionResult> {
   try {
@@ -3009,29 +3683,15 @@ export async function actionAddLesson(formData: FormData): Promise<LessonActionR
         term: termRaw === "guz" || termRaw === "yaz" ? termRaw : undefined,
         academicYearStart: academicYearStartRaw ? Number(academicYearStartRaw) : undefined,
         overrideAvailability: formData.get("overrideAvailability") === "true",
+        overrideReason: (formData.get("overrideReason") as string | null) ?? undefined,
+        enrollmentId: (formData.get("enrollmentId") as string | null) || undefined,
       });
       if (!created.ok) {
         const details = created.error.details as { overridable?: boolean } | undefined;
         return { ok: false as const, message: created.error.message, overridable: details?.overridable };
       }
 
-      const data = await readData();
-      const lesson = data.lessons.find((l) => l.id === created.data.lessonId);
-      const student = data.students.find((s) => s.id === lesson?.studentId);
-      const teacher = data.teachers.find((t) => t.id === lesson?.teacherId);
-      const branch = data.settings.branches.find((b) => b.id === lesson?.branchId);
-      const communication =
-        lesson && student && teacher
-          ? buildLessonCommunicationDraft(
-              data.settings.name,
-              student,
-              teacher,
-              lesson,
-              branch?.shortName ?? ""
-            )
-          : null;
-
-      return { ok: true as const, lessonId: created.data.lessonId, communication };
+      return { ok: true as const, lessonId: created.data.lessonId };
     });
     if (result.ok) revalidateAll();
     return result;
@@ -3118,27 +3778,9 @@ export async function actionUpdateLessonSchedule(input: {
   }
 }
 
-export type CancelLessonActionResult = { ok: true } | { ok: false; message: string };
-
-export async function actionCancelLesson(input: {
-  lessonId: string;
-  /** 9. tur — iptal kaynağı; öğretmen katılımı yalnız öğretmen kaynaklıysa ve açıkça seçildiyse. */
-  disruptionSource?: "teacher" | "institution" | "student" | "other";
-  disruptionNote?: string;
-  teacherAttendance?: "gelmedi" | "mazeretli";
-}): Promise<CancelLessonActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelLesson", (ctx) => cancelLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateLessonSurfaces();
-    return { ok: true };
-  } catch (error) {
-    logger.error("actionCancelLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Ders iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
+// 2026-10-15 — web Ders Programı'ndan "iptal et" eylemi kaldırıldı (iş birimi silmek isterken iptale basıyordu).
+// Geçmiş iptal kayıtları korunur; yayımlanmış mobil admin uygulaması için POST /api/v1/lessons/:id/cancel ve
+// cancelLessonTool kalır (mobil arayüzden kaldırma ayrı sürüm işi).
 
 export type LessonSeriesParamsInput = {
   studentId: string;
@@ -3157,7 +3799,16 @@ export type LessonSeriesParamsInput = {
 };
 
 export type PreviewLessonSeriesActionResult =
-  | { ok: true; previewText: string; occurrenceCount: number; conflictCount: number; checks: SeriesOccurrenceCheck[] }
+  | {
+      ok: true;
+      previewText: string;
+      occurrenceCount: number;
+      conflictCount: number;
+      checks: SeriesOccurrenceCheck[];
+      availabilityConflictCount: number;
+      overriddenCount: number;
+      canOverrideAvailability: boolean;
+    }
   | { ok: false; message: string };
 
 export async function actionPreviewLessonSeries(
@@ -3206,36 +3857,6 @@ export async function actionCreateLessonSeries(
   }
 }
 
-export type SeriesCancelActionResult = { ok: true; cancelledLessonIds: string[] } | { ok: false; message: string };
-
-export async function actionCancelSeriesFromLesson(input: { lessonId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelSeriesFromLesson", (ctx) => cancelSeriesFromLessonTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelSeriesFromLesson failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
-
-export async function actionCancelEntireSeries(input: { seriesId: string }): Promise<SeriesCancelActionResult> {
-  try {
-    const result = await withAuthContext("actionCancelEntireSeries", (ctx) => cancelEntireSeriesTool(ctx, input));
-    if (!result.ok) return { ok: false, message: result.error.message };
-    revalidateAll();
-    return { ok: true, cancelledLessonIds: result.data.cancelledLessonIds };
-  } catch (error) {
-    logger.error("actionCancelEntireSeries failed", error);
-    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
-    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
-    return { ok: false, message: "Seri iptal edilirken beklenmeyen bir hata oluştu." };
-  }
-}
-
 export type LessonEditScopeInput = "single" | "fromHereOnward" | "entireSeries";
 
 export type DeleteLessonsActionResult =
@@ -3244,7 +3865,12 @@ export type DeleteLessonsActionResult =
   | { ok: false; message: string; forceable?: boolean };
 
 /** 2026-09-17 — ders silme (kapsamlı); korunan dersler tarih + nedenle döner. */
-export async function actionDeleteLessons(input: { lessonId: string; scope: LessonEditScopeInput; reason?: string }): Promise<DeleteLessonsActionResult> {
+export async function actionDeleteLessons(input: {
+  lessonId: string;
+  scope: LessonEditScopeInput;
+  reason: string;
+  criticalPassword: string;
+}): Promise<DeleteLessonsActionResult> {
   try {
     const result = await withAuthContext("actionDeleteLessons", (ctx) => deleteLessonsTool(ctx, input));
     if (!result.ok) {
@@ -3367,11 +3993,14 @@ export type AddPaymentFormState = {
 export async function actionAddPayment(_prevState: AddPaymentFormState, formData: FormData): Promise<AddPaymentFormState> {
   try {
     await withAuthContext("actionAddPayment", async (ctx) => {
+      const enrollmentRaw = formData.get("enrollmentId");
       const result = await createPaymentRecordTool(ctx, {
         studentId: String(formData.get("studentId") || ""),
         description: String(formData.get("description") || ""),
         amount: Number(formData.get("amount") || 0),
         dueDate: String(formData.get("dueDate") || ""),
+        // 2026-10-09 — alan yalnız çok branşlı öğrencide formda bulunur ("" = branşa bağlı değil).
+        ...(enrollmentRaw === null || enrollmentRaw === "" ? {} : { enrollmentId: enrollmentRaw === "__none__" ? "" : String(enrollmentRaw) }),
       });
       if (!result.ok) {
         throw new ToolValidationFailure(result.error);
@@ -3453,11 +4082,109 @@ export async function actionUpdateFeeRule(input: UpdateFeeRuleActionInput): Prom
   }
 }
 
+export type SetPayoutPolicyActionResult =
+  | {
+      ok: true;
+      changed: boolean;
+      preview: boolean;
+      impact: PayoutPolicyImpactRow[];
+      recalculated?: number;
+      needsAdjustment?: { teacherName: string; drift: number }[];
+      failed?: string[];
+    }
+  | { ok: false; message: string };
+
+/** Hakedişler ekranı: ayın politikası — `preview:true` etki tablosu döner, yazmaz. */
+export async function actionSetTeacherPayoutPolicy(input: {
+  month: string;
+  policy: "per_teacher_rule" | "fixed_duration";
+  rate30?: number;
+  rate40?: number;
+  rate50?: number;
+  preview?: boolean;
+}): Promise<SetPayoutPolicyActionResult> {
+  try {
+    const result = await withAuthContext("actionSetTeacherPayoutPolicy", (ctx) => setTeacherPayoutPolicyTool(ctx, input));
+    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "Politika seçimini ve tutarları kontrol edin.") };
+    if (!input.preview) revalidateAll();
+    return { ok: true, ...result.data };
+  } catch (error) {
+    logger.error("actionSetTeacherPayoutPolicy failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Hakediş politikası kaydedilirken beklenmeyen bir hata oluştu; politika değişmedi." };
+  }
+}
+
+type LedgerActionResult<T> = { ok: true; data: T } | { ok: false; message: string };
+
+/** 2026-09-30 — hakediş defteri işlemleri için ortak sarmalayıcı (Türkçe hata, revalidate). */
+async function runPayoutLedgerAction<T>(
+  name: string,
+  run: (ctx: ServiceContext) => Promise<ServiceResult<T>>
+): Promise<LedgerActionResult<T>> {
+  try {
+    const result = await withAuthContext(name, run);
+    if (!result.ok) return { ok: false, message: toolFailureMessage(result.error, "İşlem uygulanamadı; alanları kontrol edin.") };
+    revalidateAll();
+    return { ok: true, data: result.data };
+  } catch (error) {
+    logger.error(`${name} failed`, error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    return { ok: false, message: "Hakediş işlemi sırasında beklenmeyen bir hata oluştu; kayıt değişmedi. Sayfayı yenileyip tekrar deneyin." };
+  }
+}
+
+export async function actionAddTeacherPayoutPayment(input: { payoutId: string; amount?: number; paidAt?: string; method?: "cash" | "transfer"; note?: string }) {
+  return runPayoutLedgerAction("actionAddTeacherPayoutPayment", (ctx) => addTeacherPayoutPaymentTool(ctx, input));
+}
+export async function actionReverseTeacherPayoutPayment(input: { payoutId: string; paymentId: string; reason: string; criticalPassword: string }) {
+  return runPayoutLedgerAction("actionReverseTeacherPayoutPayment", (ctx) => reverseTeacherPayoutPaymentTool(ctx, input));
+}
+export async function actionAddTeacherPayoutAdjustment(input: { payoutId: string; amount: number; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionAddTeacherPayoutAdjustment", (ctx) => addTeacherPayoutAdjustmentTool(ctx, input));
+}
+export async function actionReverseTeacherPayoutAdjustment(input: { payoutId: string; adjustmentId: string; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionReverseTeacherPayoutAdjustment", (ctx) => reverseTeacherPayoutAdjustmentTool(ctx, input));
+}
+export async function actionCancelTeacherPayout(input: { payoutId: string; reason: string }) {
+  return runPayoutLedgerAction("actionCancelTeacherPayout", (ctx) => cancelTeacherPayoutTool(ctx, input));
+}
+export async function actionDeleteTeacherPayout(input: { payoutId: string; reason: string; criticalPassword: string }) {
+  return runPayoutLedgerAction("actionDeleteTeacherPayout", (ctx) => deleteTeacherPayoutTool(ctx, input));
+}
+export async function actionSettleTeacherPayoutDrift(input: { payoutId: string; reason: string; criticalPassword?: string }) {
+  return runPayoutLedgerAction("actionSettleTeacherPayoutDrift", (ctx) => settleTeacherPayoutDriftTool(ctx, input));
+}
+export async function actionSetLessonPayoutExclusion(input: { lessonId: string; exclude: boolean; reason: string }) {
+  return runPayoutLedgerAction("actionSetLessonPayoutExclusion", (ctx) => setLessonPayoutExclusionTool(ctx, input));
+}
+export async function actionRemoveFeeRule(input: { ruleId: string; mode: "delete" | "deactivate"; fromDate?: string; reason: string; criticalPassword?: string; confirmedImpact?: boolean }) {
+  return runPayoutLedgerAction("actionRemoveFeeRule", (ctx) => removeFeeRuleTool(ctx, input));
+}
+
+/** Ücret kuralı kaldırma etkisi (salt-okunur önizleme — hiçbir kayıt yazmaz). */
+export async function actionPreviewFeeRuleRemoval(input: {
+  ruleId: string;
+  mode: "delete" | "deactivate";
+  fromDate?: string;
+}): Promise<SimpleActionResult<FeeRuleRemovalPreview>> {
+  return runSimpleAction(
+    "actionPreviewFeeRuleRemoval",
+    (ctx) => previewFeeRuleRemovalTool(ctx, input),
+    "Kural etkisi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
 export type ComputeTeacherPayoutActionResult =
   | ({
       ok: true;
       paymentMethodInfo: TeacherPayoutPaymentMethodInfo | null;
       existingPayout: ExistingPayoutSummary | null;
+      cancelledPayout: { id: string; cancelledAt?: string; cancelReason?: string; hadPayments: boolean } | null;
+      lineSources: Record<string, PayoutLineSource>;
+      policySources: Record<string, PayoutPolicyResolution>;
     } & Omit<TeacherEarningsResult, "lines"> & { lines: RevisedEarningsLine[] })
   | { ok: false; message: string };
 
@@ -3476,6 +4203,26 @@ export async function actionComputeTeacherPayout(input: {
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
     return { ok: false, message: "Hakediş hesaplanırken beklenmeyen bir hata oluştu." };
+  }
+}
+
+export type TeacherEarningsStatementActionResult =
+  | ({ ok: true } & import("./teacher-earnings-statement").TeacherEarningsStatement & { teacherName: string })
+  | { ok: false; message: string };
+
+export async function actionTeacherEarningsStatement(input: {
+  teacherId: string;
+  year: number;
+  month?: number;
+}): Promise<TeacherEarningsStatementActionResult> {
+  try {
+    const result = await withAuthContext("actionTeacherEarningsStatement", (ctx) => teacherEarningsStatementTool(ctx, input));
+    if (!result.ok) return { ok: false, message: result.error.message };
+    return { ok: true, ...result.data };
+  } catch (error) {
+    logger.error("actionTeacherEarningsStatement failed", error);
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    return { ok: false, message: "Hakediş dökümü hazırlanırken beklenmeyen bir hata oluştu; sayfayı yenileyip tekrar deneyin." };
   }
 }
 
@@ -3746,6 +4493,127 @@ export async function actionRestoreDeletedStudent(studentId: string): Promise<Si
     "actionRestoreDeletedStudent",
     (ctx) => restoreDeletedStudentTool(ctx, { studentId }),
     "Öğrenci geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-15 — öğrenci/öğretmen kalıcı silme; önizleme ve silme aynı planı kullanır (`purgePersonTool`). */
+export async function actionGetPersonPurgePreview(
+  kind: "student" | "teacher",
+  id: string,
+  mode: "standard" | "wipe" = "standard",
+  opts: { lessonAction?: "delete" | "reassign"; targetTeacherId?: string } = {}
+): Promise<SimpleActionResult<PersonPurgePreview>> {
+  return runSimpleAction(
+    "actionGetPersonPurgePreview",
+    (ctx) => getPersonPurgePreviewTool(ctx, { kind, id, mode, ...opts }),
+    "Kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+/** 2026-10-17 — Silinen öğrenciler: toplu kalıcı silme (önizleme + yürütme; çekirdek tekli silmeyle aynı). */
+export async function actionGetBulkStudentPurgePreview(studentIds: string[]): Promise<SimpleActionResult<BulkPurgePreview>> {
+  return runSimpleAction(
+    "actionGetBulkStudentPurgePreview",
+    (ctx) => getBulkStudentPurgePreviewTool(ctx, { studentIds }),
+    "Toplu kalıcı silme önizlemesi yüklenemedi. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionBulkPurgeStudents(input: {
+  studentIds: string[];
+  fingerprints: Record<string, string>;
+  confirmationCount: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ results: BulkPurgeItemResult[] }>> {
+  const res = await runSimpleAction(
+    "actionBulkPurgeStudents",
+    (ctx) => bulkPurgeStudentsTool(ctx, input),
+    "Toplu kalıcı silme tamamlanamadı. Silinen öğrenciler listesini yenileyip sonucu kontrol edin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionPurgePerson(input: {
+  kind: "student" | "teacher";
+  id: string;
+  expectedFingerprint: string;
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+  /** "wipe": yanlış oluşturulmuş kayıt — finans dahil her şey silinir (yalnız kurum sahibi). */
+  mode?: "standard" | "wipe";
+  financialAcknowledged?: boolean;
+  scopeAll?: boolean;
+  lessonAction?: "delete" | "reassign";
+  targetTeacherId?: string;
+}): Promise<SimpleActionResult<PersonPurgeResult>> {
+  const res = await runSimpleAction(
+    "actionPurgePerson",
+    (ctx) => purgePersonTool(ctx, input),
+    "Kalıcı silme tamamlanamadı; hiçbir kayıt silinmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-03 — pasif öğretmeni kaldırma; tüm kural/yetki/audit `deleteTeacherTool`'da. */
+export async function actionGetTeacherDeletionImpact(teacherId: string): Promise<SimpleActionResult<TeacherDeletionImpact>> {
+  return runSimpleAction(
+    "actionGetTeacherDeletionImpact",
+    (ctx) => getTeacherDeletionImpactTool(ctx, { teacherId }),
+    "Silme etkisi hesaplanamadı. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteTeacher(input: {
+  teacherId: string;
+  mode: "soft" | "hard";
+  confirmationName: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ teacherId: string; mode: "soft" | "hard" }>> {
+  const res = await runSimpleAction(
+    "actionDeleteTeacher",
+    (ctx) => deleteTeacherTool(ctx, input),
+    "Öğretmen kaldırılamadı; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionRestoreDeletedTeacher(teacherId: string): Promise<SimpleActionResult<{ teacherId: string }>> {
+  const res = await runSimpleAction(
+    "actionRestoreDeletedTeacher",
+    (ctx) => restoreDeletedTeacherTool(ctx, { teacherId }),
+    "Öğretmen geri alınamadı. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-10-03 — yanlış ödemeyi silme / tahsilatı geri alma; tüm kural/yetki/audit `deletePaymentTool`'da. */
+export async function actionGetPaymentDeletionPlan(paymentId: string): Promise<SimpleActionResult<PaymentDeletionPlan>> {
+  return runSimpleAction(
+    "actionGetPaymentDeletionPlan",
+    (ctx) => getPaymentDeletionPlanTool(ctx, { paymentId }),
+    "Ödeme bilgisi okunamadı. Sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeletePayment(input: {
+  paymentId: string;
+  action: "reverse_collection" | "remove";
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ paymentId: string; result: "reversed" | "deleted" | "voided" }>> {
+  const res = await runSimpleAction(
+    "actionDeletePayment",
+    (ctx) => deletePaymentTool(ctx, input),
+    "Ödeme silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
   );
   if (res.ok) revalidateAll();
   return res;
@@ -4586,5 +5454,80 @@ export async function actionSetMessageStatus(input: {
     logger.error("actionSetMessageStatus failed", error);
     if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
     return { ok: false, message: "Mesaj durumu güncellenirken beklenmeyen bir hata oluştu." };
+  }
+}
+
+// 2026-09-29 — kampanya ve evrak silme (kritik şifre + gerekçe; soft delete, bkz. tools.ts).
+export async function actionGetDiscountCampaignDeletionImpact(campaignId: string) {
+  return runSimpleAction(
+    "actionGetDiscountCampaignDeletionImpact",
+    (ctx) => getDiscountCampaignDeletionImpactTool(ctx, { campaignId }),
+    "Kampanyanın bağlı kayıtları okunamadı; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteDiscountCampaign(input: {
+  campaignId: string;
+  confirmation: string;
+  expectedUpdatedAt: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ campaignId: string }>> {
+  const res = await runSimpleAction(
+    "actionDeleteDiscountCampaign",
+    (ctx) => deleteDiscountCampaignTool(ctx, input),
+    "Kampanya silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+export async function actionGetDocumentDeletionImpact(documentId: string) {
+  return runSimpleAction(
+    "actionGetDocumentDeletionImpact",
+    (ctx) => getDocumentDeletionImpactTool(ctx, { documentId }),
+    "Evrakın bağlı kayıtları okunamadı; sayfayı yenileyip tekrar deneyin."
+  );
+}
+
+export async function actionDeleteDocument(input: {
+  documentId: string;
+  confirmation: string;
+  criticalPassword: string;
+  reason: string;
+}): Promise<SimpleActionResult<{ documentId: string }>> {
+  const res = await runSimpleAction(
+    "actionDeleteDocument",
+    (ctx) => deleteDocumentInstanceTool(ctx, input),
+    "Evrak silinemedi; hiçbir kayıt değişmedi. Tekrar deneyin."
+  );
+  if (res.ok) revalidateAll();
+  return res;
+}
+
+/** 2026-09-30 — Bildirim Ayarları: öğrenci sözleşmesi bitiş uyarısının kaç gün önce geleceği (kurum ayarı). */
+export async function actionSetStudentContractExpiryDays(
+  days: number
+): Promise<{ ok: true; days: number } | { ok: false; message: string }> {
+  try {
+    return await withAuthContext("actionSetStudentContractExpiryDays", async (ctx) => {
+      if (!Number.isInteger(days) || days < 1 || days > 90) {
+        return { ok: false as const, message: "Uyarı süresi 1 ile 90 gün arasında tam sayı olmalı." };
+      }
+      const { updateTenantSetting } = await import("./platform/service");
+      const { STUDENT_CONTRACT_EXPIRY_SETTING_KEY } = await import("./student-contract-expiry");
+      const res = await updateTenantSetting(ctx, ctx.tenantId, { key: STUDENT_CONTRACT_EXPIRY_SETTING_KEY, value: days });
+      if (!res.ok) return { ok: false as const, message: res.error.message };
+      // Yeni süre bugün hemen değerlendirilsin (tekilleştirme mükerrer bildirimi engeller).
+      const { runStudentContractExpiryCheck } = await import("./student-contract-expiry");
+      await runStudentContractExpiryCheck(ctx.tenantId).catch(() => undefined);
+      revalidatePath("/panel/ayarlar/bildirimler");
+      return { ok: true as const, days };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "UNAUTHENTICATED") redirect("/login");
+    if (error instanceof WriteScopeDeniedError) return { ok: false, message: error.message };
+    logger.error("actionSetStudentContractExpiryDays failed", error);
+    return { ok: false, message: "Uyarı süresi kaydedilemedi. Sayfayı yenileyip tekrar deneyin." };
   }
 }

@@ -23,6 +23,7 @@ export function MakeupDecisionForm({
   variant,
   disabled,
   placeholder,
+  noteRequired = true,
   children,
 }: {
   action: (prevState: SimpleActionFormState, formData: FormData) => Promise<SimpleActionFormState>;
@@ -31,6 +32,8 @@ export function MakeupDecisionForm({
   variant?: "primary" | "secondary" | "ghost" | "danger" | "success";
   disabled?: boolean;
   placeholder?: string;
+  /** Onayda gerekçe isteğe bağlı (2026-09-30); iptal/retde zorunlu kalır. */
+  noteRequired?: boolean;
   children: ReactNode;
 }) {
   const [state, formAction] = useActionState<SimpleActionFormState, FormData>(action, null);
@@ -41,7 +44,7 @@ export function MakeupDecisionForm({
       ))}
       <textarea
         name="decisionNote"
-        required
+        required={noteRequired}
         rows={2}
         placeholder={placeholder ?? "Karar notu (zorunlu)…"}
         disabled={disabled}

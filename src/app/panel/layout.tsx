@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { Sidebar } from "@/components/sidebar";
 import { LastRouteTracker } from "@/components/last-route-tracker";
 import { PanelHeader } from "@/components/panel-header";
+import { PanelNavProvider } from "@/components/panel-nav-context";
 import { requireSessionContext } from "@/lib/auth/session";
 import { homePathForRole } from "@/lib/auth/role-routes";
 import { getUserById } from "@/lib/auth/users";
@@ -73,32 +74,39 @@ export default async function PanelLayout({
 
   return (
     <div className="flex min-h-screen">
-      <LastRouteTracker />
-      <Sidebar
-        key={session.userId}
-        role={session.role}
-        kurumlar={kurum.available}
-        kurumSelection={kurum.selection}
-        canSeeAllKurumlar={canSeeAllKurumlar(session)}
-        canViewFinanceAndStaffSummary={canViewFinanceAndStaffSummary(session)}
-        canViewTeacherEarnings={await canAccessTeacherEarnings(session)}
-        userKey={session.userId}
-        initialNavOrder={initialNavOrder}
-        initialCollapsed={initialCollapsed}
-      />
-      <main className="flex-1 overflow-auto">
-        <PanelHeader
+      <PanelNavProvider>
+        <LastRouteTracker />
+        <Sidebar
+          key={session.userId}
           role={session.role}
-          email={user?.email ?? null}
-          kurumName={currentKurum?.name ?? null}
-          kurumAvailable={kurum.available}
+          kurumlar={kurum.available}
           kurumSelection={kurum.selection}
           canSeeAllKurumlar={canSeeAllKurumlar(session)}
-          density={density}
-          loginRole={session.loginRole}
+          canViewFinanceAndStaffSummary={canViewFinanceAndStaffSummary(session)}
+          canViewTeacherEarnings={await canAccessTeacherEarnings(session)}
+          userKey={session.userId}
+          initialNavOrder={initialNavOrder}
+          initialCollapsed={initialCollapsed}
         />
-        <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">{children}</div>
-      </main>
+        {/*
+         * `min-w-0`: flex çocuğu geniş tablolarda daralamazsa sayfa yatay
+         * taşar — `flex-1` tek başına yetmez (min-width:auto). `id`,
+         * drawer açıkken iç kaydırıcının kilitlenmesi içindir.
+         */}
+        <main id="panel-main" className="min-w-0 flex-1 overflow-auto">
+          <PanelHeader
+            role={session.role}
+            email={user?.email ?? null}
+            kurumName={currentKurum?.name ?? null}
+            kurumAvailable={kurum.available}
+            kurumSelection={kurum.selection}
+            canSeeAllKurumlar={canSeeAllKurumlar(session)}
+            density={density}
+            loginRole={session.loginRole}
+          />
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-10">{children}</div>
+        </main>
+      </PanelNavProvider>
     </div>
   );
 }

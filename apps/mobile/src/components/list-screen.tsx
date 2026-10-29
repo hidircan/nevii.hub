@@ -1,7 +1,8 @@
 import { useContext } from "react";
 // SDK 57: expo-router React Navigation'ı kendi içinde taşır; context, Tabs layout'unun sağladığı örnekle aynı olmalı.
 import { BottomTabBarHeightContext } from "expo-router/tabs";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./ui/app-text";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { useTheme } from "../theme/theme-context";
 import { LoadingState, ErrorState, EmptyState } from "./screen-states";
 
@@ -37,7 +38,7 @@ export function ListScreen<T>({
 
   return (
     <View style={[styles.container, { backgroundColor: t.colors.bg }]}>
-      <Text style={[styles.header, { color: t.colors.text }]}>{title}</Text>
+      <AppText style={[styles.header, { color: t.colors.text }]}>{title}</AppText>
       {items.length === 0 ? (
         <EmptyState title={emptyLabel} />
       ) : (
@@ -55,6 +56,6 @@ export function ListScreen<T>({
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 12 },
-  header: { fontSize: 20, fontWeight: "700", paddingHorizontal: 16, marginBottom: 8 },
+  header: { fontSize: 22, fontWeight: "700", paddingHorizontal: 16, marginBottom: 8 },
   row: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
 });

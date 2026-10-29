@@ -1,0 +1,5 @@
+#!/bin/sh
+# pre-commit — staged dosyaları repo hijyeninden geçirir.
+# Kurulum (bir kez, bu klonda): npm run hooks:install
+# Atlamak için: git commit --no-verify  (CI yine de tam ağacı denetler)
+exec bash scripts/check-repo-hygiene.sh --staged

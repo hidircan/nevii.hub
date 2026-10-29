@@ -1,11 +1,9 @@
 /**
- * 9. tur (2026-09-28) — Öğretmen Yoklama Raporu. Saf; RBAC/tenant tool katmanında.
+ * 9. tur (2026-09-28) — Öğretmen aksama raporu (iptal/telafi kaynağı). Saf; RBAC/tenant tool katmanında.
  *
- * İki BAĞIMSIZ eksen, aynı dersi iki kez aynı sütunda saymaz:
- *  1) Öğretmen katılımı (`teacherAttendanceStatus`): Katıldı / Gelmedi / Mazeretli,
- *     geçmiş ve iptal edilmemiş derste girilmemişse "Girilmedi".
- *  2) İptal/Telafi kaynağı — yalnız iptal edilmiş veya telafiye alınmış derslerde:
- *     Öğretmen kaynaklı / Kurum kaynaklı / Öğrenci-Diğer / Belirtilmemiş.
+ * Tek eksen — İptal/Telafi kaynağı, yalnız iptal edilmiş veya telafiye alınmış derslerde:
+ * Öğretmen kaynaklı / Kurum kaynaklı / Öğrenci-Diğer / Belirtilmemiş. Ayrı öğretmen
+ * yoklaması yok (2026-10-21); öğretmen aksaması = "Öğretmen kaynaklı" sütunu.
  *     Eski kayıtlar "Belirtilmemiş" kalır; öğretmene/kuruma sessizce atanmaz.
  * Telafi dersi ayrı bir ders kaydıdır; kaynak yalnız ASIL (iptal/telafiye alınan)
  * derste sayılır, telafi dersi yeni bir "öğretmen kaynaklı" olay üretmez.
@@ -18,20 +16,12 @@ import { isDisruptedLesson } from "./lesson-disruption";
 import type { Lesson } from "./types";
 
 export type TeacherAttendanceCategory =
-  | "attended"
-  | "absent"
-  | "excused"
-  | "unmarked"
   | "teacher_source"
   | "institution_source"
   | "student_other_source"
   | "unspecified_source";
 
 export const TEACHER_ATTENDANCE_CATEGORY_LABEL: Record<TeacherAttendanceCategory, string> = {
-  attended: "Katıldı",
-  absent: "Gelmedi",
-  excused: "Mazeretli",
-  unmarked: "Katılım girilmedi",
   teacher_source: "Öğretmen kaynaklı iptal/telafi",
   institution_source: "Kurum kaynaklı iptal/telafi",
   student_other_source: "Öğrenci kaynaklı / diğer",
@@ -40,17 +30,13 @@ export const TEACHER_ATTENDANCE_CATEGORY_LABEL: Record<TeacherAttendanceCategory
 
 type ReportLesson = Pick<
   Lesson,
-  "id" | "teacherId" | "branchId" | "studentId" | "startAt" | "status" | "opsMakeupFlag" | "type" | "teacherAttendanceStatus" | "disruptionSource"
+  "id" | "teacherId" | "branchId" | "studentId" | "startAt" | "status" | "opsMakeupFlag" | "type" | "disruptionSource"
 >;
 
 export type TeacherAttendanceFilters = { from: string; to: string; branchId?: string; teacherId?: string };
 
-export function lessonTeacherCategories(lesson: ReportLesson, now: Date): TeacherAttendanceCategory[] {
+export function lessonTeacherCategories(lesson: ReportLesson): TeacherAttendanceCategory[] {
   const out: TeacherAttendanceCategory[] = [];
-  if (lesson.teacherAttendanceStatus === "geldi") out.push("attended");
-  else if (lesson.teacherAttendanceStatus === "gelmedi") out.push("absent");
-  else if (lesson.teacherAttendanceStatus === "mazeretli") out.push("excused");
-  else if (lesson.status !== "cancelled" && new Date(lesson.startAt).getTime() < now.getTime()) out.push("unmarked");
   if (isDisruptedLesson(lesson)) {
     const s = lesson.disruptionSource;
     out.push(
@@ -78,10 +64,6 @@ export type TeacherAttendanceRow = { teacherId: string; lessonCount: number } & 
 
 function emptyCounts(): Record<TeacherAttendanceCategory, number> {
   return {
-    attended: 0,
-    absent: 0,
-    excused: 0,
-    unmarked: 0,
     teacher_source: 0,
     institution_source: 0,
     student_other_source: 0,
@@ -91,8 +73,7 @@ function emptyCounts(): Record<TeacherAttendanceCategory, number> {
 
 export function buildTeacherAttendanceReport(
   lessons: ReportLesson[],
-  filters: TeacherAttendanceFilters,
-  now: Date = new Date()
+  filters: TeacherAttendanceFilters
 ): { rows: TeacherAttendanceRow[]; totals: TeacherAttendanceRow } {
   const byTeacher = new Map<string, TeacherAttendanceRow>();
   const totals: TeacherAttendanceRow = { teacherId: "", lessonCount: 0, ...emptyCounts() };
@@ -105,7 +86,7 @@ export function buildTeacherAttendanceReport(
     }
     row.lessonCount += 1;
     totals.lessonCount += 1;
-    for (const c of lessonTeacherCategories(lesson, now)) {
+    for (const c of lessonTeacherCategories(lesson)) {
       row[c] += 1;
       totals[c] += 1;
     }
@@ -117,10 +98,9 @@ export function buildTeacherAttendanceReport(
 export function teacherAttendanceDetail<L extends ReportLesson>(
   lessons: L[],
   filters: TeacherAttendanceFilters,
-  category: TeacherAttendanceCategory | undefined,
-  now: Date = new Date()
+  category: TeacherAttendanceCategory | undefined
 ): L[] {
   return lessons
-    .filter((l) => inScope(l, filters) && (!category || lessonTeacherCategories(l, now).includes(category)))
+    .filter((l) => inScope(l, filters) && (!category || lessonTeacherCategories(l).includes(category)))
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
 }

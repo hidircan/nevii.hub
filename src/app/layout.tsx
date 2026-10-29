@@ -17,6 +17,7 @@ import { applyAppearancePolicy } from "@/lib/platform/policies";
 import { AssistantProvider } from "@/components/ai/assistant-context";
 import { GlobalAssistant } from "@/components/ai/global-assistant";
 import { SessionWatcher } from "@/components/session-watcher";
+import { IdleSessionManager } from "@/components/idle-session-manager";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
 import { LOCALE_COOKIE } from "@/lib/i18n/copy";
 import { readSiteLocaleCookie } from "@/lib/site-locales";
@@ -125,6 +126,7 @@ export default async function RootLayout({
           {children}
           {hasSessionCookie ? <GlobalAssistant /> : null}
           {hasSessionCookie ? <SessionWatcher /> : null}
+          {hasSessionCookie ? <IdleSessionManager /> : null}
         </AssistantProvider>
       </body>
     </html>

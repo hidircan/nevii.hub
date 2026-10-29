@@ -12,12 +12,19 @@ import type {
   Teacher,
 } from "./types";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
-import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, ymdToUtcNoon, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
-import { assertWorkDaySchedulable, type DayStatusReason } from "./work-days";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
+import { assertWorkDaySchedulable, isSuggestableWorkDay, type DayStatusReason } from "./work-days";
 import { buildTeacherDayAvailability, nearestFreeStart, slotAdvice } from "./teacher-day-availability";
+import { findSlotConflict, lessonOccupiesSlot } from "./lesson-occupancy";
+import { activeMakeupLessonForRequest, isPastMakeupPlanningDeadline, makeupPlanningDeadline } from "./makeup-deadline";
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
+}
+
+/** Ders yazılabilir oda: aktif ve silinmemiş (legacy `active` yoksa aktif). */
+export function isRoomSchedulable(room: Pick<Room, "active" | "deletedAt">): boolean {
+  return room.active !== false && !room.deletedAt;
 }
 
 function roomSupports(room: Room, instrument: string) {
@@ -30,7 +37,8 @@ function roomSupports(room: Room, instrument: string) {
  * dersleri 4 kez tarayıp her satırda `parseISO` yapıyordu → O(aday × ders).
  * Ölçüm (6000 ders, 8 öğretmen, 6 oda): telafi önerisi 41 sn.
  * Çözüm: ders listesi başına BİR kez kurulan indeks (öğretmen/oda/öğrenci → sayısal
- * aralıklar, iptaller hariç). Anahtar dizi kimliği + uzunluk: store her yazmada yeni
+ * aralıklar; yalnız saati GERÇEKTEN dolduran dersler — tek kural `lessonOccupiesSlot`: iptal ve
+ * Telafi'ye alınmış, yapılmamış ders girmez). Anahtar dizi kimliği + uzunluk: store her yazmada yeni
  * dizi üretir. ponytail: aynı dizide yerinde eleman değişimi indeksi bayatlatır —
  * böyle bir çağıran çıkarsa `lessonIndex.delete(lessons)` ile açıkça geçersiz kılın.
  */
@@ -48,7 +56,7 @@ function indexOf(lessons: Lesson[]): LessonIndex {
     else map.set(key, [span]);
   };
   for (const l of lessons) {
-    if (l.status === "cancelled") continue;
+    if (!lessonOccupiesSlot(l)) continue;
     const start = parseISO(l.startAt);
     const span = { id: l.id, start: start.getTime(), end: parseISO(l.endAt).getTime(), ymd: toZonedYmd(start, DEFAULT_APP_TIMEZONE) };
     push(idx.byTeacher, l.teacherId, span);
@@ -98,6 +106,8 @@ function dailyLessonCount(teacherId: string, day: Date, lessons: Lesson[], exclu
 
 export type SlotValidationCode =
   | "REQUEST_NOT_OPEN"
+  /** Talebin son kullanım anı geçti — geçmiş tarihe planlama da yapılamaz (owner kararı 2026-09-30). */
+  | "REQUEST_EXPIRED"
   | "INVALID_START"
   | "INVALID_DURATION"
   | "PAST_START"
@@ -109,6 +119,8 @@ export type SlotValidationCode =
   | "TEACHER_CONFLICT"
   | "TEACHER_DAILY_LIMIT"
   | "ROOM_NOT_FOUND"
+  /** Oda pasif/silinmiş — öneri de kayıt da reddeder (2026-09-30 kök neden: telafi pasif odaya yazılıyordu). */
+  | "ROOM_INACTIVE"
   | "ROOM_INSTRUMENT_MISMATCH"
   | "ROOM_BRANCH_MISMATCH"
   | "ROOM_CONFLICT"
@@ -118,10 +130,12 @@ export type SlotValidationCode =
 
 export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   REQUEST_NOT_OPEN: "Bu telafi talebi zaten sonuçlandırılmış.",
+  REQUEST_EXPIRED:
+    "Bu telafi talebinin planlama süresi doldu (son gün, kurum saatinde gün bitiminde kapanır). Süresi dolmuş talep planlanamaz. Yetkili yönetici Telafi Merkezi'nden son günü uzatabilir.",
   INVALID_START: "Geçerli bir tarih ve saat seçin.",
   INVALID_DURATION: "Ders süresi en az 30 dakika olmalı.",
   PAST_START: "Başlangıç saati geçmişte olamaz.",
-  AFTER_EXPIRY: "Ders, telafi son kullanım tarihini aşıyor.",
+  AFTER_EXPIRY: "Ders, telafi planlama süresinin son gününü aşıyor. Yetkili yönetici son tarihi uzatabilir.",
   TEACHER_NOT_FOUND: "Seçilen öğretmen bulunamadı.",
   TEACHER_INACTIVE: "Seçilen öğretmen aktif değil.",
   TEACHER_INSTRUMENT_MISMATCH: "Seçilen öğretmen bu enstrümanı vermiyor.",
@@ -129,6 +143,7 @@ export const SLOT_ERROR_MESSAGES: Record<SlotValidationCode, string> = {
   TEACHER_CONFLICT: "Öğretmenin bu saatte başka bir dersi var.",
   TEACHER_DAILY_LIMIT: "Öğretmenin günlük ders limiti doldu.",
   ROOM_NOT_FOUND: "Seçilen oda bulunamadı.",
+  ROOM_INACTIVE: "Seçilen oda pasif; bu odaya ders planlanamaz. Başka bir oda seçin veya Odalar ekranından odayı yeniden aktif edin.",
   ROOM_INSTRUMENT_MISMATCH: "Seçilen oda bu enstrümana uygun değil.",
   ROOM_BRANCH_MISMATCH: "Oda, öğretmenin şubesiyle uyumsuz.",
   ROOM_CONFLICT: "Odanın bu saatte başka bir dersi var.",
@@ -181,6 +196,27 @@ export function isOverridableSlotCode(code: SlotValidationCode): boolean {
   return (OVERRIDABLE_SLOT_CODES as readonly string[]).includes(code);
 }
 
+/**
+ * 2026-10-04 KÖK NEDEN ("telafide öğretmen müsaitliği yanlış okunuyor"): telafi doğrulaması ve önerisi
+ * dersin GERÇEK süresi yerine kurumun varsayılan ders süresini (`settings.lessonDurationMinutes`)
+ * kullanıyordu — 30 dk'lık bir dersin telafisi 50 dk gibi denetlenip pencereden taşıyor ("müsait değil"),
+ * ya da tersi kısa sayılıp gerçek çakışma kaçıyordu. Telafi dersi, kaynak (kaçan) dersin süresindedir;
+ * kaynak ders bulunamazsa öğrencinin kayıtlı ders süresi, o da yoksa kurum varsayılanı.
+ */
+export function makeupDurationMinutes(
+  data: Pick<AppData, "lessons" | "settings"> & { students?: import("./types").StudentRef[] },
+  request: Pick<MakeupRequest, "sourceLessonId" | "studentId">
+): number {
+  const source = data.lessons.find((l) => l.id === request.sourceLessonId);
+  if (source) {
+    const minutes = Math.round((parseISO(source.endAt).getTime() - parseISO(source.startAt).getTime()) / 60_000);
+    if (Number.isFinite(minutes) && minutes >= 30) return minutes;
+  }
+  const studentMinutes = data.students?.find((s) => s.id === request.studentId)?.lessonDurationMinutes;
+  if (studentMinutes && studentMinutes >= 30) return studentMinutes;
+  return data.settings.lessonDurationMinutes;
+}
+
 /** `addLesson`/`createLessonTool` zincirinde yapılandırılmış hata — hangi kuralın hangi kod ile ihlal edildiğini korur (mesaj string'ini ayrıştırmaya gerek kalmaz). */
 export class LessonSlotValidationError extends Error {
   code: SlotValidationCode;
@@ -188,6 +224,23 @@ export class LessonSlotValidationError extends Error {
     super(message);
     this.name = "LessonSlotValidationError";
     this.code = code;
+  }
+}
+
+/**
+ * 2026-10-23 — grup dersi satır yazımının kilit altındaki son kontrolü (json/memory; db aynı kuralı SQL dilimiyle uygular):
+ * yazılacak satırlardan biri mevcut bir dersle çakışırsa hiçbiri yazılmaz.
+ */
+export function assertGroupRowsFree(existing: readonly Lesson[], rows: readonly Lesson[]): void {
+  const codes = { teacher: "TEACHER_CONFLICT", room: "ROOM_CONFLICT", student: "STUDENT_CONFLICT" } as const;
+  for (const r of rows) {
+    const conflict = findSlotConflict(existing, r);
+    if (conflict) {
+      throw new LessonSlotValidationError(
+        codes[conflict.resource],
+        "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Grup dersi satırları yazılmadı; sayfayı yenileyip tekrar deneyin."
+      );
+    }
   }
 }
 
@@ -239,14 +292,15 @@ function guidedTeacherMessage(
   const endHm = zonedHm(addMinutes(start, duration), DEFAULT_APP_TIMEZONE);
   const clash = day.busy.find((b) => b.start < endHm && hm < b.end);
   const next = nearestFreeStart(day, hm, duration);
-  const tail = next && next !== hm ? ` En yakın boş slot: ${next}.` : "";
+  const tail = next && next !== hm ? ` En yakın boş saat: ${next}.` : "";
   return clash
     ? `Öğretmenin (${teacher.name}) ${clash.start}–${clash.end} arası başka bir dersi var.${tail}`
     : `${SLOT_ERROR_MESSAGES[code]}${tail}`;
 }
 
 export function validateLessonSlot(
-  data: AppData,
+  // Yalnız bu koleksiyonlar okunur — dar dilimler (Telafi Merkezi) tam veri olmadan doğrulayabilsin.
+  data: import("./types").WithStudentRefs<Pick<AppData, "lessons" | "students" | "teachers" | "rooms" | "settings" | "closedDayOverrides">>,
   context: SlotValidationContext,
   input: { teacherId: string; roomId: string; startAt: string },
   options?: {
@@ -263,6 +317,13 @@ export function validateLessonSlot(
     message: SLOT_ERROR_MESSAGES[code],
   });
 
+  const now = options?.now ?? new Date();
+  if (
+    context.status === "expired" ||
+    (context.expiresAt !== undefined && context.status !== undefined && isPastMakeupPlanningDeadline(context.expiresAt, now))
+  ) {
+    return fail("REQUEST_EXPIRED");
+  }
   if (
     context.status !== undefined &&
     context.status !== "pending" &&
@@ -298,18 +359,18 @@ export function validateLessonSlot(
     return { ok: false, code: "DAY_CLOSED", message: workDay.message, dayReason: workDay.day.reason };
   }
 
-  // 2026-09-17 — geçmişe planlama YALNIZ telafi taleplerinde yasak (telafi
-  // gelecekte yapılır). Sıradan ders planlama/taşıma geçmiş tarihi kabul eder:
-  // sisteme sonradan eklenen öğrencinin geçmiş dersleri girilebilmeli.
-  const now = options?.now ?? new Date();
-  if (context.status !== undefined && start < now) return fail("PAST_START");
-
+  // 2026-09-30 (owner kararı) — telafi de geçmiş tarihe planlanabilir; alt sınır YOK (kaçan dersten önce de
+  // olabilir). Üst sınır talebin son kullanım günü (AFTER_EXPIRY); süresi dolmuş talep planlanamaz
+  // (REQUEST_NOT_OPEN). Çakışma, aktif oda, kapalı gün kuralları geçmiş tarihte de AYNEN uygulanır.
+  // Öneri motoru yalnız gelecekteki saatleri önerir (bkz. suggestMakeupSlots).
+  // Süre dolumu burada da kontrol edilir: `applyMakeupExpiry` yalnız store.ts okumasında çalışır, store içi
+  // kayıt (confirmSlot) ham statüyü görür. Eskiden "geçmiş saat yasak" kuralı bunu dolaylı kapatıyordu.
   const duration = options?.durationMinutes ?? data.settings.lessonDurationMinutes;
   const end = addMinutes(start, duration);
 
   if (context.expiresAt !== undefined) {
-    const expire = parseISO(context.expiresAt);
-    if (end > expire) return fail("AFTER_EXPIRY");
+    const deadline = makeupPlanningDeadline(context.expiresAt);
+    if (end.getTime() > deadline.getTime()) return fail("AFTER_EXPIRY");
   }
 
   // Okulun genel çalışma günü/saati artık ders planlamayı engellemez — talep
@@ -329,6 +390,7 @@ export function validateLessonSlot(
 
   const room = data.rooms.find((r) => r.id === input.roomId);
   if (!room) return fail("ROOM_NOT_FOUND");
+  if (!isRoomSchedulable(room)) return fail("ROOM_INACTIVE");
   if (!roomSupports(room, context.instrument)) return fail("ROOM_INSTRUMENT_MISMATCH");
   // Package D — öğretmen odanın şubesinde fiilen ders veriyor olmalı
   // (birincil VEYA ek atanmış şube); tek-şube eşitliği yerine.
@@ -379,13 +441,13 @@ export function validateLessonSlot(
  * - Skor: öğretmen uyumu, yakınlık, yoğunluk, okul kaynaklı öncelik
  */
 export function suggestMakeupSlots(
-  data: AppData,
+  data: import("./types").WithStudentRefs<AppData>,
   request: MakeupRequest,
   options?: { maxSlots?: number; daysAhead?: number }
 ): MakeupSlot[] {
   const maxSlots = options?.maxSlots ?? 6;
   const daysAhead = options?.daysAhead ?? data.settings.makeupWindowDays;
-  const duration = data.settings.lessonDurationMinutes;
+  const duration = makeupDurationMinutes(data, request);
   const { workingHours, workingDays } = data.settings;
 
   const candidates = data.teachers.filter(
@@ -405,14 +467,14 @@ export function suggestMakeupSlots(
     return 0;
   });
 
-  const rooms = data.rooms.filter(
-    (r) => roomSupports(r, request.instrument) && r.branchId === request.branchId
+  // 2026-09-30 KÖK NEDEN: pasif oda filtrelenmiyordu (ör. pasif "Stüdyo 1 — Piyano" ilk sırada olduğu için
+  // öneriye ve kayda giriyordu). Aday oda = aktif + enstrümana uygun + talebin şubesi; şubede hiç yoksa
+  // (2026-09-30) başka şubeye düşülmez: şubede uygun aktif oda yoksa öneri yok, ekran nedenini söyler.
+  // Son söz yine validateLessonSlot'ta.
+  const roomsFallback = data.rooms.filter(
+    (r) => isRoomSchedulable(r) && roomSupports(r, request.instrument) && r.branchId === request.branchId
   );
-  // Aynı şubede oda yoksa diğer şubeye düş
-  const roomsFallback =
-    rooms.length > 0
-      ? rooms
-      : data.rooms.filter((r) => roomSupports(r, request.instrument));
+  const studentTerm = data.students?.find((s) => s.id === request.studentId)?.termType ?? "guz";
   const slots: MakeupSlot[] = [];
   const now = new Date();
   const expire = parseISO(request.expiresAt);
@@ -422,7 +484,7 @@ export function suggestMakeupSlots(
     const ymd = addDaysYmd(todayYmd, d);
     const dayStart = zonedWallTimeToUtc(ymd, workingHours.start);
     if (isAfter(zonedWallTimeToUtc(ymd, "00:00"), expire)) break;
-    if (!workingDays.includes(ymdToUtcNoon(ymd).getUTCDay())) continue;
+    if (!isSuggestableWorkDay(ymd, studentTerm, data.closedDayOverrides ?? [], data.settings.termWeeklyClosedDays, workingDays)) continue;
     const dayEnd = zonedWallTimeToUtc(ymd, workingHours.end);
 
     for (let cursor = new Date(dayStart); cursor < dayEnd; cursor = addMinutes(cursor, 30)) {
@@ -434,11 +496,12 @@ export function suggestMakeupSlots(
         const teacherRooms = roomsFallback.filter((r) => teacherServesBranch(teacher, r.branchId));
         let matched: ValidatedSlot | null = null;
         for (const room of teacherRooms) {
-          const result = validateLessonSlot(data, request, {
-            teacherId: teacher.id,
-            roomId: room.id,
-            startAt: cursor.toISOString(),
-          });
+          const result = validateLessonSlot(
+            data,
+            request,
+            { teacherId: teacher.id, roomId: room.id, startAt: cursor.toISOString() },
+            { durationMinutes: duration }
+          );
           if (result.ok) {
             matched = result.slot;
             break;
@@ -446,42 +509,38 @@ export function suggestMakeupSlots(
         }
         if (!matched) continue;
 
-        const reasons: string[] = [];
+        // Gerekçeler yöneticiye gösterilir — doğal Türkçe, teknik terim yok.
+        const reasons: string[] = ["Öğretmen, oda ve öğrenci bu saatte boş"];
         let score = 50;
 
         if (teacher.id === request.teacherId) {
           score += 30;
-          reasons.push("Aynı öğretmen");
+          reasons.push("Öğrencinin kendi öğretmeni");
         } else {
           score += 5;
-          reasons.push("Alternatif öğretmen (aynı enstrüman)");
+          reasons.push("Aynı enstrümanı veren başka öğretmen");
         }
 
-        if (teacherServesBranch(teacher, request.branchId)) {
-          score += 15;
-          reasons.push("Aynı şube");
-        } else {
-          score -= 10;
-          reasons.push("Diğer şube");
-        }
+        score += 15;
+        reasons.push("Öğrencinin kendi şubesinde, aktif oda");
 
-        // Yakınlık: daha erken slot biraz daha yüksek skor
+        // Yakınlık: daha erken saat biraz daha yüksek puan
         score += Math.max(0, 20 - d);
-        reasons.push(`${d} gün içinde`);
+        reasons.push(d === 1 ? "Yarın" : `${d} gün sonra`);
 
         const load = dailyLessonCount(teacher.id, dayStart, data.lessons);
         if (load <= 2) {
           score += 10;
-          reasons.push("Öğretmen programı rahat");
+          reasons.push("Öğretmenin o günkü programı sakin");
         } else if (load >= 5) {
           score -= 8;
-          reasons.push("Yoğun gün");
+          reasons.push("Öğretmenin o günü yoğun");
         }
 
         // Okul kaynaklı iptaller öncelikli
         if (request.reason.toLowerCase().includes("öğretmen") || request.reason.toLowerCase().includes("okul")) {
           score += 8;
-          reasons.push("Okul kaynaklı — öncelikli");
+          reasons.push("Ders okul/öğretmen kaynaklı kaçtı — öncelikli");
         }
 
         slots.push({ ...matched, score, reasons });
@@ -530,7 +589,16 @@ export function resolveSlaEscalationLevel(deadlineIso: string, nowIso: string): 
 }
 
 /** EPIC 10 — onay/iptal/ret kararında zorunlu tutulan (uygulama katmanında) alanlar. */
-export type MakeupDecision = { decisionNote: string; decidedBy: string };
+/** decisionNote: onayda isteğe bağlı (2026-09-30), iptal/retde tool katmanında zorunlu. Boş not saklanmaz. */
+export type MakeupDecision = {
+  decisionNote?: string;
+  decidedBy: string;
+  /**
+   * 2026-10-04 — yalnız öğretmen müsaitliği (TEACHER_UNAVAILABLE) aşılır; yetkiyi araç katmanı denetler
+   * (kurum yöneticisi/şube müdürü). Çakışma, oda, kapalı gün, son kullanım ASLA aşılmaz.
+   */
+  allowAvailabilityOverride?: boolean;
+};
 
 /** EPIC 10 — bir talebin SLA eskalasyon seviyesinin yükseldiği tek olay. */
 export type MakeupSlaEscalation = {
@@ -541,18 +609,33 @@ export type MakeupSlaEscalation = {
   slaDeadline: string;
 };
 
-export function confirmMakeupSlot(
-  data: AppData,
+export function confirmMakeupSlot<D extends import("./types").WithStudentRefs<AppData>>(
+  data: D,
   requestId: string,
   input: { teacherId: string; roomId: string; startAt: string },
   decision: MakeupDecision,
   now: Date = new Date()
-): { data: AppData; lessonId: string; slot: ValidatedSlot } {
+): { data: D; lessonId: string; slot: ValidatedSlot } {
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
+  // Yalnız hâlâ açık talepte. Onaylı/kapanmış talep eski "sonuçlandırılmış" mesajını korur.
+  if (
+    (request.status === "pending" || request.status === "suggested") &&
+    activeMakeupLessonForRequest(data, request)
+  ) {
+    throw new LessonSlotValidationError(
+      "REQUEST_NOT_OPEN",
+      "Bu telafi hakkının aktif bir dersi zaten var. Aynı haktan ikinci ders açılamaz. Önce Telafi Merkezi'nden planı silin."
+    );
+  }
 
-  const validation = validateLessonSlot(data, request, input);
-  if (!validation.ok) throw new Error(validation.message);
+  const validation = validateLessonSlot(data, request, input, {
+    now,
+    durationMinutes: makeupDurationMinutes(data, request),
+    allowAvailabilityOverride: decision.allowAvailabilityOverride,
+  });
+  // Yapılandırılmış hata: araç katmanı TEACHER_UNAVAILABLE'ı (istisna onayı istenebilir) diğerlerinden ayırır.
+  if (!validation.ok) throw new LessonSlotValidationError(validation.code, validation.message);
   const slot = validation.slot;
 
   const lessonId = `l_mk_${Date.now().toString(36)}`;
@@ -569,6 +652,9 @@ export function confirmMakeupSlot(
     status: "scheduled",
     makeupRequestId: requestId,
     notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+    // 2026-10-04 — telafi dersi kaçan dersin eğitimine bağlıdır.
+    enrollmentId: data.lessons.find((l) => l.id === request.sourceLessonId)?.enrollmentId,
+    ...(slot.availabilityOverridden ? { availabilityOverride: { by: decision.decidedBy, at: now.toISOString() } } : {}),
   };
 
   const decidedAt = now.toISOString();

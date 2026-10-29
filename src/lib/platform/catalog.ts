@@ -76,7 +76,6 @@ export const SETTING_CATALOG: SettingDefinition[] = [
   }),
   s("lessons.closedDays", "lessons", "string_list", [], "Haftalık kapalı günler (0=Pazar … 6=Cumartesi)"),
 
-  s("attendance.requireTeacher", "attendance", "boolean", true, "Öğretmen yoklaması zorunlu"),
   s("attendance.requireStudent", "attendance", "boolean", true, "Öğrenci yoklaması zorunlu"),
 
   s("homework.enabledDefaults", "homework", "boolean", true, "Ödev verebilme varsayılanı"),
@@ -147,6 +146,10 @@ export const SETTING_CATALOG: SettingDefinition[] = [
 
   s("notifications.inAppEnabled", "notifications", "boolean", true, "Uygulama içi bildirimler", {
     userPreference: true,
+  }),
+  s("notifications.studentContractExpiryDays", "notifications", "number", 15, "Öğrenci sözleşmesi bitiş uyarısı (bitişten kaç gün önce)", {
+    min: 1,
+    max: 90,
   }),
   s("messaging.announcementsEnabled", "messaging", "boolean", true, "Duyuru modülü"),
   s("messaging.smsEnabled", "messaging", "boolean", false, "SMS modülü", { critical: true }),

@@ -1,5 +1,5 @@
 /**
- * GİRİŞ ÖNCESİ KURUMSAL SİTE BÖLÜMLERİ.
+ * GİRİŞ ÖNCESİ KURUMSAL SİTE BÖLÜMLERİ (10. tur redesign; i18n + canlı katalog).
  *
  * Her bölüm bağımsız, yeniden kullanılabilir ve responsive bir bileşendir;
  * sayfa (`src/app/page.tsx`) yalnızca bunları SIRALAR.
@@ -7,18 +7,27 @@
  * TEMA: bu ekran BİLİNÇLİ olarak her zaman AÇIK temadır — cihaz koyu temada
  * olsa bile renkler sabittir (`var(--color-*)` KULLANILMAZ).
  *
- * İÇERİK: metinler `c: SiteContent` prop'undan gelir (`src/lib/site-locales/`,
- * tr/en/de/fr/es). Gerçek veri (e-posta, sosyal linkler, referanslar, paket
- * kataloğu) dilden bağımsızdır ve doğrudan kaynaklarından okunur.
+ * İÇERİK: metinler `c: SiteContent` prop'undan gelir (`src/lib/site-locales/`, tr/en/de/fr/es
+ * + NeviiOS override). Sabit listeler `src/lib/site-content.ts`ten (SSS, adımlar, sosyal,
+ * referans). Gerçek verisi olmayan bölümler UYDURMA veri göstermek yerine dürüst bir
+ * "hazırlanıyor / bize ulaşın" durumuna düşer.
  */
-import Link from "next/link";
+import Link from "@/components/link";
 import Image from "next/image";
+import {
+  Check,
+  GraduationCap,
+  LayoutDashboard,
+  Mail,
+  Users,
+} from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { SITE_CONTACT, SITE_HERO_SHOWCASE, SITE_REFERENCES } from "@/lib/site-content";
 import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-locales";
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
 import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
+import { SITE_STEPS } from "@/lib/site-content";
 
 /** Odak halkası her etkileşimli öğede AYNI — klavye kullanıcısı nerede olduğunu her zaman görür. */
 const FOCUS_RING =
@@ -94,6 +103,12 @@ function socialKey(label: string): string {
   return "";
 }
 
+/** Koyu zeminli İletişim bölümü için: halka açık amber, ofset koyu zemine uyar. */
+const FOCUS_RING_DARK =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800";
+
+const PORTAL_ICONS = [LayoutDashboard, GraduationCap, Users] as const;
+
 function Section({
   id,
   children,
@@ -110,10 +125,23 @@ function Section({
   );
 }
 
-function SectionHeading({ title, description }: { title: string; description?: string }) {
+function Eyebrow({ children, tone = "light" }: { children: string; tone?: "light" | "dark" }) {
+  return (
+    <p
+      className={`text-xs font-bold uppercase tracking-[0.14em] ${
+        tone === "dark" ? "text-amber-400" : "text-amber-700"
+      }`}
+    >
+      {children}
+    </p>
+  );
+}
+
+function SectionHeading({ eyebrow, title, description }: { eyebrow?: string; title: string; description?: string }) {
   return (
     <Reveal className="mx-auto max-w-2xl text-center">
-      <h2 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{title}</h2>
+      {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
+      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{title}</h2>
       {description ? <p className="mt-3 text-base leading-relaxed text-slate-600">{description}</p> : null}
     </Reveal>
   );
@@ -189,6 +217,12 @@ export function SiteHeader({ c }: { c: SiteContent }) {
           <span className="hidden sm:block">
             <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} />
           </span>
+          <a
+            href="#iletisim"
+            className={`hidden rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
+          >
+            {c.header.demo}
+          </a>
           <Link
             href="/login"
             className={`shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS_RING}`}
@@ -218,7 +252,7 @@ export function SiteHeader({ c }: { c: SiteContent }) {
 
 export function HeroSection({ c }: { c: SiteContent }) {
   return (
-    <section className="relative overflow-hidden px-6 pb-16 pt-14 sm:pb-24 sm:pt-20">
+    <section className="relative overflow-hidden px-6 pb-14 pt-14 sm:pb-20 sm:pt-20">
       {/* Yumuşak, hareketsiz gradyan — otomatik oynayan medya/ağır animasyon YOK. */}
       <div
         aria-hidden
@@ -233,6 +267,7 @@ export function HeroSection({ c }: { c: SiteContent }) {
               aria-hidden
               width={40}
               height={40}
+              priority
               className="h-8 w-8 object-contain sm:h-10 sm:w-10"
             />
           ) : null}
@@ -240,7 +275,7 @@ export function HeroSection({ c }: { c: SiteContent }) {
             {BRAND.shortName}
           </span>
         </p>
-        <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-900 sm:text-5xl">{c.hero.headline}</h1>
+        <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">{c.hero.headline}</h1>
         <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
           {c.hero.subline}
         </p>
@@ -263,6 +298,14 @@ export function HeroSection({ c }: { c: SiteContent }) {
             {c.hero.tour}
           </a>
         </p>
+        <ul className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-slate-700">
+          {c.hero.highlights.map((h) => (
+            <li key={h} className="inline-flex items-center gap-1.5">
+              <Check className="h-4 w-4 text-amber-600" aria-hidden />
+              {h}
+            </li>
+          ))}
+        </ul>
       </div>
       {/* Gerçek ürün ekranı — tanımlıysa gösterilir, yoksa hero görselsiz kalır. */}
       {SITE_HERO_SHOWCASE ? (
@@ -288,13 +331,40 @@ export function AboutSection({ c }: { c: SiteContent }) {
   return (
     <Section id="hakkimizda" className="bg-white">
       <SectionHeading title={c.about.title} description={c.about.description} />
+      {/* Yabancı ziyaretçiler (yatırımcı, program başvuruları) için kısa İngilizce özet. */}
+      <p lang="en" className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">
+        <span className="font-semibold text-slate-700">In English:</span> NeviiHub is an AI-first operating
+        system for music schools. Scheduling, attendance, makeup lessons, contracts, tuition collection and
+        parent and teacher portals live in one place. AI agents prepare reminders, payment follow-ups and
+        reports through the same permission checks as school staff, and a person approves every message before
+        it is sent. Live since October 2026 in İzmir, Türkiye.
+      </p>
+    </Section>
+  );
+}
+
+export function StepsSection() {
+  return (
+    <Section id="nasil-baslarsiniz" className="bg-slate-50">
+      <SectionHeading eyebrow="Başlangıç" title="Üç adımda yayında" />
+      <ol className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
+        {SITE_STEPS.map((s, i) => (
+          <li key={s.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-base font-bold text-amber-800">
+              {i + 1}
+            </p>
+            <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
+          </li>
+        ))}
+      </ol>
     </Section>
   );
 }
 
 export function FeaturesSection({ c }: { c: SiteContent }) {
   return (
-    <Section id="ozellikler" className="bg-slate-50">
+    <Section id="ozellikler" className="bg-white">
       <SectionHeading title={c.features.title} description={c.features.description} />
       <Reveal delayMs={80} className="mt-10">
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -322,13 +392,18 @@ export function FeaturesSection({ c }: { c: SiteContent }) {
 
 export function PlatformSection({ c }: { c: SiteContent }) {
   return (
-    <Section id="platform" className="bg-white">
+    <Section id="platform" className="bg-slate-50">
       <SectionHeading title={c.platform.title} description={c.platform.description} />
       <Reveal delayMs={80} className="mt-10">
         <ul className="grid gap-4 lg:grid-cols-3">
-          {c.surfaces.map((s) => (
+          {c.surfaces.map((s, i) => {
+            const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
+            return (
             <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
-              <h3 className="text-base font-semibold text-slate-900">{s.title}</h3>
+              <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
+                <Icon className="h-5 w-5" aria-hidden />
+              </p>
+              <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
               <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
                 {s.points.map((p) => (
@@ -341,7 +416,8 @@ export function PlatformSection({ c }: { c: SiteContent }) {
                 ))}
               </ul>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </Reveal>
     </Section>
@@ -433,7 +509,7 @@ export async function PricingSection({ c }: { c: SiteContent }) {
     });
   }
   return (
-    <Section id="fiyatlandirma" className="bg-white">
+    <Section id="fiyatlandirma" className="bg-slate-50">
       <SectionHeading title={c.pricing.title} description={c.pricing.description} />
       {views.length === 0 ? (
         // Gerçek paket verisi yokken UYDURMA fiyat yazılmaz — "bize ulaşın" güvenli yer tutucusu.
@@ -458,7 +534,7 @@ export async function PricingSection({ c }: { c: SiteContent }) {
 
 export function PurchaseSection({ c }: { c: SiteContent }) {
   return (
-    <Section id="satin-alma" className="bg-slate-50">
+    <Section id="satin-alma" className="bg-white">
       <SectionHeading title={c.purchase.title} description={c.purchase.description} />
       <Reveal delayMs={80} className="mx-auto mt-10 max-w-5xl">
         <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-3">
@@ -554,16 +630,24 @@ export async function ContactSection({ c }: { c: SiteContent }) {
   const hasDetails = !!(SITE_CONTACT.phone || SITE_CONTACT.email || SITE_CONTACT.address);
   const social = await socialWithHrefs();
   return (
-    <Section id="iletisim" className="bg-slate-50">
-      <SectionHeading title={c.contact.title} description={c.contact.description} />
-      <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+    <Section id="iletisim" className="bg-slate-900">
+      <div className="mx-auto max-w-2xl text-center">
+        <Eyebrow tone="dark">{c.contact.title}</Eyebrow>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+          {c.contact.demoTitle}
+        </h2>
+        <p className="mt-3 text-base leading-relaxed text-slate-300">
+          {c.contact.description}
+        </p>
+      </div>
+      <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-slate-700 bg-slate-800 p-8 text-center">
         {hasDetails ? (
-          <dl className="space-y-2 text-sm text-slate-700">
+          <dl className="space-y-2 text-sm text-slate-200">
             {SITE_CONTACT.phone ? (
               <div>
                 <dt className="inline font-semibold">{c.contact.phone}: </dt>
                 <dd className="inline">
-                  <a href={`tel:${SITE_CONTACT.phone}`} className={FOCUS_RING}>
+                  <a href={`tel:${SITE_CONTACT.phone}`} className={FOCUS_RING_DARK}>
                     {SITE_CONTACT.phone}
                   </a>
                 </dd>
@@ -573,7 +657,7 @@ export async function ContactSection({ c }: { c: SiteContent }) {
               <div>
                 <dt className="inline font-semibold">{c.contact.email}: </dt>
                 <dd className="inline">
-                  <a href={`mailto:${SITE_CONTACT.email}`} className={FOCUS_RING}>
+                  <a href={`mailto:${SITE_CONTACT.email}`} className={`underline ${FOCUS_RING_DARK}`}>
                     {SITE_CONTACT.email}
                   </a>
                 </dd>
@@ -588,8 +672,17 @@ export async function ContactSection({ c }: { c: SiteContent }) {
           </dl>
         ) : (
           // Uydurma telefon/e-posta/adres YAZILMAZ; kurum bilgisi girilene kadar dürüst yer tutucu.
-          <p className="text-sm leading-relaxed text-slate-600">{c.contact.pending}</p>
+          <p className="text-sm leading-relaxed text-slate-300">{c.contact.pending}</p>
         )}
+        {SITE_CONTACT.email ? (
+          <a
+            href={`mailto:${SITE_CONTACT.email}?subject=${encodeURIComponent(`NeviiHub ${c.contact.demoTitle}`)}`}
+            className={`mt-6 inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS_RING_DARK}`}
+          >
+            <Mail className="h-4 w-4" aria-hidden />
+            {c.contact.demoCta}
+          </a>
+        ) : null}
         {social.length > 0 ? (
           <div className="mt-6">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{c.contact.follow}</p>
@@ -623,7 +716,7 @@ export async function ContactSection({ c }: { c: SiteContent }) {
             src={SITE_CONTACT.mapEmbedUrl}
             title={c.contact.mapTitle}
             loading="lazy"
-            className="mt-6 h-64 w-full rounded-xl border border-slate-200"
+            className="mt-6 h-64 w-full rounded-xl border border-slate-700"
           />
         ) : null}
       </div>

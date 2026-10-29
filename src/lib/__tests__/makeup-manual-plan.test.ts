@@ -1,8 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { addDays } from "date-fns";
 import { confirmMakeupSlot, suggestMakeupSlots, validateLessonSlot } from "../makeup-engine";
 import { createSeedData } from "../seed";
 import type { AppData, Lesson } from "../types";
+
+
+// Seed dersleri ve göreli tarihler "bugün"e göre üretilir; gün kapalı güne/geçmişe/müsaitlik dışına düşünce test
+// takvime bağlı kırılıyordu (2026-10 CI baseline). Saat, dönem içi ve tatilsiz bir SALI sabahına (6 Ekim 2026) dondurulur.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-06T06:00:00.000Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 const NOW = new Date();
 

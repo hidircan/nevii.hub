@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, ArrowLeft } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
@@ -13,10 +13,10 @@ import { addDays, startOfWeek } from "@/lib/utils";
 import { format, isSameDay, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedLessonWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
-import { listInstrumentCatalogTool } from "@/lib/services";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 
 export const dynamic = "force-dynamic";
 
@@ -44,9 +44,10 @@ export default async function ProgramPage({
     progTerm?: string;
     progYear?: string;
     returnTo?: string;
+    ders?: string;
   }>;
 }) {
-  const { week, studentId, progTerm, progYear, returnTo } = await searchParams;
+  const { week, studentId, progTerm, progYear, returnTo, ders } = await searchParams;
   // Ödemeler → Kaynak ders → Ödemelere geri dön: yalnızca allowlist edilmiş,
   // uygulama-içi bir panel yoluysa (bkz. resolveSafeReturnTo) geri dönüş
   // butonu render edilir — sahte/harici bir returnTo sessizce yok sayılır.
@@ -61,17 +62,15 @@ export default async function ProgramPage({
     redirect("/login?next=/panel/program");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
-  // ÖNCELİK 4 (devam) — Yönetilebilir Enstrüman Kataloğu: statik küme +
-  // tenant'ın aktif ek enstrümanları, ders planlama seçicilerine akar.
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const catalogInstruments = catalogResult.ok
-    ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : undefined;
   const weekStart = resolveWeekStart(week);
   const todayWeekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const isCurrentWeek = isSameDay(weekStart, todayWeekStart);
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  // DB egress: yıl boyu tüm dersler yerine yalnız görünen haftanın penceresi (aşağıdaki kesin
+  // `weekLessons` filtresinden 1–2 gün GENİŞ); ödeme/yoklama satırı okunmaz — sayfa kullanmıyor.
+  const data = await readScopedLessonWindow(kurum.scope, addDays(days[0], -1), addDays(days[6], 2));
+  // Kurumun AKTİF enstrüman kataloğu — ders planlama seçicilerinin TEK kaynağı (rol fark etmez).
+  const catalogInstruments = await activeInstrumentOptions(session);
 
   const weekStartParam = format(weekStart, "yyyy-MM-dd");
   const prevWeekParam = format(addDays(weekStart, -7), "yyyy-MM-dd");
@@ -86,10 +85,17 @@ export default async function ProgramPage({
     return `/panel/program?${params.toString()}`;
   };
 
+  // 2026-10-06 — kulüp satırları (üye başına) tek tek ders kartı olmaz: oturum başına TEK kart (aşağıda).
   const weekLessons = data.lessons.filter((l) => {
     const d = parseISO(l.startAt);
-    return d >= days[0] && d <= addDays(days[6], 1);
+    // 2026-10-15 (owner) — iptal artık üretilmiyor; eski iptal edilmiş dersler programda gösterilmez (kayıt DB'de kalır,
+    // raporlar/telafi/mobil okur). İptal dersin saati zaten dolu sayılmaz.
+    // 2026-10-23 — grup dersi katılımcı satırları da oturum başına TEK kart (aşağıda).
+    return l.type !== "group" && !l.groupSessionId && l.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
   });
+
+  // Derin bağlantıdaki ders iptal edilmişse (programda gizli) kullanıcı çıkmazda kalmasın: kayıt nerede görünür.
+  const cancelledTarget = ders ? data.lessons.find((l) => l.id === ders && l.status === "cancelled") : undefined;
 
   const branchNames = Object.fromEntries(data.settings.branches.map((b) => [b.id, b.shortName]));
 
@@ -101,7 +107,7 @@ export default async function ProgramPage({
             const d = parseISO(t.startAt);
             return t.status !== "cancelled" && d >= days[0] && d <= addDays(days[6], 1);
           })
-          .map((t) => ({
+          .map((t): ProgramTrial => ({
             id: t.id,
             name: t.name,
             instrument: t.instrument,
@@ -111,6 +117,8 @@ export default async function ProgramPage({
             endAt: t.endAt,
             converted: Boolean(t.convertedStudentId),
           }))
+          .concat(await weekClubCardsFor(kurum.scope.tenantId, data.lessons, days[0]!, addDays(days[6]!, 1)))
+          .concat(await weekGroupLessonCardsFor(kurum.scope.tenantId, data.lessons, days[0]!, addDays(days[6]!, 1)))
       : [];
 
   /**
@@ -144,6 +152,29 @@ export default async function ProgramPage({
         </Link>
       ) : null}
       <PageHeader title="Ders programı" />
+      {ders && !weekLessons.some((l) => l.id === ders) ? (
+        <p role="status" className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          {cancelledTarget ? (
+            <>
+              Bildirimdeki ders iptal edilmiş; iptal edilen eski dersler programda gösterilmez. Kayıt silinmedi: ödeme ve telafi
+              bağları{" "}
+              <Link href={`/panel/ogrenciler/${cancelledTarget.studentId}/odemeler`} className="font-semibold underline">
+                öğrencinin Ödemeler sekmesinde
+              </Link>{" "}
+              ve{" "}
+              <Link href={`/panel/telafi?ogrenci=${cancelledTarget.studentId}`} className="font-semibold underline">
+                Telafi Merkezi&apos;nde
+              </Link>{" "}
+              görünür.
+            </>
+          ) : (
+            <>
+              Bildirimdeki ders bu haftanın programında yok: silinmiş, taşınmış ya da bu kurumda değil. Ders taşındıysa yeni tarihine
+              ait bildirime bakın.
+            </>
+          )}
+        </p>
+      ) : null}
 
       <ProgramTermYearNav term={selectedTerm} academicYearStart={selectedAcademicYearStart}>
         {/* 9. tur — hafta gezinmesi dönem seçicinin sağındaki boşlukta; ayrı alt satır kaldırıldı. */}
@@ -194,10 +225,13 @@ export default async function ProgramPage({
         weekLessons={weekLessons}
         todayIso={new Date().toISOString()}
         initialStudentFilter={studentId}
+        initialDetailLessonId={ders && weekLessons.some((l) => l.id === ders) ? ders : undefined}
         selectedTerm={selectedTerm}
         selectedAcademicYearStart={selectedAcademicYearStart}
         catalogInstruments={catalogInstruments}
         dayStatuses={dayStatuses}
+        workDayOverrides={data.closedDayOverrides ?? []}
+        termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
         weekTrials={weekTrials}
       />
 
@@ -217,4 +251,58 @@ export default async function ProgramPage({
       </Card>
     </div>
   );
+}
+
+/** 2026-10-23 — haftanın grup dersi oturumları: oturum başına tek kart, oturum (yoklama) ekranına gider. */
+async function weekGroupLessonCardsFor(tenantId: string, lessons: import("@/lib/types").Lesson[], from: Date, to: Date): Promise<ProgramTrial[]> {
+  const rows = lessons.filter((l) => l.groupSessionId && l.status !== "cancelled");
+  if (!rows.length) return [];
+  const { listGroupLessons } = await import("@/lib/group-lessons");
+  const groups = await listGroupLessons(tenantId);
+  const by = new Map<string, import("@/lib/types").Lesson[]>();
+  for (const l of rows) by.set(l.groupSessionId!, [...(by.get(l.groupSessionId!) ?? []), l]);
+  return [...by.entries()]
+    .filter(([, r]) => parseISO(r[0]!.startAt) >= from && parseISO(r[0]!.startAt) <= to)
+    .map(([key, r]) => {
+      const first = r[0]!;
+      const g = groups.find((x) => x.id === first.groupLessonId);
+      return {
+        id: key,
+        name: `${g?.name ?? "Grup dersi"} · ${r.length}/${g?.capacity ?? r.length} öğrenci`,
+        instrument: first.instrument,
+        teacherId: first.teacherId,
+        branchId: first.branchId,
+        startAt: first.startAt,
+        endAt: first.endAt,
+        converted: false,
+        kind: "group" as const,
+        href: `/panel/grup-dersleri/${first.groupLessonId}/oturum/${encodeURIComponent(key)}`,
+        studentIds: r.map((x) => x.studentId),
+      };
+    });
+}
+
+/** 2026-10-06 — haftanın kulüp oturumları: oturum başına tek kart (deneme kartı düzeninde), oturum ekranına gider. */
+async function weekClubCardsFor(tenantId: string, lessons: import("@/lib/types").Lesson[], from: Date, to: Date): Promise<ProgramTrial[]> {
+  const { groupClubSessions, listClubs } = await import("@/lib/clubs");
+  const clubs = await listClubs(tenantId);
+  return groupClubSessions(lessons.filter((l) => l.type === "group"))
+    .filter((x) => !x.cancelled && parseISO(x.startAt) >= from && parseISO(x.startAt) <= to)
+    .map((x) => {
+      const club = clubs.find((c) => c.id === x.clubId);
+      return {
+        id: x.sessionId,
+        name: `${club?.name ?? "Kulüp"} · ${x.rows.length} üye`,
+        instrument: club?.instrument ?? "",
+        teacherId: x.teacherId,
+        branchId: x.branchId,
+        startAt: x.startAt,
+        endAt: x.endAt,
+        converted: false,
+        kind: "club" as const,
+        href: `/panel/kulupler/${x.clubId}/oturum/${x.sessionId}`,
+        studentIds: x.rows.map((r) => r.studentId),
+        note: x.postponed ? "Ertelendi" : undefined,
+      };
+    });
 }

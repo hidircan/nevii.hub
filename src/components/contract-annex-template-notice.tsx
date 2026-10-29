@@ -16,7 +16,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Card } from "@/components/ui";
 
 export type AnnexTemplateDiagnostic = { kind: string; title: string; status: "ok" | "missing" | "stub" };

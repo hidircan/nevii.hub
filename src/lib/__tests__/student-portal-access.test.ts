@@ -17,12 +17,13 @@ import { addPayment, readData } from "../store";
 async function createUnpaidPaymentForS1(): Promise<string> {
   const before = await readData();
   const ids = new Set(before.payments.map((p) => p.id));
-  const after = await addPayment({
+  await addPayment({
     studentId: "s1",
     description: "Checkout test ödemesi",
     amount: 1000,
     dueDate: new Date().toISOString(),
   });
+  const after = await readData();
   const created = after.payments.find((p) => !ids.has(p.id));
   if (!created) throw new Error("test setup: payment not created");
   return created.id;

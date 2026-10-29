@@ -1,19 +1,21 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
-import { startOfMonth, endOfMonth, format } from "date-fns";
+import { addDays, startOfMonth, endOfMonth, format } from "date-fns";
 import { tr } from "date-fns/locale";
-import { readData } from "@/lib/store";
+import { readPayoutWindow } from "@/lib/store";
 import { Badge, Card } from "@/components/ui";
 import { LessonStatusBadge } from "@/components/lesson-status-badge";
 import { formatDate, formatDateTime, formatMoney, formatTime } from "@/lib/utils";
 import { computeTeacherEarningsWithRevisions } from "@/lib/teacher-payout";
+import { payoutNetAmount } from "@/lib/payout-ledger";
 import { CalendarDays, Music2, Users, Wallet } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson-live-status";
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { effectiveStudentTypes } from "@/lib/student-types";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -26,20 +28,28 @@ export default async function OgretmenPortalPage() {
     redirect("/login?next=/ogretmen");
   }
 
-  const data = await readData();
+  // DB egress (2026-10-10): eskiden kurumun TÜM ders/ödeme verisi okunuyordu. Sayfa yalnız bugünü, önümüzdeki
+  // 5 günü ve bu ayın hakedişini gösterir → bu ay ∪ 5 gün penceresi (±2 gün pay; hakediş kendi gün anahtarıyla
+  // süzer) + kayıtlı hakedişler (readPayoutWindow — Hakedişlerim ekranıyla aynı dilim).
+  const now = new Date();
+  const fiveDaysAhead = new Date(now);
+  fiveDaysAhead.setDate(fiveDaysAhead.getDate() + 5);
+  fiveDaysAhead.setHours(23, 59, 59, 999);
+  const monthEnd = endOfMonth(now);
+  const data = await readPayoutWindow(
+    addDays(startOfMonth(now), -2).toISOString(),
+    addDays(fiveDaysAhead > monthEnd ? fiveDaysAhead : monthEnd, 2).toISOString()
+  );
   const teacherId = session.teacherId || "t2";
   const teacher = data.teachers.find((t) => t.id === teacherId) ?? data.teachers[0];
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const students = data.students.filter((s) => s.teacherId === teacher.id && s.active);
+  const students = data.students.filter((s) => isOwnStudent(s, teacher.id) && s.active);
 
   const today = new Date().toISOString().slice(0, 10);
   const todayLessons = data.lessons
     .filter((l) => l.teacherId === teacher.id && l.startAt.startsWith(today))
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
 
-  const fiveDaysAhead = new Date();
-  fiveDaysAhead.setDate(fiveDaysAhead.getDate() + 5);
-  fiveDaysAhead.setHours(23, 59, 59, 999);
   const weekLessons = data.lessons
     .filter((l) => l.teacherId === teacher.id && l.status === "scheduled")
     .filter((l) => new Date(l.startAt) >= new Date() && new Date(l.startAt) <= fiveDaysAhead)
@@ -48,12 +58,11 @@ export default async function OgretmenPortalPage() {
 
   // Hakediş yalnızca oturumdaki (veya demo fallback) öğretmenin kendi
   // teacherId'siyle hesaplanır — başka bir öğretmenin verisine erişim yok.
-  const now = new Date();
   const periodStart = format(startOfMonth(now), "yyyy-MM-dd");
-  const periodEnd = format(endOfMonth(now), "yyyy-MM-dd");
+  const periodEnd = format(monthEnd, "yyyy-MM-dd");
   const currentMonthEarnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
   const recentPayouts = data.teacherPayouts
-    .filter((p) => p.teacherId === teacher.id)
+    .filter((p) => p.teacherId === teacher.id && p.status !== "cancelled")
     .sort((a, b) => b.periodStart.localeCompare(a.periodStart))
     .slice(0, 3);
 
@@ -106,11 +115,11 @@ export default async function OgretmenPortalPage() {
                           {formatTime(lesson.startAt)} · {student?.name}
                         </p>
                         <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                          {lesson.instrument} · {lessonBranch?.shortName ?? "—"} · {room?.name}
+                          {lesson.instrument}{lesson.groupLessonId ? " · Grup dersi" : ""} · {lessonBranch?.shortName ?? "—"} · {room?.name}
                           {lesson.type === "makeup" ? " · Telafi" : ""}
                         </p>
                       </div>
-                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} />
+                      <LessonStatusBadge status={resolveLessonFinalStatus(lesson)} plannedMakeup={lesson.type === "makeup"} />
                     </div>
                     {liveStatus === "in_progress" && lesson.actualStartAt ? (
                       <LessonCountdown actualStartAt={lesson.actualStartAt} plannedDurationMinutes={plannedMinutes} />
@@ -211,7 +220,7 @@ export default async function OgretmenPortalPage() {
                         <p className="font-medium text-[var(--color-text)] dark:text-slate-200">
                           {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
                         </p>
-                        <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{formatMoney(p.totalAmount)}</p>
+                        <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{formatMoney(payoutNetAmount(p))}</p>
                       </div>
                       <Badge status={p.status} />
                     </div>
@@ -261,7 +270,7 @@ export default async function OgretmenPortalPage() {
                     <div>
                       <p className="font-medium text-[var(--color-text)] dark:text-slate-200">{formatDateTime(l.startAt)}</p>
                       <p className="text-xs text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                        {student?.name} · {l.instrument}
+                        {student?.name} · {l.instrument}{l.groupLessonId ? " · Grup dersi" : ""}
                       </p>
                     </div>
                     {l.type === "makeup" ? <Badge status="makeup" /> : null}

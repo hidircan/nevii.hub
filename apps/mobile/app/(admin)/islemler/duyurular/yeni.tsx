@@ -1,22 +1,23 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { apiPost } from "../../../../src/api/client";
-import { AppHeader, Button, Card, ConfirmDialog, Icon, Screen, SelectField, TextField } from "../../../../src/components/ui";
+import { AppHeader, Button, Card, ConfirmDialog, Icon, Screen, SelectField, TextField, AppText } from "../../../../src/components/ui";
 import { useApiGet } from "../../../../src/hooks/use-api";
+import { useLocale } from "../../../../src/i18n/locale-context";
 import { useTheme } from "../../../../src/theme/theme-context";
 import type { AnnouncementAudienceType, AdminStudentsResponse, TeachersResponse } from "../../../../src/types/api";
 
-const AUDIENCE_OPTIONS: Array<{ label: string; value: AnnouncementAudienceType }> = [
-  { label: "Tüm kurum", value: "all" },
-  { label: "Öğretmenler", value: "teachers" },
-  { label: "Veliler", value: "parents" },
-  { label: "Öğrenciler", value: "students" },
-];
-
 export default function YeniDuyuru() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   const router = useRouter();
+  const AUDIENCE_OPTIONS: Array<{ label: string; value: AnnouncementAudienceType }> = [
+    { label: tr("adm.anncAudAll"), value: "all" },
+    { label: tr("adm.anncAudTeachers"), value: "teachers" },
+    { label: tr("adm.anncAudParents"), value: "parents" },
+    { label: tr("adm.anncAudStudents"), value: "students" },
+  ];
   const teachers = useApiGet<TeachersResponse>("/api/v1/teachers");
   const students = useApiGet<AdminStudentsResponse>("/api/v1/students");
 
@@ -27,8 +28,8 @@ export default function YeniDuyuru() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const teacherCount = teachers.status === "success" ? teachers.data.teachers.length : 0;
-  const studentCount = students.status === "success" ? students.data.students.length : 0;
+  const teacherCount = teachers.status === "success" ? (teachers.data.total ?? teachers.data.teachers.length) : 0;
+  const studentCount = students.status === "success" ? (students.data.total ?? students.data.students.length) : 0;
 
   const recipientCount =
     audienceType === "teachers" ? teacherCount : audienceType === "students" || audienceType === "parents" ? studentCount : teacherCount + studentCount;
@@ -47,7 +48,7 @@ export default function YeniDuyuru() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(res.error.message || "Duyuru gönderilemedi.");
+      setError(res.error.message || tr("adm.anncSendFail"));
       return;
     }
     router.back();
@@ -55,30 +56,30 @@ export default function YeniDuyuru() {
 
   return (
     <Screen>
-      <AppHeader title="Yeni duyuru" showBack showNotifications={false} />
+      <AppHeader title={tr("adm.anncNewTitle")} showBack showNotifications={false} />
 
       <View style={{ gap: 16 }}>
-        <TextField label="Başlık" value={title} onChangeText={setTitle} placeholder="Duyuru başlığı" />
-        <TextField label="Metin" value={body} onChangeText={setBody} placeholder="Duyuru içeriği" multiline numberOfLines={5} />
-        <SelectField label="Kime gönderilecek" value={audienceType} options={AUDIENCE_OPTIONS} onChange={(v) => setAudienceType(v as AnnouncementAudienceType)} />
+        <TextField label={tr("adm.anncTitleField")} value={title} onChangeText={setTitle} placeholder={tr("adm.anncTitlePh")} />
+        <TextField label={tr("adm.anncBodyField")} value={body} onChangeText={setBody} placeholder={tr("adm.anncBodyPh")} multiline numberOfLines={5} />
+        <SelectField label={tr("adm.anncAudience")} value={audienceType} options={AUDIENCE_OPTIONS} onChange={(v) => setAudienceType(v as AnnouncementAudienceType)} />
 
         <Card style={{ backgroundColor: t.colors.infoSoft }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Icon name="people-outline" size={16} color={t.colors.info} />
-            <Text style={[t.typography.body, { color: t.colors.info }]}>Yaklaşık {recipientCount} kişiye ulaşacak</Text>
+            <AppText style={[t.typography.body, { color: t.colors.info }]}>{tr("adm.anncReach", { n: recipientCount })}</AppText>
           </View>
         </Card>
 
-        {error ? <Text style={{ color: t.colors.danger }}>{error}</Text> : null}
+        {error ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{error}</AppText> : null}
 
-        <Button label="Duyuruyu gönder" onPress={() => setConfirming(true)} disabled={!canSubmit} loading={busy} />
+        <Button label={tr("adm.anncSend")} onPress={() => setConfirming(true)} disabled={!canSubmit} loading={busy} />
       </View>
 
       <ConfirmDialog
         visible={confirming}
-        title="Duyuru gönderilsin mi?"
-        message={`"${title}" başlıklı duyuru yaklaşık ${recipientCount} kişiye gönderilecek.`}
-        confirmLabel="Gönder"
+        title={tr("adm.anncConfirmTitle")}
+        message={tr("adm.anncConfirmMsg", { title, n: recipientCount })}
+        confirmLabel={tr("adm.anncConfirm")}
         onConfirm={onConfirm}
         onCancel={() => setConfirming(false)}
       />

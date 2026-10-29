@@ -76,12 +76,19 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "tools:catalog",
   ],
   /**
-   * NeviiOS şube müdürü — BİLİNÇLİ OLARAK boş. Kurum geneli API/tool izni
-   * yoktur; tek yüzeyi `/sube` (UserBranchAccess ile süzülmüş salt-okur
-   * görünüm). Operasyonel şube-kapsamlı yazma izinleri, tool katmanı şube
-   * filtresini taşıdığında tek tek açılır (fail-closed).
+   * NeviiOS şube müdürü — fail-closed: yalnız tool katmanı şube filtresi
+   * taşıyan izinler tek tek açılır. trials:write açıktır; updateTrialLessonTool
+   * + updateTrialLessonStatusTool kaynak+hedef şubeyi UserBranchAccess
+   * kapsamına karşı denetler (kapsam dışı = FORBIDDEN).
    */
-  BRANCH_MANAGER: [],
+  /**
+   * Şube müdürü — dar kapsamlı operasyonel yazma: deneme revizyonu
+   * (trials:write) + kendi şubelerinin evraklarını görüntüleme/arşivleme
+   * (documents:* — tool katmanında şube kapsamına zorlanır, fail-closed).
+   * Şablon yönetimi, evrak üretimi/yükleme ve silme (sürüm silme dahil)
+   * tool katmanında SCHOOL_ADMIN/SUPER_ADMIN'e kilitli kalır.
+   */
+  BRANCH_MANAGER: ["trials:write", "documents:read", "documents:write"],
   SUPER_ADMIN: [
     "attendance:write",
     "makeup:read",

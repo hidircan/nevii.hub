@@ -9,7 +9,7 @@ export const deContent: SiteContent = {
       "Stundenplanung, Anwesenheit, Nachholstunden, Verträge und Inkasso — mit Lehrer- und Elternportalen.",
   },
   skip: "Zum Inhalt springen",
-  header: { login: "Anmelden", languageLabel: "Sprache" },
+  header: { login: "Anmelden", languageLabel: "Sprache", demo: "Demo anfordern" },
   nav: [
     { label: "Start", href: "#ust" },
     { label: "Über uns", href: "#hakkimizda" },
@@ -27,6 +27,12 @@ export const deContent: SiteContent = {
     login: "Anmelden",
     trial: "30 Tage gratis testen",
     tour: "Plattform entdecken →",
+    highlights: [
+      "Ein Panel für Schulen mit mehreren Standorten",
+      "KVKK- + Foto-/Video-Einwilligungsabläufe",
+      "Keine Nachricht ohne Freigabe",
+      "Auch auf dem Handy nutzbar",
+    ],
   },
   about: {
     title: "Für den Alltag Ihrer Schule gemacht",
@@ -300,6 +306,16 @@ export const deContent: SiteContent = {
       answer:
         "Sichere Infrastruktur für Online-Kartenzahlung wird vorbereitet. Aktuelle Zahlungsoptionen und Pilotkonditionen unter info@neviihub.com.",
     },
+    {
+      question: "Wie erhalte ich eine Demo?",
+      answer:
+        "Schreiben Sie an die E-Mail-Adresse im Kontaktbereich; wir planen eine kurze Demo für Ihre Einrichtung.",
+    },
+    {
+      question: "Kann ich meine bestehende Schülerliste übernehmen?",
+      answer:
+        "Ja. Schüler aus Ihrer CSV-Datei können importiert werden; Anmeldedaten und erste Zahlungseinträge bleiben erhalten.",
+    }
   ],
   contact: {
     title: "Kontakt",
@@ -308,6 +324,8 @@ export const deContent: SiteContent = {
     email: "E-Mail",
     address: "Adresse",
     pending: "Unsere Kontaktdaten werden hier in Kürze veröffentlicht. Mit Schulkonto erreichen Sie uns über das Panel.",
+    demoTitle: "Kostenlose Demo anfordern",
+    demoCta: "Demo-E-Mail senden",
     follow: "Folgen Sie uns in sozialen Medien",
     soon: "bald",
     mapTitle: "Standortkarte",

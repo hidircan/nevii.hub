@@ -7,30 +7,43 @@
  * çeker, scroll/filtre state'ine dokunmaz — tam navigasyon DEĞİL). Sekme
  * arka plandayken hiç istek atılmaz. Görünmez — herhangi bir programlı
  * sayfaya eklenip mount edilir.
+ *
+ * Aralık sunucudan gelir (`liveRefreshIntervalMs`, src/lib/env/live-refresh.ts):
+ * her ortamda 5 dk (Vercel Active CPU + DB egress). 0 → yalnız sekmeye dönünce.
  */
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { LIVE_REFRESH_MS } from "@/lib/env/live-refresh";
+import { isUserIdle } from "@/lib/user-activity";
 
-const REFRESH_INTERVAL_MS = 45_000;
-
-export function ProgramLiveRefresh() {
+export function ProgramLiveRefresh({ intervalMs = LIVE_REFRESH_MS }: { intervalMs?: number }) {
   const router = useRouter();
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") router.refresh();
-    }, REFRESH_INTERVAL_MS);
-
-    function onFocus() {
-      if (document.visibilityState === "visible") router.refresh();
+    // 2026-10-16 — gizli sekmede ve 5 dk gerçek etkileşim yokken yenilenmez; kullanıcı dönünce (sekmeye dönüş veya
+    // ilk etkileşim) TEK yenileme — 60 sn içinde ikincisi yapılmaz (istek fırtınası yok).
+    let last = Date.now();
+    function refresh() {
+      if (document.visibilityState !== "visible" || Date.now() - last < 60_000) return;
+      last = Date.now();
+      router.refresh();
     }
-    document.addEventListener("visibilitychange", onFocus);
+    const interval =
+      intervalMs > 0
+        ? setInterval(() => {
+            if (!isUserIdle()) refresh();
+          }, intervalMs)
+        : undefined;
+
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("nh:active-again", refresh);
 
     return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onFocus);
+      if (interval) clearInterval(interval);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("nh:active-again", refresh);
     };
-  }, [router]);
+  }, [router, intervalMs]);
 
   return null;
 }

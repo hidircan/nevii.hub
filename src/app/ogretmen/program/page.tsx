@@ -1,9 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { PORTAL_RECORD_MISSING_REDIRECT } from "@/lib/auth/portal-record-missing";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addDays, isSameDay, parseISO } from "date-fns";
-import { readData } from "@/lib/store";
+import { readLessonWindow } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { ownWeekLessons } from "@/lib/teacher-portal-scope";
 import {
@@ -20,6 +20,7 @@ import { computeLiveDisplayStatus, resolveLessonFinalStatus } from "@/lib/lesson
 import { LessonCountdown } from "@/components/lesson-countdown";
 import { isMonday } from "@/lib/closed-days";
 import { ProgramLiveRefresh } from "@/components/program-live-refresh";
+import { liveRefreshIntervalMs } from "@/lib/env/live-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -41,11 +42,8 @@ export default async function TeacherOwnProgramPage({
     redirect("/login?next=/ogretmen/program");
   }
 
-  const data = await readData();
   const teacherId = session.teacherId;
   if (!teacherId) redirect(PORTAL_RECORD_MISSING_REDIRECT);
-  const teacher = data.teachers.find((t) => t.id === teacherId);
-  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const { week } = await searchParams;
   const now = new Date();
@@ -53,6 +51,12 @@ export default async function TeacherOwnProgramPage({
   // Pazartesi okul kapalı — öğretmenin kendi haftalık görünümünde de hiç gösterilmez.
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).filter((d) => !isMonday(d));
   const weekEndExclusive = addDays(weekStart, 7);
+  // DB egress: yalnız haftanın ders penceresi + referans veri (aşağıdaki `ownWeekLessons` kesin
+  // filtresinden 1 gün GENİŞ). Sayfa sekme açıkken 5 dk'da bir yenilenir (ProgramLiveRefresh) —
+  // eskiden her yenileme kurumun TÜM ders/ödeme verisini okuyordu.
+  const data = await readLessonWindow(addDays(weekStart, -1).toISOString(), addDays(weekEndExclusive, 1).toISOString());
+  const teacher = data.teachers.find((t) => t.id === teacherId);
+  if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
   const showingCurrentWeek = isCurrentWeek(weekStart, now);
 
   const prevHref = `/ogretmen/program?week=${previousWeekParam(weekStart)}`;
@@ -70,7 +74,7 @@ export default async function TeacherOwnProgramPage({
 
   return (
     <div>
-      <ProgramLiveRefresh />
+      <ProgramLiveRefresh intervalMs={liveRefreshIntervalMs()} />
 
       <main className="mx-auto max-w-lg space-y-3 px-4 py-6">
         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
@@ -150,10 +154,10 @@ export default async function TeacherOwnProgramPage({
                           {formatTime(lesson.startAt)} · {student?.name ?? "—"}
                         </p>
                         <p className="text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                          {lesson.instrument} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
+                          {lesson.instrument}{lesson.groupLessonId ? " · Grup dersi" : ""} · {branch?.shortName ?? "—"} · {room?.name ?? "—"}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} />
+                          <LessonStatusBadge status={resolveLessonFinalStatus(lesson, now)} plannedMakeup={lesson.type === "makeup"} />
                         </div>
                         {today ? (
                           <>

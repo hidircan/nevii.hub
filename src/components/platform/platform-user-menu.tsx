@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { actionSetFont, actionSetThemeProfile } from "@/lib/actions";
 import { FONT_LABELS, FONT_VALUES, type FontChoice, type ThemeProfile } from "@/lib/theme";

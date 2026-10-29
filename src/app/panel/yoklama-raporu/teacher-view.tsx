@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { getTeacherAttendanceReportTool } from "@/lib/services";
 import type { ServiceContext } from "@/lib/services/context";
 import { Card, Input, Label, Select } from "@/components/ui";
@@ -11,20 +11,14 @@ import {
 } from "@/lib/teacher-attendance-report";
 import type { AppData } from "@/lib/types";
 
-const ATTENDANCE_COLUMNS: TeacherAttendanceCategory[] = ["attended", "absent", "excused", "unmarked"];
-const SOURCE_COLUMNS: TeacherAttendanceCategory[] = [
+const ALL_CATEGORIES: TeacherAttendanceCategory[] = [
   "teacher_source",
   "institution_source",
   "student_other_source",
   "unspecified_source",
 ];
-const ALL_CATEGORIES = [...ATTENDANCE_COLUMNS, ...SOURCE_COLUMNS];
 
 const SHORT: Record<TeacherAttendanceCategory, string> = {
-  attended: "Katıldı",
-  absent: "Gelmedi",
-  excused: "Mazeretli",
-  unmarked: "Girilmedi",
   teacher_source: "Öğretmen",
   institution_source: "Kurum",
   student_other_source: "Öğrenci/diğer",
@@ -41,8 +35,8 @@ export type TeacherViewParams = {
 };
 
 /**
- * 9. tur — Yoklama Raporu › Öğretmen yoklaması. İki ayrı eksen: öğretmen katılımı
- * ve iptal/telafi kaynağı (bkz. teacher-attendance-report.ts). Her sayı, aynı
+ * 9. tur — Yoklama Raporu › Öğretmen. İptal/telafi kaynağı (bkz. teacher-attendance-report.ts);
+ * öğretmen aksaması = "Öğretmen kaynaklı" (ayrı öğretmen yoklaması yok). Her sayı, aynı
  * sınıflandırıcıyla süzülmüş ders listesine iner — rapor = detay.
  */
 export async function TeacherAttendanceView({
@@ -173,15 +167,15 @@ export async function TeacherAttendanceView({
       </Card>
 
       <p className="mb-3 max-w-3xl text-xs leading-relaxed text-[var(--color-text-muted)]">
-        {range.from} — {range.to} · {totals.lessonCount} ders. <strong className="text-[var(--color-text)]">Katılım</strong>{" "}
-        öğretmenin derse gelip gelmediğidir (yönetici girer). <strong className="text-[var(--color-text)]">İptal/telafi kaynağı</strong>{" "}
-        yalnız iptal edilen veya telafiye alınan derslerde sayılır; iptal/telafi tek başına &quot;öğretmen gelmedi&quot; anlamına gelmez.
+        {range.from} — {range.to} · {totals.lessonCount} ders. <strong className="text-[var(--color-text)]">İptal/telafi kaynağı</strong>{" "}
+        yalnız iptal edilen veya telafiye alınan derslerde sayılır. Öğretmen performansına yalnız &quot;Öğretmen kaynaklı&quot; seçilen
+        kararlar yazılır; kurum/öğrenci kaynaklı karar öğretmene yazılmaz.
         Kaynağı girilmemiş eski kayıtlar &quot;Belirtilmemiş&quot; kalır. Telafi dersleri ayrı derstir, asıl olayı tekrar saymaz.
         Hakedişten otomatik kesinti yapılmaz.
       </p>
 
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[56rem] text-left text-sm tabular-nums">
+        <table className="w-full min-w-[40rem] text-left text-sm tabular-nums">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs text-[var(--color-text-muted)]">
             <tr>
               <th rowSpan={2} className="sticky left-0 z-[1] bg-[var(--color-surface-muted)] px-3 py-2 align-bottom">
@@ -190,10 +184,7 @@ export async function TeacherAttendanceView({
               <th rowSpan={2} className="px-3 py-2 align-bottom">
                 Ders
               </th>
-              <th colSpan={ATTENDANCE_COLUMNS.length} className="border-l border-[var(--color-border)] px-3 pt-2 text-center font-semibold uppercase tracking-wide">
-                Öğretmen katılımı
-              </th>
-              <th colSpan={SOURCE_COLUMNS.length} className="border-l border-[var(--color-border)] px-3 pt-2 text-center font-semibold uppercase tracking-wide">
+              <th colSpan={ALL_CATEGORIES.length} className="border-l border-[var(--color-border)] px-3 pt-2 text-center font-semibold uppercase tracking-wide">
                 İptal / telafi kaynağı
               </th>
             </tr>
@@ -201,7 +192,7 @@ export async function TeacherAttendanceView({
               {ALL_CATEGORIES.map((c, i) => (
                 <th
                   key={c}
-                  className={`px-3 pb-2 pt-1 font-medium ${i === 0 || i === ATTENDANCE_COLUMNS.length ? "border-l border-[var(--color-border)]" : ""}`}
+                  className={`px-3 pb-2 pt-1 font-medium ${i === 0 ? "border-l border-[var(--color-border)]" : ""}`}
                   title={TEACHER_ATTENDANCE_CATEGORY_LABEL[c]}
                 >
                   {SHORT[c]}
@@ -229,7 +220,7 @@ export async function TeacherAttendanceView({
                   {ALL_CATEGORIES.map((c, i) => (
                     <td
                       key={c}
-                      className={`px-3 py-2 ${i === 0 || i === ATTENDANCE_COLUMNS.length ? "border-l border-[var(--color-border)]" : ""}`}
+                      className={`px-3 py-2 ${i === 0 ? "border-l border-[var(--color-border)]" : ""}`}
                     >
                       {cell(r, c, r.teacherId)}
                     </td>
@@ -246,7 +237,7 @@ export async function TeacherAttendanceView({
                 {ALL_CATEGORIES.map((c, i) => (
                   <td
                     key={c}
-                    className={`px-3 py-2 ${i === 0 || i === ATTENDANCE_COLUMNS.length ? "border-l border-[var(--color-border)]" : ""}`}
+                    className={`px-3 py-2 ${i === 0 ? "border-l border-[var(--color-border)]" : ""}`}
                   >
                     {cell(totals, c)}
                   </td>

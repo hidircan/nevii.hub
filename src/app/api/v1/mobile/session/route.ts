@@ -1,6 +1,7 @@
 import { withApiHandler } from "@/lib/api/handler";
 import { ok } from "@/lib/services/result";
-import { resolveActivePortalAccess } from "@/lib/student-portal-access";
+import { resolvePortalStudent } from "@/lib/portal-context";
+import { resolveSessionFullName } from "@/lib/mobile/session-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -11,21 +12,65 @@ export const dynamic = "force-dynamic";
  * rolünü ve aktif portal erişim türünü de ister. Kimlik/tenant yalnız token'dan;
  * yetki kararı her istekte ilgili route'ta verilir, bu uç yalnız bilgi verir.
  * BRANCH_MANAGER'a açıktır ki mobil güvenli "desteklenmiyor" ekranını gösterebilsin.
+ *
+ * 10. tur iş #1 — varsayılan `studentId` HER ZAMAN aktif erişimi olan AKTİF
+ * bir öğrencidir (web portalıyla AYNI `resolvePortalStudent`). `?studentId=`
+ * tercihi YALNIZCA aktif erişim + aktif öğrenci ise kabul edilir (sunucu
+ * tarafında doğrulanır); pasif/geçersiz tercih yok sayılır, aktif
+ * varsayılana düşülür. `students` kardeş listesidir: pasif kardeşler
+ * `active: false` ile döner (mobil seçici bunları devre dışı gösterir).
+ * `portalStatus: "passive-only"` ise YALNIZCA-pasif erişimi haber verir —
+ * geriye uyumluluk için bu durumda eski alanlar (pasif studentId +
+ * accessType) ESKİSİ GİBİ döner; yeni istemci `portalStatus`'e bakıp doğru
+ * pasif ekranı gösterir.
+ *
+ * `fullName` — profil başlığında e-posta yerine gösterilecek gerçek ad
+ * soyad (TEACHER: Teacher.name → User.displayName, diğer roller:
+ * User.displayName; bulunamazsa null → istemci iskelet çizer).
  */
 export const GET = withApiHandler(
-  async ({ ctx }) => {
-    // STUDENT: öğrenci/persona YALNIZ aktif StudentPortalAccess'ten çözülür (veli
-    // hesabında JWT studentId boştur); aktif erişim yoksa studentId de verilmez.
-    const access =
-      ctx.role === "STUDENT" ? await resolveActivePortalAccess(ctx.tenantId, ctx.userId, ctx.studentId) : null;
+  async ({ ctx, searchParams }) => {
+    // Profil başlığı için gerçek ad soyad (e-posta değil) — bkz. resolveSessionFullName.
+    const fullName = await resolveSessionFullName({
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      teacherId: ctx.teacherId,
+    });
+    if (ctx.role !== "STUDENT") {
+      return ok({
+        userId: ctx.userId,
+        role: ctx.role,
+        loginRole: ctx.loginRole ?? ctx.role,
+        tenantId: ctx.tenantId,
+        teacherId: ctx.teacherId,
+        studentId: ctx.studentId,
+        fullName,
+        portalAccessType: null,
+        portalStatus: "no-access",
+        students: [],
+      });
+    }
+    const preferred = searchParams.get("studentId")?.trim().slice(0, 128) || ctx.studentId || null;
+    const resolved = await resolvePortalStudent(ctx.tenantId, ctx.userId, preferred);
+    const passiveFallback = resolved.status === "passive-only" ? resolved.siblings[0] : undefined;
     return ok({
       userId: ctx.userId,
       role: ctx.role,
       loginRole: ctx.loginRole ?? ctx.role,
       tenantId: ctx.tenantId,
       teacherId: ctx.teacherId,
-      studentId: ctx.role === "STUDENT" ? access?.studentId : ctx.studentId,
-      portalAccessType: access?.accessType ?? null,
+      studentId:
+        resolved.status === "ok" ? resolved.studentId : (passiveFallback?.studentId ?? undefined),
+      fullName,
+      portalAccessType:
+        resolved.status === "ok" ? resolved.accessType : (passiveFallback?.accessType ?? null),
+      portalStatus: resolved.status,
+      students: resolved.siblings.map((s) => ({
+        studentId: s.studentId,
+        name: s.name,
+        active: s.active,
+        accessType: s.accessType,
+      })),
     });
   },
   { allowBranchManager: true }

@@ -1,8 +1,9 @@
-import Link from "next/link";
+import Link from "@/components/link";
+import { effectiveEnrollments, enrollmentTerms } from "@/lib/student-enrollments";
 import { redirect } from "next/navigation";
 import { Music } from "lucide-react";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { resolveActiveInstrumentNames } from "@/lib/instrument-catalog";
 import { listCurriculumForStudentTool } from "@/lib/services";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
@@ -35,7 +36,7 @@ export default async function PanelMufredatPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
   const canWrite = kurum.scope.mode === "single";
 
   const instruments =
@@ -88,6 +89,16 @@ export default async function PanelMufredatPage({
     branchId: s.branchId,
     branchName: branchNameById.get(s.branchId) ?? s.branchId,
     active: s.active,
+    ...(effectiveEnrollments(s, data.teachers).filter((e) => e.active).length > 1
+      ? {
+          enrollments: effectiveEnrollments(s, data.teachers)
+            .filter((e) => e.active)
+            .map((e) => {
+              const t = enrollmentTerms(s, e, data.teachers);
+              return { teacherId: t.teacherId ?? s.teacherId, instrument: t.instrument, level: t.level ?? "" };
+            }),
+        }
+      : {}),
   }));
   const bulkTeachers = data.teachers.map((t) => ({ id: t.id, name: t.name }));
 

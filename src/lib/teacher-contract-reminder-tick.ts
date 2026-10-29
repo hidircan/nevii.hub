@@ -10,7 +10,7 @@
  * OLARAK dokunulmaz/eklenmez — ayrı, küçük bir modül (İş Takip ile ilgisiz).
  */
 
-import { listTenants, readData } from "./store";
+import { listTenants, readReferenceData } from "./store";
 import { classifyTeacherContractReminder } from "./teacher-contract-reminders";
 import { notifyTeacherContractReminder } from "./teacher-contract-notifications";
 import { resolveAppTimezone } from "./timezone";
@@ -69,7 +69,7 @@ export async function runTeacherContractReminderTick(
   for (const tenant of tenants.slice(0, MAX_TENANTS_PER_TICK)) {
     try {
       await runWithTenantAsync(tenant.tenantId, async () => {
-        const data = await readData();
+        const data = await readReferenceData();
         const timeZone = resolveAppTimezone();
         const teachers = data.teachers.slice(0, MAX_TEACHERS_PER_TENANT_PER_TICK);
 

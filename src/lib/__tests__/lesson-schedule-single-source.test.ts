@@ -70,11 +70,17 @@ describe("gün/saat metni tek biçimlendirici + tek ayrıştırıcı", () => {
 
 describe("tekrarlı giriş kaldırıldı — veri gerçekten saklanıyor", () => {
   it("kayıt formu Sözleşme Merkezi ile AYNI bileşeni kullanır", () => {
+    // Çoklu branş v2 (9500a0c): gün/saat her branş kartında ortak `EnrollmentFormFields` içinde seçilir
+    // (kayıt formu → NewStudentEnrollments → EnrollmentFormFields → LessonScheduleSlotsPicker).
     const form = readFileSync(path.join(ROOT, "src/components/new-student-form.tsx"), "utf-8");
-    expect(form).toContain("LessonScheduleSlotsPicker");
-    expect(form).toContain('name="lessonScheduleText"');
-    // `lessonDays` artık ayrı bir checkbox grubu DEĞİL, türetilmiş gizli alan.
-    expect(form).toContain('<input key={d} type="hidden" name="lessonDays" value={d} />');
+    const cards = readFileSync(path.join(ROOT, "src/components/new-student-enrollments.tsx"), "utf-8");
+    const fields = readFileSync(path.join(ROOT, "src/components/enrollment-form-fields.tsx"), "utf-8");
+    expect(form).toContain("NewStudentEnrollments");
+    expect(cards).toContain("<EnrollmentFormFields");
+    expect(fields).toContain("<LessonScheduleSlotsPicker");
+    expect(fields).toContain("onChange({ lessonScheduleText: text })");
+    // Ayrı bir `lessonDays` checkbox grubu geri gelmedi.
+    expect(fields).not.toContain('name="lessonDays"');
     expect(form).not.toContain('type="checkbox"\n                    name="lessonDays"');
   });
 
@@ -88,7 +94,8 @@ describe("tekrarlı giriş kaldırıldı — veri gerçekten saklanıyor", () =>
       path.join(ROOT, "src/app/panel/ogrenciler/[studentId]/sozlesmeler/page.tsx"),
       "utf-8"
     );
-    expect(page).toContain("student.lessonScheduleText ||");
+    // Çoklu branş v2: kalıcı kayıt seçilen branşın kaydıdır (`branchStudent`).
+    expect(page).toContain("branchStudent.lessonScheduleText ||");
     expect(page).toContain("deriveLessonScheduleTextFromLessons");
   });
 
@@ -106,8 +113,9 @@ describe("sözleşmeden ders programı üretimi — yaşam döngüsü", () => {
   });
 
   it("gün/saat BURADA tekrar sorulmaz; sözleşmeden/öğrenciden okunur", () => {
+    // Çoklu branş v2: öğrenci aynası yerine sözleşmenin branşının koşulu (yoksa öğrenci kaydı).
     expect(tools).toContain(
-      "contract.contractDataSnapshot?.lessonScheduleText || student.lessonScheduleText"
+      "contract.contractDataSnapshot?.lessonScheduleText || (branchTerms ? branchTerms.lessonScheduleText : student.lessonScheduleText)"
     );
   });
 

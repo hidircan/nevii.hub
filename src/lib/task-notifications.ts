@@ -70,9 +70,9 @@ export async function isTaskAssigneeActive(tenantId: string, assigneeId: string)
       if (teacher) return teacher.active;
       return false;
     }
-    const { readData } = await import("./store");
+    const { readReferenceData } = await import("./store");
     const { runWithTenantAsync } = await import("./tenant-context");
-    const data = await runWithTenantAsync(tenantId, () => readData());
+    const data = await runWithTenantAsync(tenantId, () => readReferenceData());
     const teacher = data.teachers.find((t) => t.id === assigneeId);
     if (teacher) return teacher.active;
     // Bootstrap admin kimlikleri (json/memory) her zaman aktif kabul edilir —

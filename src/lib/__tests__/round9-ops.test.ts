@@ -3,7 +3,7 @@
  * tanımı, güvenli geri dönüş, paket/iş silme, oda düzenleme, iptal/telafi kaynağı,
  * öğretmen yoklama raporu. Kök nedenler ilgili modüllerin başındaki yorumlarda.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -114,13 +114,21 @@ describe("haftalık program hücresi", () => {
 
 // ─── 3. Ödemeler kapsamı + tek tahsilat tanımı ─────────────────────────
 describe("ödeme kapsamı ve tahsil edilen tanımı", () => {
+  // 2026-10-20 — gecikmiş vade gününden türetilir; "overdue" satırlar geçmiş, diğerleri gelecek vadeli.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-15T09:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const students = [
     { id: "act", active: true },
     { id: "pas", active: false },
     { id: "del", active: false, deletedAt: "2026-09-01" },
   ] as Student[];
   const pay = (over: Partial<Payment>) =>
-    ({ id: Math.random().toString(), studentId: "act", status: "pending", amount: 1000, paidAmount: 0, dueDate: "2026-09-01", ...over }) as Payment;
+    ({ id: Math.random().toString(), studentId: "act", status: "pending", amount: 1000, paidAmount: 0, dueDate: over.status === "overdue" ? "2026-08-01" : "2026-09-01", ...over }) as Payment;
   const payments = [
     pay({ status: "paid", paidAmount: 1000 }),
     pay({ status: "partial", paidAmount: 400 }),
@@ -223,6 +231,8 @@ describe("paket güvenli silme", () => {
     const base = { packageId, confirmationTitle: "Yanlış Paket", criticalPassword: PASSWORD, expectedUpdatedAt: updatedAt, reason: "Yanlışlıkla oluşturuldu" };
 
     expect((await deletePackageTool(owner({ role: "TEACHER" }), base)).ok).toBe(false);
+    // Paket & Kampanya Motoru — paket CRUD yalnız SUPER_ADMIN (SCHOOL_ADMIN dahil diğer roller red).
+    expect((await deletePackageTool(owner({ role: "SCHOOL_ADMIN" }), base)).ok).toBe(false);
     const wrongPw = await deletePackageTool(owner(), { ...base, criticalPassword: "yanlis-sifre" });
     expect(wrongPw.ok).toBe(false);
     const wrongName = await deletePackageTool(owner(), { ...base, confirmationTitle: "Başka" });
@@ -230,7 +240,7 @@ describe("paket güvenli silme", () => {
     expect(auditCalls.filter((a) => a.action === "package.delete" && a.outcome === "denied").length).toBe(2);
     expect((await readData()).packages?.some((p) => p.id === packageId)).toBe(true);
 
-    const done = await deletePackageTool(owner({ role: "SCHOOL_ADMIN" }), base);
+    const done = await deletePackageTool(owner(), base);
     expect(done.ok).toBe(true);
     expect((await readData()).packages?.some((p) => p.id === packageId)).toBe(false);
     expect(auditCalls.some((a) => a.action === "package.delete" && a.outcome === "success")).toBe(true);
@@ -312,8 +322,6 @@ describe("iptal/telafi kaynağı", () => {
     expect(teacherSourced.ok).toBe(true);
     if (teacherSourced.ok) {
       expect(teacherSourced.lesson.disruptionSource).toBe("teacher");
-      // Kaynak tek başına öğretmen katılımı YAZMAZ.
-      expect(teacherSourced.lesson.teacherAttendanceStatus).toBeUndefined();
     }
 
     // Önceki telafilerden biri geriye dönük kurum kaynaklı sınıflandırılırsa hak açılır.
@@ -321,29 +329,24 @@ describe("iptal/telafi kaynağı", () => {
     expect(applyLessonOpsFlag(reclassified, "tgt", "makeup", "admin", now, "Öğrenci hasta", { source: "student" }).ok).toBe(true);
   });
 
-  it("kurum kaynaklı iptal öğretmen devamsızlığına yazılmaz; öğretmen katılımı yalnız öğretmen kaynaklıda", async () => {
+  it("kurum kaynaklı iptal öğretmene yazılmaz; sonradan öğretmen kaynaklıya düzeltilebilir", async () => {
     const data = await readData();
     const future = data.lessons.find((l) => l.status === "scheduled" && new Date(l.startAt) > new Date() && !l.seriesId) ??
       data.lessons.find((l) => l.status === "scheduled" && new Date(l.startAt) > new Date())!;
-    const bad = await cancelLessonTool(owner(), { lessonId: future.id, disruptionSource: "institution", teacherAttendance: "gelmedi" });
-    expect(bad.ok).toBe(false);
-
     const res = await cancelLessonTool(owner(), { lessonId: future.id, disruptionSource: "institution", disruptionNote: "Resmî tatil" });
     expect(res.ok).toBe(true);
     const after = (await readData()).lessons.find((l) => l.id === future.id)!;
     expect(after.status).toBe("cancelled");
     expect(after.disruptionSource).toBe("institution");
-    expect(after.teacherAttendanceStatus).toBeUndefined();
     await vi.waitFor(() =>
       expect(auditCalls.some((a) => a.action === "lesson.cancel" && a.meta?.disruptionSource === "institution")).toBe(true)
     );
 
-    // Sonradan öğretmen kaynaklı olarak düzeltilir, katılım AÇIKÇA seçilince yazılır.
-    const fix = await setLessonDisruptionTool(owner(), { lessonId: future.id, disruptionSource: "teacher", teacherAttendance: "gelmedi" });
+    // Sonradan öğretmen kaynaklı olarak düzeltilir — öğretmen performansının tek verisi bu kaynaktır.
+    const fix = await setLessonDisruptionTool(owner(), { lessonId: future.id, disruptionSource: "teacher" });
     expect(fix.ok).toBe(true);
     const fixed = (await readData()).lessons.find((l) => l.id === future.id)!;
     expect(fixed.disruptionSource).toBe("teacher");
-    expect(fixed.teacherAttendanceStatus).toBe("gelmedi");
   });
 
   it("iptal/telafi edilmemiş derse kaynak girilemez", async () => {
@@ -354,40 +357,36 @@ describe("iptal/telafi kaynağı", () => {
   });
 });
 
-// ─── 10. Öğretmen yoklama raporu ───────────────────────────────────────
-describe("öğretmen yoklama raporu", () => {
-  const now = new Date("2026-09-30T00:00:00Z");
+// ─── 10. Öğretmen aksama raporu ────────────────────────────────────────
+describe("öğretmen aksama raporu", () => {
   const lessons = [
-    lesson({ id: "a", teacherAttendanceStatus: "geldi", status: "completed" }),
-    lesson({ id: "b", teacherAttendanceStatus: "gelmedi", status: "cancelled", disruptionSource: "teacher" }),
+    lesson({ id: "a", status: "completed" }),
+    lesson({ id: "b", status: "cancelled", disruptionSource: "teacher" }),
     lesson({ id: "c", status: "cancelled", disruptionSource: "institution" }),
     lesson({ id: "d", status: "cancelled" }), // eski kayıt — kaynak yok
     lesson({ id: "e", opsMakeupFlag: true, disruptionSource: "student" }),
-    lesson({ id: "f", type: "makeup", teacherAttendanceStatus: "geldi", status: "completed" }), // telafi dersi
+    lesson({ id: "f", type: "makeup", status: "completed" }), // telafi dersi
     lesson({ id: "g", teacherId: "t2", startAt: "2026-08-01T10:00:00Z" }), // aralık dışı
   ];
   const filters = { from: "2026-09-01", to: "2026-09-30" };
 
-  it("katılım ve kaynak ayrı sayılır; eski kayıt 'belirtilmemiş'", () => {
-    const { rows, totals } = buildTeacherAttendanceReport(lessons, filters, now);
+  it("kaynaklar ayrı sayılır; eski kayıt 'belirtilmemiş', kurum kaynaklı öğretmene yazılmaz", () => {
+    const { rows, totals } = buildTeacherAttendanceReport(lessons, filters);
     expect(rows).toHaveLength(1);
     expect(totals).toMatchObject({
       lessonCount: 6,
-      attended: 2,
-      absent: 1,
       teacher_source: 1,
       institution_source: 1,
       student_other_source: 1,
       unspecified_source: 1,
     });
-    // Kurum kaynaklı iptal öğretmen devamsızlığı sayılmaz.
-    expect(totals.absent).toBe(1);
   });
 
   it("rapor toplamları ders detayıyla uzlaşır", () => {
-    const { totals } = buildTeacherAttendanceReport(lessons, filters, now);
-    for (const cat of ["attended", "absent", "teacher_source", "institution_source", "unspecified_source", "unmarked"] as const) {
-      expect(teacherAttendanceDetail(lessons, filters, cat, now)).toHaveLength(totals[cat]);
+    const { totals } = buildTeacherAttendanceReport(lessons, filters);
+    for (const cat of ["teacher_source", "institution_source", "student_other_source", "unspecified_source"] as const) {
+      expect(teacherAttendanceDetail(lessons, filters, cat)).toHaveLength(totals[cat]);
     }
   });
 });
+

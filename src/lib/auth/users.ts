@@ -408,6 +408,14 @@ export function getBootstrapUsersForSeed(tenantId: string) {
  * returned to the client (see /api/v1/auth/login).
  */
 function logAuthFailureReason(email: string, reason: string, tenantId?: string) {
+  if (!tenantId) {
+    // 2026-10-14 — kurumu belli olmayan ret (hesap yok / DB okunamadı) denetim kaydına YAZILAMAZ (`auditLog` tenant'sız
+    // olayı düşürür) — canlıda "info@… ile giremiyorum" teşhisinde hiç iz yoktu. Güvenli kod + maskeli alıcı loglanır;
+    // e-postanın yerel kısmı, şifre veya token loglanmaz.
+    const at = email.lastIndexOf("@");
+    console.warn("[nevii-hub] auth.login_failure", JSON.stringify({ reason, email: at > 0 ? `***@${email.slice(at + 1)}` : "***" }));
+    return;
+  }
   auditLog({
     action: "auth.login_failure_reason",
     requestId: "n/a",
@@ -488,7 +496,11 @@ export async function authenticateUser(
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): DB okunamazsa kaynak koddaki bootstrap şifrelerine GERİ DÜŞÜLMEZ.
+      // Eskiden geçici bir DB hatasında, DB'de şifresi değiştirilmiş/kilitlenmiş hesaplara (AI_AGENT,
+      // kurum sahibi…) koddaki demo şifreyle girilebiliyordu. db modunda tek kaynak DB'dir.
+      logAuthFailureReason(email, "db_unavailable");
+      return null;
     }
   }
 
@@ -663,6 +675,108 @@ export async function getUserIdByEmail(tenantId: string, email: string): Promise
 }
 
 /**
+ * 10. tur iş #1 — `getUserIdByEmail`'den FARKLI olarak `active`
+ * filtrelemez. Davet akışı, kapalı bir hesaba tekrar davet gönderildiğinde
+ * "Kullanıcı hesabı oluşturulamadı/bulunamadı" (provision null + lookup
+ * null) yerine "hesap kapalı, önce erişimi açın" diyebilmek için buna
+ * ihtiyaç duyar. YALNIZCA yetkili admin akışları kullanmalıdır (public
+ * ekranlarda hesap varlığı asla ifşa edilmez).
+ */
+export async function getUserIdByEmailIncludingInactive(tenantId: string, email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findFirst({ where: { tenantId, email: normalized } });
+      return row?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+  const row = HASHED.find((u) => u.tenantId === tenantId && effectiveHashedEmail(u)?.toLowerCase() === normalized);
+  if (row) return row.userId;
+  const { findDynamicUserByEmail } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmail(tenantId, normalized);
+  return dyn?.userId ?? null;
+}
+
+/**
+ * 2026-10-14 — giriş e-postası çakışma kontrolü KURUMLAR ARASI: `authenticateUser` girişte e-postayı tenant'tan
+ * bağımsız arar (`findFirst({ email })`), bu yüzden aynı adres başka kurumda (pasif/silinmiş dahil) varsa giriş
+ * belirsizleşir. Giriş e-postası değişikliğinde bu fonksiyon kullanılır; hesap birleştirme/devri YAPILMAZ.
+ */
+export async function getAnyUserIdByEmail(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return null;
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const row = await getPrisma().user.findFirst({ where: { email: normalized }, select: { id: true } });
+    return row?.id ?? null;
+  }
+  const row = HASHED.find((u) => effectiveHashedEmail(u)?.toLowerCase() === normalized);
+  if (row) return row.userId;
+  const { findDynamicUserByEmailAnyTenant } = await import("./dynamic-users");
+  const dyn = await findDynamicUserByEmailAnyTenant(normalized);
+  return dyn?.userId ?? null;
+}
+
+/**
+ * 10. tur iş #1 — SELF davette mevcut kullanıcının boş `studentId`
+ * bağlamasını doldurur. DOLU bir bağlama ASLA üzerine yazılmaz (aynı
+ * e-posta ikinci bir öğrenciye bağlanıyorsa ilk bağ bozulmamalı — çoklu
+ * öğrenciye erişim `StudentPortalAccess` ile çözülür). Bootstrap
+ * (HASHED) kullanıcıları derleme-zamanı sabittir — değiştirilemez.
+ */
+export async function bindUserStudentIdIfEmpty(
+  userId: string,
+  studentId: string
+): Promise<"set" | "already-set" | "not-found" | "unsupported"> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      const row = await prisma.user.findUnique({ where: { id: userId } });
+      if (!row) return "not-found";
+      if (row.studentId) return "already-set";
+      await prisma.user.update({ where: { id: userId }, data: { studentId } });
+      return "set";
+    } catch {
+      return "not-found";
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return "unsupported";
+  const { findDynamicUserById, setDynamicUserStudentId } = await import("./dynamic-users");
+  const dyn = await findDynamicUserById(userId);
+  if (!dyn) return "not-found";
+  if (dyn.studentId) return "already-set";
+  return (await setDynamicUserStudentId(userId, studentId)) ? "set" : "not-found";
+}
+
+/**
+ * 10. tur iş #1 — bayat `User.studentId` bağlamasını temizler (onarım
+ * aracı). GUARDIAN-çoklu-öğrenci kullanıcılarda bu alan boş olmalıdır;
+ * pasif kayda kilitlenmiş JWT'lerin kaynağıdır. Bootstrap (HASHED)
+ * kullanıcılarında desteklenmez.
+ */
+export async function clearUserStudentBinding(userId: string): Promise<boolean> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const prisma = getPrisma();
+      await prisma.user.update({ where: { id: userId }, data: { studentId: null } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (HASHED.some((u) => u.userId === userId)) return false;
+  const { setDynamicUserStudentId } = await import("./dynamic-users");
+  return setDynamicUserStudentId(userId, null);
+}
+
+/**
  * İş 4 — tenant'ın TÜM yönetici (SCHOOL_ADMIN + SUPER_ADMIN) kullanıcı
  * id'leri. Şube-bazlı bir "sorumlu yönetici" ilişkisi bu veri modelinde
  * (User'da branchId yok — bkz. final rapor) mevcut değil; bu yüzden
@@ -775,6 +889,7 @@ export async function provisionEntityLogin(params: {
   role: Extract<AppRole, "STUDENT" | "TEACHER">;
   studentId?: string;
   teacherId?: string;
+  invitationPending?: boolean;
 }): Promise<{ tempPassword: string; userId: string } | null> {
   const email = params.email.trim().toLowerCase();
   if (!email) return null;
@@ -799,6 +914,7 @@ export async function provisionEntityLogin(params: {
         role: params.role,
         teacherId: params.teacherId,
         studentId: params.studentId,
+        invitationPending: params.invitationPending ?? false,
         active: true,
       },
     });
@@ -823,6 +939,7 @@ export async function provisionEntityLogin(params: {
     role: params.role,
     teacherId: params.teacherId,
     studentId: params.studentId,
+    invitationPending: params.invitationPending,
   });
   return { tempPassword, userId: created.userId };
 }
@@ -945,6 +1062,7 @@ export type UserAccountStatus = {
   role: AppRole;
   tenantId: string;
   active: boolean;
+  invitationPending: boolean;
   /** Kullanıcının kayıtlı adı soyadı (db modu); yoksa undefined. */
   displayName?: string;
 };
@@ -968,6 +1086,7 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
         role: row.role,
         tenantId: row.tenantId,
         active: row.active,
+        invitationPending: row.invitationPending,
         displayName: row.displayName?.trim() || undefined,
       };
     } catch {
@@ -982,26 +1101,37 @@ export async function getUserAccountStatus(userId: string): Promise<UserAccountS
       role: row.role,
       tenantId: row.tenantId,
       active: bootstrapLoginEnabled(userId),
+      invitationPending: false,
     };
   }
   const { findDynamicUserById } = await import("./dynamic-users");
   const dyn = await findDynamicUserById(userId);
   if (!dyn) return null;
-  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+  return {
+    userId: dyn.userId,
+    email: dyn.email,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    active: dyn.active,
+    invitationPending: dyn.invitationPending === true,
+  };
 }
 
 /** `getUserIdByTeacherId`'den FARKLI olarak `active` filtrelemez — kapalı bir öğretmen hesabını da bulabilmek için (durum kartı + yeniden açma). */
 export async function getUserAccountStatusForTeacher(tenantId: string, teacherId: string): Promise<UserAccountStatus | null> {
   if (isDbMode) {
-    try {
-      const { getPrisma } = await import("../db");
-      const prisma = getPrisma();
-      const row = await prisma.user.findFirst({ where: { tenantId, teacherId } });
-      if (!row || !isAppRole(row.role)) return null;
-      return { userId: row.id, email: row.email, role: row.role, tenantId: row.tenantId, active: row.active };
-    } catch {
-      return null;
-    }
+    const { getPrisma } = await import("../db");
+    const prisma = getPrisma();
+    const row = await prisma.user.findFirst({ where: { tenantId, teacherId } });
+    if (!row || !isAppRole(row.role)) return null;
+    return {
+      userId: row.id,
+      email: row.email,
+      role: row.role,
+      tenantId: row.tenantId,
+      active: row.active,
+      invitationPending: row.invitationPending,
+    };
   }
   const row = HASHED.find((u) => u.tenantId === tenantId && u.teacherId === teacherId);
   if (row) {
@@ -1011,15 +1141,86 @@ export async function getUserAccountStatusForTeacher(tenantId: string, teacherId
       role: row.role,
       tenantId: row.tenantId,
       active: bootstrapLoginEnabled(row.userId),
+      invitationPending: false,
     };
   }
   const { findDynamicUserByTeacherId } = await import("./dynamic-users");
   const dyn = await findDynamicUserByTeacherId(tenantId, teacherId);
   if (!dyn) return null;
-  return { userId: dyn.userId, email: dyn.email, role: dyn.role, tenantId: dyn.tenantId, active: dyn.active };
+  return {
+    userId: dyn.userId,
+    email: dyn.email,
+    role: dyn.role,
+    tenantId: dyn.tenantId,
+    active: dyn.active,
+    invitationPending: dyn.invitationPending === true,
+  };
 }
 
-async function revokeSessionsAfterPasswordChange(userId: string, tenantId: string | null, dbAlreadyStamped: boolean) {
+/** Giriş adresini yalnızca aynı öğretmenin henüz kabul etmediği davette değiştirir. */
+export async function updatePendingTeacherInvitationEmail(input: {
+  tenantId: string;
+  userId: string;
+  teacherId: string;
+  email: string;
+}): Promise<"updated" | "not_pending" | "email_taken"> {
+  const normalized = input.email.trim().toLowerCase();
+  if (!normalized) return "not_pending";
+  const owner = await getUserIdByEmailIncludingInactive(input.tenantId, normalized);
+  if (owner && owner !== input.userId) return "email_taken";
+
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    try {
+      const result = await getPrisma().user.updateMany({
+        where: {
+          id: input.userId,
+          tenantId: input.tenantId,
+          teacherId: input.teacherId,
+          role: "TEACHER",
+          invitationPending: true,
+        },
+        data: { email: normalized },
+      });
+      return result.count === 1 ? "updated" : "not_pending";
+    } catch (error) {
+      const currentOwner = await getUserIdByEmailIncludingInactive(input.tenantId, normalized);
+      if (currentOwner && currentOwner !== input.userId) return "email_taken";
+      throw error;
+    }
+  }
+
+  const { updatePendingTeacherInvitationEmail: updateDynamic } = await import("./dynamic-users");
+  return updateDynamic(input.tenantId, input.userId, input.teacherId, normalized);
+}
+
+/** Davet kabul edildikten sonra hesabı aktif giriş hesabı olarak işaretler. */
+export async function setTeacherInvitationPending(
+  tenantId: string,
+  userId: string,
+  invitationPending: boolean
+): Promise<boolean> {
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const result = await getPrisma().user.updateMany({
+      where: { id: userId, tenantId, role: "TEACHER" },
+      data: { invitationPending },
+    });
+    return result.count === 1;
+  }
+  if (HASHED.some((user) => user.userId === userId && user.tenantId === tenantId && user.role === "TEACHER")) {
+    return !invitationPending;
+  }
+  const { setDynamicTeacherInvitationPending } = await import("./dynamic-users");
+  return setDynamicTeacherInvitationPending(tenantId, userId, invitationPending);
+}
+
+async function revokeSessionsAfterPasswordChange(
+  userId: string,
+  tenantId: string | null,
+  dbAlreadyStamped: boolean,
+  reason: "password-changed" | "email-changed" = "password-changed"
+) {
   if (!dbAlreadyStamped && tenantId) {
     const { getUserLifecycle, saveUserLifecycle } = await import("../platform/store-ext");
     const prev = await getUserLifecycle(userId);
@@ -1031,11 +1232,11 @@ async function revokeSessionsAfterPasswordChange(userId: string, tenantId: strin
       sessionsRevokedAt: new Date().toISOString(),
       displayName: prev?.displayName ?? null,
       updatedAt: new Date().toISOString(),
-      updatedBy: "password-change",
+      updatedBy: reason === "email-changed" ? "email-change" : "password-change",
     });
   }
   const { closeAllUserSessions } = await import("./session-registry");
-  await closeAllUserSessions(userId, userId, "password-changed").catch(() => 0);
+  await closeAllUserSessions(userId, userId, reason).catch(() => 0);
   const { invalidateSessionValidity } = await import("./session-validity");
   invalidateSessionValidity(userId);
 }
@@ -1097,6 +1298,9 @@ export async function getPasswordHashForVerify(userId: string): Promise<string |
  * çağırır (doğrudan UI/API'den çağrılmaz). `db` modunda gerçek
  * `User.email` sütunu; json/memory'de dynamic satır ya da bootstrap için
  * `emailOverrides` (süreç-ömürlü — kalıcı DEĞİL, bkz. yukarı).
+ *
+ * 2026-10-14 — giriş adresi değişince açık oturumlar kapanır (`sessionsRevokedAt`): eski adresle açılmış bir oturum
+ * değişiklikten sonra hesabı kullanmaya devam edemez. (Kullanılmamış sıfırlama/davet bağlantıları çağıranda iptal edilir.)
  */
 export async function updateUserEmail(userId: string, newEmail: string): Promise<boolean> {
   const normalized = newEmail.trim().toLowerCase();
@@ -1105,7 +1309,8 @@ export async function updateUserEmail(userId: string, newEmail: string): Promise
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      await prisma.user.update({ where: { id: userId }, data: { email: normalized } });
+      await prisma.user.update({ where: { id: userId }, data: { email: normalized, sessionsRevokedAt: new Date() } });
+      await revokeSessionsAfterPasswordChange(userId, null, true, "email-changed");
       return true;
     } catch {
       return false;
@@ -1113,10 +1318,16 @@ export async function updateUserEmail(userId: string, newEmail: string): Promise
   }
   if (HASHED.some((u) => u.userId === userId)) {
     emailOverrides.set(userId, normalized);
+    await revokeSessionsAfterPasswordChange(userId, HASHED.find((u) => u.userId === userId)?.tenantId ?? null, false, "email-changed");
     return true;
   }
-  const { setDynamicUserEmail } = await import("./dynamic-users");
-  return setDynamicUserEmail(userId, normalized);
+  const { setDynamicUserEmail, findDynamicUserById } = await import("./dynamic-users");
+  const updated = await setDynamicUserEmail(userId, normalized);
+  if (updated) {
+    const dyn = await findDynamicUserById(userId);
+    await revokeSessionsAfterPasswordChange(userId, dyn?.tenantId ?? null, false, "email-changed");
+  }
+  return updated;
 }
 
 /**
@@ -1223,7 +1434,9 @@ export async function findUserByEmail(emailInput: string): Promise<AuthUser | nu
         studentId: row.studentId,
       });
     } catch {
-      // fall through to bootstrap if DB unavailable
+      // Güvenlik (2026-10-02): db modunda DB okunamazsa bootstrap listesine düşülmez — aksi halde
+      // "şifremi unuttum" DB'de pasif bir hesap (ör. AI_AGENT) için de sıfırlama başlatabilirdi.
+      return null;
     }
   }
 

@@ -24,13 +24,16 @@ export type CommunicationStatus = (typeof COMMUNICATION_STATUSES)[number];
 const ALLOWED: Record<CommunicationStatus, readonly CommunicationStatus[]> = {
   draft: ["draft", "pending_approval", "blocked", "cancelled"],
   pending_approval: ["pending_approval", "draft", "approved", "blocked", "cancelled"],
-  approved: ["approved", "queued", "manual_send_pending", "provider_accepted", "failed", "pending_approval", "cancelled"],
+  // 11. tur iş #6 (kök neden): "Gönderimi dene" onaylı/başarısız mesajdan da
+  // başlatılabildiği halde makine sending'e izin vermiyor, yakalanmayan
+  // fırlatma 500'e dönüşüyordu. Gönderim denemesi her iki durumdan da geçerlidir.
+  approved: ["approved", "queued", "sending", "manual_send_pending", "provider_accepted", "failed", "pending_approval", "cancelled"],
   queued: ["queued", "sending", "cancelled", "pending_approval"],
   sending: ["sending", "queued", "delivered", "failed", "blocked"],
   manual_send_pending: ["manual_send_pending", "delivered", "failed", "pending_approval"],
   provider_accepted: ["provider_accepted", "delivered", "failed", "pending_approval"],
   delivered: ["delivered"],
-  failed: ["failed", "queued", "pending_approval"],
+  failed: ["failed", "queued", "sending", "pending_approval"],
   blocked: ["blocked", "queued", "pending_approval"],
   cancelled: ["cancelled"],
 };

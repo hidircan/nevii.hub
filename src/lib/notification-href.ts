@@ -6,7 +6,7 @@ import { getCategoryDef, isNotificationCategory } from "./notification-categorie
  * "Detay: /path" ipucundan türetilir. Harici/javascript URL asla dönülmez.
  */
 
-const INTERNAL_PATH = /^\/[a-zA-Z0-9/_\-[\].%?=&]*$/;
+const INTERNAL_PATH = /^\/[a-zA-Z0-9/_\-[\].%?=&#]*$/;
 
 /** Body metninden `Detay: /panel/...` yolunu çıkarır (task-reminders deseni). */
 function extractPathFromBody(body: string | undefined): string | null {
@@ -23,7 +23,21 @@ function extractPathFromBody(body: string | undefined): string | null {
  * Bildirim kind + body → panel/portal rotası.
  * Bilinmeyen kind veya güvenli yol yoksa null (tıklanınca yalnız okundu işaretlenir).
  */
+/**
+ * 2026-10-15 — ödeme bildiriminin hedefi: öğrencinin Ödemeler sekmesinde o satır (`?odeme=` vurgular, `#` kaydırır).
+ * Satır kimliği URL'de kalır: bildirim tekilleştirmesi (`body.includes(dedupeKey)`) bu kimliğe dayanır.
+ */
+export function paymentTargetHref(studentId: string, paymentId: string): string {
+  return `/panel/ogrenciler/${encodeURIComponent(studentId)}/odemeler?odeme=${encodeURIComponent(paymentId)}#odeme-${encodeURIComponent(paymentId)}`;
+}
+
+/** Eski "Bekleyen ödeme" metni: "Ödeme <id> N gündür beklemede (…)". Kimlik ekranda gösterilmez, yalnız hedef çözülür. */
+const LEGACY_PENDING_PAYMENT = /^Ödeme (\S+) (\d+) gündür beklemede/;
+
 export function resolveNotificationHref(kind: string, body?: string): string | null {
+  const legacyPayment = kind === "payment_failed_or_pending" ? body?.match(LEGACY_PENDING_PAYMENT)?.[1] : undefined;
+  // /panel/odemeler/<ödemeKimliği> → ödemenin öğrencisine yönlendirir (bkz. odemeler/[studentId]/page.tsx).
+  if (legacyPayment && /^[A-Za-z0-9_-]+$/.test(legacyPayment)) return `/panel/odemeler/${legacyPayment}`;
   const fromBody = extractPathFromBody(body);
   if (fromBody) return fromBody;
 
@@ -31,6 +45,12 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
     case "leave_new_request":
     case "leave_pending_approval":
       return "/panel/personel/izinler";
+    case "recruitment_new_application":
+      return "/panel/ik/adaylar";
+    case "trial_new_application":
+      return "/panel/deneme?sekme=basvurular";
+    case "club_new_application":
+      return "/panel/kulupler/basvurular";
     case "task_assigned":
     case "task_new_assignment":
     case "task_due_soon":
@@ -57,6 +77,10 @@ export function resolveNotificationHref(kind: string, body?: string): string | n
       return "/panel/yoklama";
     case "portal_request":
       return "/panel";
+    case "lesson_assessment_submitted":
+      return "/panel/raporlar?sekme=gelisim";
+    case "periodic_assessment_submitted":
+      return "/panel/raporlar?sekme=donemsel";
     case "teacher_feedback_submitted":
     case "student_feedback_submitted":
       // Body always carries "Detay: /panel/ogretmenler/<id>/geri-bildirim" —
@@ -77,7 +101,12 @@ export function notificationKindLabel(kind: string): string {
 
 /** Ekranda gösterilen metin. `Detay: /panel/...` teknik yolu kullanıcıya yazılmaz; tıklama hâlâ o yolu kullanır. */
 export function presentNotificationBody(body: string): string {
-  return body.replace(/\s*Detay:\s*\/\S+/g, "").replace(/\s+/g, " ").trim();
+  return body
+    .replace(LEGACY_PENDING_PAYMENT, "Bir ödeme $2 gündür beklemede")
+    .replace(/\s*Detay:\s*\/\S+/g, "")
+    .replace(/\s*\(ref:[^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export type NotificationFilter = { kindLabel: string; from: string; to: string; query: string };

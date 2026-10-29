@@ -1,13 +1,13 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { readData } from "@/lib/store";
+import { readStudentScope } from "@/lib/store";
 import { requireSessionContext } from "@/lib/auth/session";
 import { listAssessmentsForStudentTool } from "@/lib/services";
 import { computeOverallScore } from "@/lib/assessment/score";
 import { Card, EmptyState } from "@/components/ui";
-import { LessonAssessmentForm } from "@/components/lesson-assessment-form";
+import { LessonAssessmentMobileForm } from "@/components/reports/lesson-assessment-mobile-form";
 import { formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,8 @@ export default async function TeacherAssessmentFormPage({
     redirect(`/login?next=/ogretmen/degerlendirme/${studentId}`);
   }
 
-  const data = await readData();
+  // Kota (2026-10-13): yalnız bu öğrencinin dersleri gerekir → tek öğrenci dilimi (tam okuma değil).
+  const data = await readStudentScope(studentId);
   const teacherId = session.teacherId || "t1";
   const teacher = data.teachers.find((t) => t.id === teacherId);
   const student = data.students.find((s) => s.id === studentId);
@@ -56,10 +57,11 @@ export default async function TeacherAssessmentFormPage({
       <main className="mx-auto max-w-lg space-y-4 px-4 py-6 pb-24">
         <Card>
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text)]">Yeni değerlendirme</h2>
-          <LessonAssessmentForm
+          <LessonAssessmentMobileForm
             studentId={studentId}
             lessons={lessons}
-            defaultTeacherName={teacher?.name ?? ""}
+            teacherName={teacher?.name ?? ""}
+            draftOwner={teacherId}
           />
         </Card>
 

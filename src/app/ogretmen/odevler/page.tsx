@@ -10,6 +10,7 @@ import { HomeworkReviewForm } from "@/components/homework-review-form";
 import { HomeworkDueDateEditForm } from "@/components/homework-due-date-edit-form";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { ownStudentLessons } from "@/lib/teacher-portal-scope";
+import { isOwnStudent } from "@/lib/teacher-portal-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export default async function TeacherHomeworkPage() {
   if (!teacher) redirect(PORTAL_RECORD_MISSING_REDIRECT);
 
   const students = data.students
-    .filter((s) => s.active && s.teacherId === teacher.id)
+    .filter((s) => s.active && isOwnStudent(s, teacher.id))
     .map((s) => ({ id: s.id, name: s.name }));
 
   const lessonsByStudent: Record<string, { id: string; startAt: string; instrument: string }[]> = {};

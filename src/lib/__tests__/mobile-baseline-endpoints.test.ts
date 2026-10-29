@@ -201,6 +201,33 @@ describe("Haftalık/günlük program — karşı taraf ismi zenginleştirmesi (k
     }
   });
 
+  it("getTeacherScheduleTool yoklama bayraklarını SALT OKUNUR taşır (mobil öğretmen rozeti bu alanlardan beslenir)", async () => {
+    // Mobil `attendanceStatusForLesson` yalnız okur: status / studentAttended /
+    // studentAbsent / studentExcused / lessonProcessed. Bu alanlar dersin
+    // kendi kaydında tutulur (store-db.ts) ve route tarafından FİLTRELENMEZ.
+    const { readData, writeData } = await import("../store-json");
+    const data = await readData();
+    const target = data.lessons.find((l) => l.teacherId === "t1");
+    expect(target).toBeTruthy();
+    await writeData({
+      ...data,
+      lessons: data.lessons.map((l) =>
+        l.id === target!.id ? { ...l, status: "completed", lessonProcessed: true, studentAttended: true } : l
+      ),
+    });
+    const { __resetServerCache } = await import("../http/server-cache");
+    __resetServerCache();
+
+    const res = await getTeacherScheduleTool(ctx({ role: "TEACHER", userId: "u-t1", teacherId: "t1" }), { teacherId: "t1" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const lesson = (res.data.lessons as Array<Record<string, unknown>>).find((l) => l.id === target!.id);
+    expect(lesson).toBeTruthy();
+    expect(lesson!.status).toBe("completed");
+    expect(lesson!.lessonProcessed).toBe(true);
+    expect(lesson!.studentAttended).toBe(true);
+  });
+
   it("getStudentScheduleTool artık her dersin teacherName'ini gerçek öğretmen adıyla doldurur (simetrik düzeltme)", async () => {
     const res = await getStudentScheduleTool(ctx({ role: "SCHOOL_ADMIN" }), { studentId: "s1" });
     expect(res.ok).toBe(true);

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { withReturnTo } from "@/lib/safe-return-to";
 import { notFound } from "next/navigation";
 import { ShieldCheck } from "lucide-react";

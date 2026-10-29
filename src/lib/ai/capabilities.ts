@@ -80,7 +80,9 @@ export const AI_CAPABILITIES: Record<AiCapabilityId, AiCapabilityDefinition> = {
     requiresApproval: true,
     // src/lib/agent/registry.ts (sendParentMessage) + src/lib/tahsilat/cases.ts
     linkedTools: ["sendParentMessage", "upsertFollowUpCase"],
-    preferredProvider: "gemini",
+    // Veliye giden kibar, kişiselleştirilmiş Türkçe metin — Claude; anahtar
+    // yoksa zincir Gemini'den devam eder (provider-bridge.ts).
+    preferredProvider: "claude",
   },
   collectionsROIReport: {
     id: "collectionsROIReport",

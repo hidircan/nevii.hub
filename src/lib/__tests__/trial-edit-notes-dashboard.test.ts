@@ -6,7 +6,7 @@ import { createTrialLessonTool, updateTrialLessonTool } from "../services/tools"
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { isWeeklyClosedDayForTerm } from "../attendance-calendar";
-import { getTrialLesson, updateTrialLesson, TRIAL_LESSONS_FILE } from "../trial-lessons";
+import { getTrialLesson, TRIAL_LESSONS_FILE } from "../trial-lessons";
 import { validateTrialSlot } from "../makeup-engine";
 import { buildTrialDigest, trialFollowUpAction } from "../dashboard/trial-digest";
 import { DEFAULT_TRIAL_LIST_FILTER, filterTrialRows, type TrialListRow } from "../trial-list-filter";
@@ -65,14 +65,18 @@ describe("deneme dersi notları — hazırlık ve sonuç ayrı", () => {
     expect((await getTrialLesson(DEFAULT_TENANT_ID, id))?.notes).toBe("Seviye: orta, nota getirsin");
   });
 
-  it("sonuç notu ders başlamadan girilemez", async () => {
+  // Sahip emri (2026-09-28, d0a6f04): deneme dersinde KİLİT YOK — geçmiş/kayıtlı/iptal denemede plan ve notların
+  // tamamı her zaman düzenlenebilir. Korunan kural: sonuç notu hazırlık notunun ÜZERİNE YAZMAZ (ayrı alan).
+  it("sonuç notu ders başlamadan da girilebilir (kilit yok)", async () => {
     const id = await plan();
     const res = await updateTrialLessonTool(ctx(), { trialId: id, resultNotes: "Kayıt olacak" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error.message).toMatch(/Hazırlık notu/);
+    expect(res.ok).toBe(true);
+    const saved = (await getTrialLesson(DEFAULT_TENANT_ID, id))!;
+    expect(saved.resultNotes).toBe("Kayıt olacak");
+    expect(saved.notes).toBe("Seviye: başlangıç");
   });
 
-  it("ders sonrası sonuç notu hazırlık notunun üzerine YAZMAZ; plan ve hazırlık notu kilitlenir", async () => {
+  it("ders sonrası sonuç notu hazırlık notunun üzerine YAZMAZ; hazırlık notu ve plan sonradan da düzenlenir", async () => {
     const id = await plan("Hazırlık metni");
     const t = (await getTrialLesson(DEFAULT_TENANT_ID, id))!;
     const after = new Date(new Date(t.endAt).getTime() + 60_000);
@@ -83,20 +87,25 @@ describe("deneme dersi notları — hazırlık ve sonuç ayrı", () => {
     expect(saved.resultNotes).toBe("Veliyle görüşüldü");
     expect(saved.resultNotesByUserId).toBe("u1");
 
-    const locked = await updateTrialLessonTool(ctx(), { trialId: id, notes: "üzerine yaz" }, after);
-    expect(locked.ok).toBe(false);
-    const moved = await updateTrialLessonTool(ctx(), { trialId: id, startAt: openDay(6) }, after);
-    expect(moved.ok).toBe(false);
-    expect((await getTrialLesson(DEFAULT_TENANT_ID, id))!.startAt).toBe(t.startAt);
+    const edited = await updateTrialLessonTool(ctx(), { trialId: id, notes: "Düzeltilmiş hazırlık" }, after);
+    expect(edited.ok).toBe(true);
+    const target = openDay(6);
+    const moved = await updateTrialLessonTool(ctx(), { trialId: id, startAt: target, allowAvailabilityOverride: true }, after);
+    expect(moved.ok, moved.ok ? "" : moved.error.message).toBe(true);
+    const final = (await getTrialLesson(DEFAULT_TENANT_ID, id))!;
+    expect(final.notes).toBe("Düzeltilmiş hazırlık");
+    expect(final.resultNotes).toBe("Veliyle görüşüldü");
+    expect(final.startAt).toBe(target);
   });
 
-  it("kayda dönüşmüş denemenin planı değiştirilemez", async () => {
+  it("kayda dönüşmüş denemenin planı da düzenlenebilir (kilit yok)", async () => {
     const id = await plan();
-    await updateTrialLesson(DEFAULT_TENANT_ID, id, {});
     const { markTrialConverted } = await import("../trial-lessons");
     await markTrialConverted(DEFAULT_TENANT_ID, id, { studentId: "s1", userId: "u1" });
-    const res = await updateTrialLessonTool(ctx(), { trialId: id, teacherId: "t2" });
-    expect(res.ok).toBe(false);
+    const target = openDay(5);
+    const res = await updateTrialLessonTool(ctx(), { trialId: id, startAt: target, allowAvailabilityOverride: true });
+    expect(res.ok, res.ok ? "" : res.error.message).toBe(true);
+    expect((await getTrialLesson(DEFAULT_TENANT_ID, id))!.startAt).toBe(target);
   });
 
   it("öğretmen denemeyi başka öğretmene devredemez", async () => {
@@ -326,10 +335,13 @@ describe("Günlük Özet — menü ekranı widget'ları", () => {
   });
 
   it("anlamlı özeti olan ekran sayı verir, olmayan kısayoldur", () => {
-    const s = { todayLessons: 4, activeStudents: 10, activeTeachers: 3, openMakeups: 2, overdueTotal: 0, overdueTotalLabel: "0 ₺", openTasks: 1 };
+    const s = { todayLessons: 4, activeStudents: 10, activeTeachers: 3, openMakeups: 2, overdueTotal: 0, overdueTotalLabel: "0 ₺", openTasks: 1, collectedThisMonth: 5000, collectedThisMonthLabel: "5.000 ₺" };
     const telafi = SCREEN_WIDGETS.find((w) => w.href === "/panel/telafi")!;
     expect(screenWidgetMetric(telafi, s)).toMatchObject({ value: "2", tone: "warning" });
     const kvkk = SCREEN_WIDGETS.find((w) => w.href === "/panel/ayarlar/kvkk")!;
     expect(screenWidgetMetric(kvkk, s)).toBeNull();
+    // 10. tur iş #6 — finans widget'ı tek sayı: bu ay tahsilat.
+    const finans = SCREEN_WIDGETS.find((w) => w.href === "/panel/finans-ozeti")!;
+    expect(screenWidgetMetric(finans, s)).toMatchObject({ value: "5.000 ₺", caption: "bu ay tahsilat" });
   });
 });

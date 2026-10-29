@@ -1,5 +1,9 @@
 # Production Database — Source of Truth Audit
 
+> ⚠️ **2026-10-01'den beri güncel değil:** canlı DB `wsbucznpujcfzhitzrbl`; `vxzewyiwfshobjizzetw` gerçek veri
+> taşıyan salt-okunur geri dönüş kaynağıdır (test hedefi DEĞİL); `uqkafczrplqitzumtrqy` artık erişilebilir değil.
+> Güncel model ve ortam haritası: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
 **Tarih:** 2026-09-06 · **Taban:** `infra/vercel-test-environment` @ `12060fa`
 **Yöntem:** salt-okunur kaynak kod analizi + herkese açık production endpoint'leri +
 salt-okunur Supabase Management API sorguları. **Hiçbir secret değeri okunmadı,

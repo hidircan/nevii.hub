@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { AppText } from "./app-text";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useTheme } from "../../theme/theme-context";
 
 type Props = {
@@ -11,10 +12,10 @@ export function SectionHeader({ title, actionLabel, onAction }: Props) {
   const t = useTheme();
   return (
     <View style={styles.row}>
-      <Text style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</Text>
+      <AppText style={[t.typography.sectionTitle, { color: t.colors.text }]}>{title}</AppText>
       {actionLabel && onAction ? (
         <Pressable onPress={onAction} hitSlop={8}>
-          <Text style={[t.typography.bodyStrong, { color: t.colors.primary }]}>{actionLabel}</Text>
+          <AppText style={[t.typography.bodyStrong, { color: t.colors.primary }]}>{actionLabel}</AppText>
         </Pressable>
       ) : null}
     </View>

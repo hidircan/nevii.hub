@@ -11,6 +11,18 @@
 import { isQuotaExemptSource } from "./lesson-disruption";
 import type { AppData, MakeupRequest, MakeupStatus } from "./types";
 import { resolveLessonAcademicPeriod } from "./attendance-calendar";
+import { lessonEnrollmentId } from "./student-enrollments";
+
+/**
+ * 2026-10-09 — telafi hakkı BRANŞ başınadır: bir branşın devamsızlığı/telafisi diğer branşın hakkını tüketmez.
+ * Kaynak dersin branşı `lessonEnrollmentId` ile çözülür (açık bağ → tek branş → enstrümanla tek eşleşme); tek
+ * branşlı öğrencide tüm dersler aynı anahtara düşer (eski davranışla birebir aynı).
+ */
+export function makeupEnrollmentKey(data: import("./types").WithStudentRefs<Pick<AppData, "lessons" | "students" | "teachers">>, lessonId: string): string {
+  const lesson = data.lessons.find((l) => l.id === lessonId);
+  const student = lesson ? data.students.find((s) => s.id === lesson.studentId) : undefined;
+  return (lesson && student ? lessonEnrollmentId(student, lesson, data.teachers) : undefined) ?? "__unassigned__";
+}
 
 /** "2026" → "2026-2027" — kullanıcıya gösterilecek eğitim yılı etiketi, hiçbir yerde sabitlenmez. */
 export function formatEducationYearLabel(academicYearStart: number): string {
@@ -72,9 +84,10 @@ export function isQuotaExemptMakeup(data: Pick<AppData, "lessons">, sourceLesson
   return isQuotaExemptSource(data.lessons.find((l) => l.id === sourceLessonId)?.disruptionSource);
 }
 
-export function countStudentMakeupsInPeriod(data: AppData, studentId: string, periodKey: string): number {
+export function countStudentMakeupsInPeriod(data: AppData, studentId: string, periodKey: string, enrollmentKey?: string): number {
   return data.makeupRequests.filter((m) => {
     if (m.studentId !== studentId) return false;
+    if (enrollmentKey && makeupEnrollmentKey(data, m.sourceLessonId) !== enrollmentKey) return false;
     if (!isMakeupStatusCountingTowardQuota(m.status)) return false;
     if (isQuotaExemptMakeup(data, m.sourceLessonId)) return false;
     return periodKeyForLesson(data, m.sourceLessonId) === periodKey;
@@ -124,7 +137,9 @@ export function getStudentMakeupQuota(
   data: AppData,
   studentId: string,
   now: Date = new Date(),
-  sourceLessonId?: string
+  sourceLessonId?: string,
+  /** 2026-10-09 — özet ekranlarında branş; `sourceLessonId` verilirse o dersin branşı esas alınır. */
+  enrollmentId?: string
 ): MakeupQuotaSnapshot {
   const allowance = resolveMonthlyMakeupAllowance(data.settings);
   const sourceLesson = sourceLessonId ? data.lessons.find((l) => l.id === sourceLessonId) : undefined;
@@ -152,11 +167,13 @@ export function getStudentMakeupQuota(
   }
   const activePeriodKey = `${period.academicYearStart}-${period.term}`;
   const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
+  const enrollmentKey = sourceLesson ? makeupEnrollmentKey(data, sourceLesson.id) : enrollmentId;
   const periodRequests = data.makeupRequests.filter(
     (m) =>
       m.studentId === studentId &&
       periodKeyForLesson(data, m.sourceLessonId) === activePeriodKey &&
-      !isQuotaExemptMakeup(data, m.sourceLessonId)
+      !isQuotaExemptMakeup(data, m.sourceLessonId) &&
+      (!enrollmentKey || makeupEnrollmentKey(data, m.sourceLessonId) === enrollmentKey)
   );
   const confirmedUsed = periodRequests.filter((m) => m.status === "confirmed").length;
   const reservedUsed = periodRequests.filter((m) =>
@@ -203,7 +220,7 @@ export function assertCanCreateMakeup(
   if (snapshot.used >= snapshot.allowance) {
     return {
       ok: false,
-      message: `Bu öğrenci ${snapshot.periodLabel} içinde ${snapshot.allowance} telafi hakkını kullanmıştır.`,
+      message: `Bu öğrenci bu branşta ${snapshot.periodLabel} içinde ${snapshot.allowance} telafi hakkını kullanmıştır (diğer branşların hakkı ayrıdır).`,
       snapshot,
     };
   }

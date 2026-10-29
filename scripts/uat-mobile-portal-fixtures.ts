@@ -73,6 +73,9 @@ INSERT INTO "Homework" (id,"tenantId","teacherId","studentId",title,description,
 
 async function main() {
   assertNotProductionRuntime();
+  if (!TEST_SUPABASE_REF) {
+    throw new Error("TEST_SUPABASE_REF tanımlı değil: uzak test DB'si yok (local-first). Önce geçici test projesini açıp ref'ini verin.");
+  }
   const outIdx = process.argv.indexOf("--out");
   const out = outIdx > 0 ? process.argv[outIdx + 1] : "";
   if (!out || out.startsWith(process.cwd())) throw new Error("--out repo DIŞINDA bir dosya yolu olmalı.");

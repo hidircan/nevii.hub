@@ -20,10 +20,38 @@
  */
 
 import { collectedAmountOf } from "../payment-profile";
-import type { AppData, Lesson, Payment, Student, Task } from "../types";
+import type { AppData, Lesson, Payment, StudentRef, Task } from "../types";
 import { isLiveObligation } from "../payment-profile";
+import { supersededUncollectedMonthlyPlanIds } from "../superseded-monthly-plan";
 import { resolveLessonFinalStatus } from "../lesson-live-status";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "../timezone";
+import { isOwnStudent } from "../teacher-portal-scope";
+
+/**
+ * DB egress (2026-09-30) — özetin OKUDUĞU alanlar. Ödemelerden yalnız toplam/vade/tahsilat için gereken
+ * sekiz alan (tüm satırlar), derslerden yalnız bugünün dersleri kullanılır; bu yüzden Panel özeti tam
+ * `AppData` yerine `DashboardData` dilimi verebilir (bkz. reference-data.ts). Tip, fazlasını derletmez.
+ */
+export type DashboardPaymentRow = Pick<
+  Payment,
+  | "id"
+  | "studentId"
+  | "amount"
+  | "paidAmount"
+  | "status"
+  | "dueDate"
+  | "paidAt"
+  | "contractId"
+  | "source"
+  | "enrollmentId"
+  | "description"
+  | "installmentPeriodLabel"
+  | "firstCollectionIncludesNextMonth"
+>;
+export type DashboardSummaryInput = Pick<AppData, "settings" | "teachers" | "rooms" | "lessons" | "makeupRequests"> & {
+  students: StudentRef[];
+  payments: DashboardPaymentRow[];
+};
 
 /** "all" = şube süzgeci yok. */
 export type BranchFilter = string | "all";
@@ -121,7 +149,7 @@ function dayDiff(fromYmd: string, toYmd: string): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-function remainingOf(p: Payment): number {
+function remainingOf(p: Pick<Payment, "amount" | "paidAmount">): number {
   return Math.max(p.amount - p.paidAmount, 0);
 }
 
@@ -137,7 +165,7 @@ export type ContractSummaryInput = {
 };
 
 export function buildDashboardSummary(
-  data: AppData,
+  data: DashboardSummaryInput,
   scope: DashboardScope,
   /** Öğrenci başına GÜNCEL sözleşme özeti (bkz. contracts.ts listContractSummariesByStudent). */
   contractsByStudent: Map<string, ContractSummaryInput>,
@@ -153,10 +181,10 @@ export function buildDashboardSummary(
 
   const students = data.students.filter((s) => inBranch(s));
   const activeStudents = students.filter((s) => s.active !== false);
-  const studentById = new Map<string, Student>(data.students.map((s) => [s.id, s]));
+  const studentById = new Map<string, StudentRef>(data.students.map((s) => [s.id, s]));
 
   /** Ödeme satırının şubesi ÖĞRENCİDEN gelir — Payment'ta branchId yok. */
-  const paymentInScope = (p: Payment) =>
+  const paymentInScope = (p: DashboardPaymentRow) =>
     branchId === "all" || studentById.get(p.studentId)?.branchId === branchId;
   const payments = data.payments.filter(paymentInScope);
 
@@ -191,24 +219,26 @@ export function buildDashboardSummary(
       const branchStudents = data.students.filter((s) => s.branchId === b.id && s.active !== false);
       const branchStudentIds = new Set(branchStudents.map((s) => s.id));
       const branchPayments = data.payments.filter((p) => branchStudentIds.has(p.studentId));
+      const duplicatedPlan = supersededUncollectedMonthlyPlanIds(branchPayments, terminalContractIds);
       return {
         branchId: b.id,
         name: b.shortName || b.name,
         todayLessonCount: lessonsToday.filter((l) => l.branchId === b.id).length,
         activeStudentCount: branchStudents.length,
         outstandingAmount: branchPayments
-          .filter((p) => isLiveObligation(p, terminalContractIds))
+          .filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id))
           .reduce((sum, p) => sum + remainingOf(p), 0),
         overdueAmount: branchPayments
-          .filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds))
+          .filter((p) => p.status === "overdue" && isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id))
           .reduce((sum, p) => sum + remainingOf(p), 0),
       };
     })
     .sort((a, b) => b.todayLessonCount - a.todayLessonCount);
 
   // ---- Tahsilat ----------------------------------------------------------
-  const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds));
-  const toDueRow = (p: Payment): DueRow => ({
+  const duplicatedPlan = supersededUncollectedMonthlyPlanIds(payments, terminalContractIds);
+  const outstanding = payments.filter((p) => isLiveObligation(p, terminalContractIds) && !duplicatedPlan.has(p.id));
+  const toDueRow = (p: DashboardPaymentRow): DueRow => ({
     paymentId: p.id,
     studentId: p.studentId,
     studentName: studentById.get(p.studentId)?.name ?? "—",
@@ -260,7 +290,7 @@ export function buildDashboardSummary(
   const teacherAttention: TeacherAttentionRow[] = [];
   for (const t of data.teachers) {
     if (!inBranch(t)) continue;
-    const assignedStudents = activeStudents.filter((s) => s.teacherId === t.id);
+    const assignedStudents = activeStudents.filter((s) => isOwnStudent(s, t.id));
     if (!t.active && assignedStudents.length > 0) {
       teacherAttention.push({
         teacherId: t.id,

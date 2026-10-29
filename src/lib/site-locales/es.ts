@@ -9,7 +9,7 @@ export const esContent: SiteContent = {
       "Horarios, asistencia, recuperaciones, contratos y cobros — con portales para docentes y familias.",
   },
   skip: "Saltar al contenido",
-  header: { login: "Entrar", languageLabel: "Idioma" },
+  header: { login: "Entrar", languageLabel: "Idioma", demo: "Solicitar una demo" },
   nav: [
     { label: "Inicio", href: "#ust" },
     { label: "Nosotros", href: "#hakkimizda" },
@@ -27,6 +27,12 @@ export const esContent: SiteContent = {
     login: "Entrar",
     trial: "Prueba 30 días gratis",
     tour: "Descubre la plataforma →",
+    highlights: [
+      "Un solo panel para centros multisede",
+      "Flujos KVKK + consentimiento de foto/vídeo",
+      "Ningún mensaje sin aprobación",
+      "Funciona también en el móvil",
+    ],
   },
   about: {
     title: "Diseñado para el día a día de tu escuela",
@@ -300,6 +306,16 @@ export const esContent: SiteContent = {
       answer:
         "Se prepara infraestructura segura de pago con tarjeta. Opciones actuales y condiciones piloto: info@neviihub.com.",
     },
+    {
+      question: "¿Cómo puedo obtener una demostración?",
+      answer:
+        "Escriba a la dirección de correo de la sección de contacto; programaremos una breve demostración adaptada a su centro.",
+    },
+    {
+      question: "¿Puedo importar mi lista actual de alumnos?",
+      answer:
+        "Sí. Los alumnos de su archivo CSV pueden importarse; los datos de matrícula y los primeros registros de cobro se conservan.",
+    }
   ],
   contact: {
     title: "Contacto",
@@ -308,6 +324,8 @@ export const esContent: SiteContent = {
     email: "Correo",
     address: "Dirección",
     pending: "Nuestros datos se publicarán aquí pronto. Con cuenta de escuela, contáctanos desde el panel.",
+    demoTitle: "Solicite una demostración gratuita",
+    demoCta: "Enviar correo de demo",
     follow: "Síguenos en redes sociales",
     soon: "pronto",
     mapTitle: "Mapa de ubicación",

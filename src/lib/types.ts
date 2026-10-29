@@ -107,6 +107,12 @@ export interface Teacher {
   createdByUserId?: string;
   /** ÖNCELİK 4 (devam) — arşivleme (hard delete YOK); `active:false` ile birlikte set edilir. */
   archivedAt?: string;
+  /** 2026-10-03 — listeden kaldırıldı (geri alınabilir silme). Satır geçmiş kayıtlar için kalır; bkz. deleteTeacherTool. */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan geçmiş için anonimleştirilerek tutuluyor (bkz. person-purge.ts). Geri alınamaz. */
+  purgedAt?: string;
   /** Package D — özlük alanları. Hepsi opsiyonel; legacy kayıtlar kırılmaz. */
   employmentType?: TeacherEmploymentType;
   /** ISO tarih — işe giriş. */
@@ -187,7 +193,79 @@ export const STUDENT_TYPES: StudentType[] = [
   "Güzel Sanatlar Lisesi Hazırlık",
 ];
 
+/**
+ * 2026-10-04 — öğrencinin bir EĞİTİM kaydı (tek öğrenci kimliği, N eğitim). Enstrüman ile öğretmen aynı
+ * kayıtta tutulur — hangi öğretmenin hangi eğitimi verdiği açıktır. Öğretmen değişince yalnız bu kayıt
+ * değişir; geçmiş derslerin `teacherId`'si DEĞİŞMEZ. Eğitim silinmez, `active=false` ile kapanır.
+ */
+export interface StudentEnrollment {
+  id: string;
+  instrument: Instrument;
+  teacherId?: string;
+  branchId?: BranchId;
+  lessonDurationMinutes?: number;
+  weeklyLessonCount?: number;
+  active: boolean;
+  /** Birincil eğitim — öğrencinin eski tekil alanları (teacherId/lessonDurationMinutes) bunu yansıtır. */
+  primary?: boolean;
+  startDate?: string;
+  endDate?: string;
+  createdAt: string;
+  updatedAt?: string;
+  /**
+   * 2026-10-09 — BRANŞ KOŞULLARI (ek branş kayıtları için). Birincil kaydın koşulları ÖĞRENCİ satırındaki eski
+   * alanlarda durur (studentTypes, monthlyFee, packageId…); ek kaydın koşulları yalnız burada — birinin değişmesi
+   * diğerini ezmez. Okuma TEK kapıdan: `enrollmentTerms` (student-enrollments.ts).
+   */
+  studentTypes?: StudentType[];
+  packageId?: string;
+  packageName?: string;
+  monthlyFee?: number;
+  packageBaseMonthlyFee?: number;
+  discountType?: DiscountType;
+  discountValue?: number;
+  monthlyFeeManualOverride?: boolean;
+  monthlyFeeOverrideReason?: string;
+  derivedPerLessonAmount?: number;
+  paymentMethod?: StudentPaymentMethod;
+  paymentDueDay?: number;
+  lessonStartDate?: string;
+  lessonScheduleText?: string;
+  intendedDurationMonths?: number;
+  /** Sonlandırma izi (kayıt silinmez; `active:false` + `endDate`). */
+  endReason?: string;
+  endedByUserId?: string;
+  /**
+   * 2026-10-10 — SÜRÜM 2: bu kayıt KENDİ koşullarının tek sahibidir (öğrenci türü, ücret, ödeme, tarih, program, seviye
+   * ve MEB bilgileri). Öğrenci satırındaki aynı adlı alanlar yalnız UYUMLULUK AYNASIDIR (bkz. student-enrollments.ts
+   * `mirrorPatchFromEnrollments`) ve hiçbir branşın koşulunun kaynağı değildir. Alan yoksa kayıt eski (v1/legacy)
+   * düzendedir: ana kaydın koşulları öğrenci satırında durur ve okuma tek kapıdan (`enrollmentTerms`) yapılır.
+   */
+  termsVersion?: 2;
+  /** Ödeme günü aralıkları (v2) — tekil `paymentDueDay` geriye uyum için korunur. */
+  paymentDueRanges?: PaymentDueRange[];
+  /** Kayıtta uygulanan kampanya kimlikleri (kampanya raporu branş başına sayar). */
+  appliedCampaignIds?: string[];
+  /** Seviye: MEB branşında 1–8, diğerlerinde serbest metin. Branşa özgüdür (aynı kişi Piyano 3., Keman 1. seviyede olabilir). */
+  level?: string;
+  targetExam?: string;
+  /** MEB dönem/sınav bilgileri — BRANŞA özgüdür; kişi düzeyindeki kimlik/belgelerle karıştırılmaz. */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
+  /**
+   * 2026-10-23 — bu branş kaydı bir GRUP DERSİNE katılımdır (GroupLesson.id). Enstrüman/öğretmen/süre/gün-saat gruptan
+   * gelir; ücret, ödeme, sözleşme ve tahakkuk bu kaydın normal koşullarıdır. Kayıt aktifken öğrenci grubun üyesidir.
+   */
+  groupLessonId?: string;
+  /** Yeni öğrenci kaydını oluşturan gönderimin kimliği — çift tık/yeniden deneme koruması (bkz. store.registerStudent). */
+  registrationId?: string;
+}
+
 export interface Student {
+  /** 2026-10-04 — eğitim kayıtları; yoksa eski tek eğitim (bkz. student-enrollments.ts effectiveEnrollments). */
+  enrollments?: StudentEnrollment[];
   id: string;
   /** Faz 12 — insan-okunur, değişmez kurum numarası (ör. "S00001"). */
   displayId?: string;
@@ -278,6 +356,23 @@ export interface Student {
   level?: string;
   /** Hedef sınav / performans dönemi — serbest metin */
   targetExam?: string;
+  /**
+   * MEB Paneli — MEB seviye dönemi başlangıç/bitiş (ISO date-only
+   * "YYYY-MM-DD"). Genel `enrollmentStartDate`/`lessonStartDate`/
+   * `enrollmentEndDate` alanlarından AYRI iş bilgisidir; oraya ASLA
+   * yazılmaz. MEB seçili değilse yazılmaz; tür kaldırılınca SİLİNMEZ
+   * (kolon korunur, UI gizler — tekrar seçilince geri gelir).
+   */
+  mebLevelStartDate?: string;
+  mebLevelEndDate?: string;
+  /**
+   * MEB sınav tarihi (opsiyonel) + tri-state katılım: undefined =
+   * "Bilinmiyor", false = "Girmedi", true = "Girdi". Geçmiş kayıtlara
+   * "Girdi" varsayımı YOK; "Girdi" tarih ister, gelecek tarihi reddeder
+   * (bkz. src/lib/meb.ts).
+   */
+  mebExamDate?: string;
+  mebExamAttended?: boolean;
   specialNotes?: string;
   /** EPIC 1 — true ise veli otomatik tahsilat hatırlatmalarından çıkmıştır. */
   communicationOptOut?: boolean;
@@ -326,6 +421,12 @@ export interface Student {
   /** Override yapıldıysa zorunlu gerekçe metni — audit'te de ayrıca saklanır. */
   monthlyFeeOverrideReason?: string;
   /**
+   * Paket & Kampanya Motoru — kayıtta uygulanan kampanyaların id'leri
+   * (`resolveCampaignStack` çıktısı). Kampanya raporu ve kullanım sayacı bu
+   * alandan beslenir. Eski kayıtlarda undefined — rapor "kampanyasız" gösterir.
+   */
+  appliedCampaignIds?: string[];
+  /**
    * P0-1 (2026-09-02 düzeltme) — yöneticinin girmediği, SİSTEMİN
    * `derivePerLessonAmount(monthlyFee, weeklyLessonCount)` ile ürettiği
    * hesaplama snapshot'ı (tam sayı TL). Yoksa (undefined) bu öğrenci
@@ -345,6 +446,8 @@ export interface Student {
   deletedAt?: string;
   deletedByUserId?: string;
   deletionReason?: string;
+  /** 2026-10-15 — kalıcı silindi; korunan finans/hakediş geçmişi için anonimleştirilerek tutuluyor. Geri alınamaz. */
+  purgedAt?: string;
   /** ÖNCELİK 4 — Yoklama Takvimi dönemi. Boşsa "guz" varsayılır. */
   termType?: StudentTermType;
   /**
@@ -365,6 +468,24 @@ export interface Student {
   paymentPauseReason?: string;
   paymentPausedBy?: string;
 }
+
+/**
+ * DB egress (2026-10-18) — çok-öğrencili dilimlerin (referans/ders penceresi/telafi/panel özeti) öğrenci satırı:
+ * yalnız tek-öğrenci ekranlarının (detay, sözleşme, düzenleme) okuduğu kolonlar SQL'de okunmaz (prod'da satırın
+ * ~%25'i). `notes` zorunlu alan olduğu için `StudentRef` → `Student` ATANAMAZ (tam öğrenci bekleyen yardımcı derlenmez).
+ * AMA `Pick<Student, …>` gibi opsiyonel alan kabul eden parametreler bunu YAKALAMAZ (eksik opsiyonel alan geçerlidir):
+ * listeye kolon eklemeden önce `StudentRef`'i geçici olarak `& { readonly [P in Omitted]-?: { __omitted: true } }` ile
+ * değiştirip `tsc` çalıştırın; dilim üreticileri dışındaki her hata gerçek bir okumadır (2026-10-18: TermsStudent
+ * indirim/MEB alanlarını okuduğu için onlar listede DEĞİL). Bu alanlardan birine ihtiyaç varsa tek satır okuyun.
+ */
+export const REFERENCE_STUDENT_OMIT = [
+  "notes", "address", "nationalIdCipher", "nationalIdLast2", "motherName", "fatherName", "referralSource",
+  "referralSourceDetail", "specialNotes", "deletedByUserId", "deletionReason", "birthPlace", "schoolOrOccupation",
+  "paymentPauseReason", "paymentPausedBy", "paymentPausedAt",
+] as const satisfies readonly (keyof Student)[];
+export type StudentRef = Omit<Student, (typeof REFERENCE_STUDENT_OMIT)[number]>;
+/** `students` alanı `StudentRef[]` olan veri şekli — dar dilimleri kabul eden yardımcıların parametresi. */
+export type WithStudentRefs<T extends { students?: unknown }> = Omit<T, "students"> & { students: StudentRef[] };
 
 /** null = reactivate (tüm alanlar temizlenir). */
 export type StudentPaymentPauseState = { reason: string; pausedBy: string; pausedAt: string } | null;
@@ -399,8 +520,12 @@ export type PackageStatus = "active" | "archived";
  */
 export interface Package {
   id: string;
+  /** Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "PKT-001"). NULL = motor öncesi eski kayıt. */
+  displayId?: string;
   title: string;
   description?: string;
+  /** Boş/undefined = tüm şubelerde geçerli. */
+  applicableBranchIds?: BranchId[];
   status: PackageStatus;
   price30Min: number;
   price40Min: number;
@@ -418,6 +543,8 @@ export interface Package {
   /** Paket kapsamını açıklayan serbest metin not. */
   notes?: string;
   createdBy: string;
+  /** Paket & Kampanya Motoru — oluşturan kullanıcı (User.id). Eski kayıtlarda undefined. */
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -426,6 +553,9 @@ export interface Package {
 export type StudentProfilePatch = Partial<
   Pick<
     Student,
+    /** 2026-10-04 — yalnız upsertStudentEnrollmentTool yazar (birincil alanlarla birlikte senkron). */
+    | "enrollments"
+    | "lessonDurationMinutes"
     /** Yalnız toplu işlem (bulkStudentActionTool) yazar — tekil detay ekranı MT-003 gereği değiştirmez. */
     | "teacherId"
     | "instruments"
@@ -441,6 +571,10 @@ export type StudentProfilePatch = Partial<
     | "enrollmentEndDate"
     | "level"
     | "targetExam"
+    | "mebLevelStartDate"
+    | "mebLevelEndDate"
+    | "mebExamDate"
+    | "mebExamAttended"
     | "specialNotes"
     | "communicationOptOut"
     | "phone"
@@ -475,8 +609,48 @@ export type StudentProfilePatch = Partial<
     | "monthlyFeeManualOverride"
     | "monthlyFeeOverrideReason"
     | "accountResponsibility"
+    /** 2026-10-09 — branş formu (ilk branşın koşulları öğrenci satırında) yazar. */
+    | "packageName"
+    | "weeklyLessonCount"
+    | "derivedPerLessonAmount"
+    /** 2026-10-10 — uyumluluk aynası (bkz. student-enrollments.ts mirrorPatchFromEnrollments) yazar. */
+    | "appliedCampaignIds"
   >
->;
+> & {
+  /** 2026-10-09 — açıkça TEMİZLENECEK alanlar (db: NULL, json/memory: anahtar silinir); `undefined` "dokunma" demektir. */
+  clearFields?: StudentClearableField[];
+  /**
+   * 2026-10-10 — YALNIZ girdi: branşa özgü bir alan (tür, ücret, tarih, MEB…) hangi BRANŞ kaydına yazılacak.
+   * Satıra YAZILMAZ (store facade ayıklar). Çok branşlı öğrencide verilmezse yazım reddedilir (tahmin yok).
+   */
+  enrollmentId?: string;
+};
+
+export type StudentClearableField =
+  | "packageId"
+  | "packageBaseMonthlyFee"
+  | "discountType"
+  | "discountValue"
+  | "monthlyFeeOverrideReason"
+  | "lessonScheduleText"
+  // 2026-10-10 — uyumluluk aynası: kaynak branşta olmayan değer, önceki kaynaktan kalmasın.
+  | "studentType"
+  | "studentTypes"
+  | "level"
+  | "targetExam"
+  | "mebLevelStartDate"
+  | "mebLevelEndDate"
+  | "mebExamDate"
+  | "mebExamAttended"
+  | "paymentMethod"
+  | "paymentDueDay"
+  | "paymentDueRanges"
+  | "lessonStartDate"
+  | "intendedDurationMonths"
+  | "enrollmentEndDate"
+  | "derivedPerLessonAmount"
+  | "appliedCampaignIds"
+  | "lessonDurationMinutes";
 
 /**
  * EPIC 1 (IMPLEMENTATION_PLAN.md) — okulun gecikmiş tahsilat otomasyon
@@ -520,6 +694,17 @@ export interface CollectionsSettings {
    * number olarak TEKRARLANMAZ.
    */
   firstCollectionMergeThresholdLessons?: number;
+  /**
+   * Ödeme hatırlatmaları (2026-10-20) — yönetici uygulama içi "Bekleyen ödeme" bildirimi. Kural ve varsayılanlar
+   * TEK yerde: src/lib/payment-reminder-policy.ts (`shouldCreatePaymentReminder`). undefined → varsayılan.
+   */
+  paymentReminderEnabled?: boolean;
+  /** Vadeden kaç gün önce haber verilsin (0 = gelecek vadeli taksit için bildirim yok). */
+  paymentReminderDaysBefore?: number;
+  /** Vade geçtikten sonra kaç günde bir tekrar hatırlatılsın (0 = tekrar yok). */
+  paymentReminderRepeatDays?: number;
+  /** En fazla kaç tekrar. */
+  paymentReminderMaxRepeats?: number;
 }
 
 export const DEFAULT_COLLECTIONS_SETTINGS: CollectionsSettings = {
@@ -681,8 +866,24 @@ export interface LessonAssessment extends AssessmentScores {
   updatedAt: string;
 }
 
+export interface PeriodicLessonSummaryItem {
+  lessonId: string;
+  startAt: string;
+  instrument?: string;
+  status?: string;
+  assessed: boolean;
+  overallScore?: number;
+  piecesWorked?: string;
+  etudesWorked?: string;
+  technicalWork?: string;
+  theoryWork?: string;
+  strengthNote?: string;
+  improvementNote?: string;
+  nextStepsNote?: string;
+}
+
 /**
- * Faz 3B — dört haftalık genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
+ * Faz 3B — dört haftalık / 4 derslik genel gelişim değerlendirmesi. Bu tabloda YALNIZCA
  * gönderilmiş (submitted) kayıtlar bulunur — "bekliyor" durumu her zaman
  * TAZE hesaplanır (bkz. src/lib/periodic-assessment/index.ts
  * computePendingPeriodicAssessmentPeriods), ayrı bir "pending" satırı YOK.
@@ -700,6 +901,15 @@ export interface PeriodicAssessment {
   strengthsNote?: string;
   areasForImprovementNote?: string;
   recommendationNote?: string;
+  /** 4 derslik dönemin 1–5 arası 10 kriter puanı (4 ders ortalaması + öğretmen onayı). */
+  scores?: AssessmentScores;
+  /** 10 kriterin ortalaması (1.0 – 5.0). */
+  overallScore?: number;
+  /** Dönem içindeki 4 dersin özet satırları (tarih, branş, konular, puan). */
+  lessonSummaries?: PeriodicLessonSummaryItem[];
+  /** Öğretmenin onay imzası ve onay zamanı. */
+  teacherSignedName?: string;
+  approvedAt?: string;
   submittedBy: string;
   submittedAt: string;
   createdAt: string;
@@ -721,6 +931,14 @@ export interface Room {
 
 export interface Lesson {
   id: string;
+  /** 2026-10-04 — dersin ait olduğu eğitim (Student.enrollments[].id); yoksa enstrümandan çözülür. */
+  enrollmentId?: string;
+  /** 2026-10-06 — kulüp oturumu satırı (`type: "group"`); aynı oturumun satırları `clubSessionId` ile bağlı. */
+  clubId?: string;
+  clubSessionId?: string;
+  /** 2026-10-23 — grup dersi katılımcı satırı (normal ders tipi); aynı oturumun satırları `groupSessionId` ile bağlı. */
+  groupLessonId?: string;
+  groupSessionId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -745,6 +963,11 @@ export interface Lesson {
   endCorrectedBy?: string;
   endCorrectionNote?: string;
   notes?: string;
+  /**
+   * Geldi yoklamasının isteğe bağlı notu. Boş bırakılabilir; statü değişince
+   * silinmez. Hakediş/ücret hesabına girmez. Planlama notu (`notes`) değildir.
+   */
+  studentAttendanceNote?: string | null;
   /** Dersi planlayan kullanıcı. Eski derslerde yok. */
   createdByUserId?: string;
   /**
@@ -810,19 +1033,9 @@ export interface Lesson {
     at: string;
   };
   /**
-   * Faz 2 — öğretmenin KENDİ derse gelip gelmediği. Öğrenci yoklamasından
-   * (studentAttended/studentAbsent/studentExcused) TAMAMEN BAĞIMSIZ bir alan
-   * kümesi — öğretmen performans skoru YALNIZCA buna bakar, öğrenci
-   * yoklamasına asla bakmaz (bkz. src/lib/teacher-performance.ts). undefined
-   * = "Bekliyor" (henüz işaretlenmedi); ayrı bir enum değeri gerekmez.
-   */
-  teacherAttendanceStatus?: "geldi" | "gelmedi" | "mazeretli";
-  teacherAttendanceAt?: string;
-  teacherAttendanceBy?: string;
-  teacherAttendanceNote?: string;
-  /**
    * 9. tur — İptal/Telafi kararının kaynağı (bkz. src/lib/lesson-disruption.ts).
-   * Öğretmen katılımından ve `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş.
+   * `status`/`opsMakeupFlag`'den AYRI; undefined = belirtilmemiş. "teacher" = öğretmen
+   * performansının TEK verisi (ayrı öğretmen yoklaması 2026-10-21'de kaldırıldı).
    */
   disruptionSource?: import("./lesson-disruption").DisruptionSource;
   disruptionNote?: string;
@@ -840,6 +1053,7 @@ export type LessonSeriesStatus = "active" | "ended" | "cancelled";
  */
 export interface LessonSeries {
   id: string;
+  enrollmentId?: string;
   studentId: string;
   teacherId: string;
   roomId: string;
@@ -927,6 +1141,8 @@ export interface MakeupRequest {
   slaDeadline?: string;
   /** 0=yok 1=15gün 2=7gün 3=3gün 4=1gün 5=aşıldı */
   slaEscalationLevel?: number;
+  /** Süre uzatma, revizyon, plan silme ve hak iptali — kim, ne zaman, eski/yeni. */
+  changeLog?: import("./makeup-deadline").MakeupChangeEntry[];
 }
 
 export interface MakeupSlot {
@@ -939,10 +1155,18 @@ export interface MakeupSlot {
   reasons: string[];
 }
 
-export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan" | "contract" | "registration_first_payment";
+/** "club" (2026-10-05) — kulüp aylık ücreti; sözleşmeye hiçbir koşulda bağlanmaz/taşınmaz. */
+export type PaymentSource = "manual" | "lesson_ops" | "monthly_plan" | "contract" | "registration_first_payment" | "club";
 
 export interface Payment {
   id: string;
+  /** 2026-10-05 — kulüp ücreti satırının üyeliği (`source: "club"`). */
+  clubMembershipId?: string;
+  /**
+   * 2026-10-09 — satırın ait olduğu branş kaydı (Student.enrollments[].id). Sözleşme taksidinde sözleşmenin eğitimi;
+   * sözleşmesiz satırda tek açık bağ. Yoksa (eski kayıt) bkz. student-enrollments.ts `paymentEnrollmentId`.
+   */
+  enrollmentId?: string;
   studentId: string;
   amount: number;
   paidAmount: number;
@@ -1116,6 +1340,10 @@ export interface TeacherFeeRule {
   /** ISO tarih — verilmezse açık uçlu; verilirse bu tarih dahil geçerli */
   effectiveTo?: string;
   createdAt: string;
+  /** 2026-09-30 — devre dışı bırakma izi (effectiveTo bu işlemle kısaltılır). */
+  deactivatedAt?: string;
+  deactivatedByUserId?: string;
+  deactivationReason?: string;
 }
 
 /**
@@ -1134,10 +1362,26 @@ export interface TeacherPayout {
   periodEnd: string;
   totalMinutes: number;
   totalAmount: number;
-  status: "pending" | "paid";
+  /**
+   * 2026-09-30 — ödeme defterinden TÜRETİLİR (bkz. payout-ledger.ts `derivePayoutStatus`):
+   * pending (ödeme yok) · partial (kısmi) · paid (bakiye ≤ 0) · cancelled (iptal; toplam/kilit dışı).
+   */
+  status: TeacherPayoutStatus;
+  /** Son (ters kaydı olmayan) ödemenin tarihi. */
   paidAt?: string;
   method?: string;
   generatedAt: string;
+  cancelledAt?: string;
+  cancelledByUserId?: string;
+  cancelReason?: string;
+  /** Kayıt anındaki ders kalemleri (hangi kural/politika, hangi tutar) — sonradan kural silinse de okunur. */
+  lineSnapshot?: TeacherPayoutSnapshotLine[];
+  /** Ödeme defteri. `undefined` = eski kayıt: status "paid" ise tüm tutar tek ödemede ödenmiş sayılır. */
+  payments?: TeacherPayoutPaymentEntry[];
+  /** Düzeltme (fark) kayıtları: +/− tutar, gerekçe; silinmez, ters kayıtla geri alınır. */
+  adjustments?: TeacherPayoutAdjustmentEntry[];
+  /** İyimser eşzamanlılık sayacı — her yazmada +1; eski sürümle yazma reddedilir. */
+  version?: number;
   /** Revizyon (K): ilk revizyonda donan orijinal hesap ve satır düzeltmeleri. */
   originalTotalMinutes?: number;
   originalTotalAmount?: number;
@@ -1146,6 +1390,95 @@ export interface TeacherPayout {
   revisedAt?: string;
   revisedByUserId?: string;
   revisionReason?: string;
+  /**
+   * 2026-09-29 — kayıt ANINDA kullanılan hakediş politikası. `undefined` = eski kayıt (öğretmen bazlı
+   * dakika ücreti). "mixed" = dönem birden çok ayı ve farklı politikaları kapsıyor.
+   */
+  pricingPolicy?: TeacherPayoutPricingPolicy | "mixed";
+  /** Kayıt anındaki ay → politika + sabit tutarlar (izlenebilirlik; sonradan değişmez). */
+  pricingSnapshot?: Record<string, TeacherPayoutPolicyTerms>;
+}
+
+export type TeacherPayoutStatus = "pending" | "partial" | "paid" | "cancelled";
+
+export interface TeacherPayoutSnapshotLine {
+  lessonId: string;
+  lessonDate: string;
+  studentId: string;
+  studentName?: string;
+  branchName?: string;
+  instrument: Instrument;
+  durationMinutes: number;
+  perMinuteRate?: number;
+  amount: number;
+  feeRuleId?: string;
+  pricingPolicy?: TeacherPayoutPricingPolicy;
+  issue?: string;
+  /** Süre istisnasında uygulanan üst tarife (orantı açıklaması; eski kayıtlarda tanımsız olabilir). */
+  exceptionDetail?: { tariffMinutes: number; tariffRate: number };
+}
+
+/** Ters kaydı olan satır toplamlara girmez ama silinmez (muhasebe izi). */
+export interface TeacherPayoutPaymentEntry {
+  id: string;
+  amount: number;
+  paidAt: string;
+  method?: string;
+  note?: string;
+  createdByUserId: string;
+  createdAt: string;
+  reversedAt?: string;
+  reversedByUserId?: string;
+  reverseReason?: string;
+}
+
+export interface TeacherPayoutAdjustmentEntry {
+  id: string;
+  /** + öğretmene ek ödeme, − öğretmenden düşülecek. */
+  amount: number;
+  reason: string;
+  /** manual: elle · recalc: kayıt sonrası değişen hesap farkı (politika/kural/hariç tutma). */
+  kind: "manual" | "recalc";
+  createdByUserId: string;
+  createdAt: string;
+  reversedAt?: string;
+  reversedByUserId?: string;
+  reverseReason?: string;
+}
+
+/** 2026-09-30 — kaynak dersi silmeden hakedişten hariç tutma (gerekçeli, geri alınabilir). */
+export interface TeacherPayoutExclusion {
+  id: string;
+  lessonId: string;
+  teacherId: string;
+  reason: string;
+  createdByUserId: string;
+  createdAt: string;
+}
+
+/** Öğretmen hakediş politikası: mevcut (öğretmen bazlı dakika ücreti) veya süreye göre ortak sabit ücret. */
+export type TeacherPayoutPricingPolicy = "per_teacher_rule" | "fixed_duration";
+
+export interface TeacherPayoutPolicyTerms {
+  policy: TeacherPayoutPricingPolicy;
+  /** Yalnız `fixed_duration`: tüm öğretmenler için ders başı TL (30/40/50 dk). */
+  rate30?: number;
+  rate40?: number;
+  rate50?: number;
+}
+
+/**
+ * 2026-09-29 — bir takvim ayı için seçilen hakediş politikası (kurum geneli, öğretmen bazlı DEĞİL).
+ * Kayıt yoksa o ay mevcut politika geçerlidir. O ayla kesişen bir hakediş kaydı oluşunca kilitlenir.
+ */
+export interface TeacherPayoutPolicyPeriod extends TeacherPayoutPolicyTerms {
+  id: string;
+  /** "yyyy-MM" */
+  month: string;
+  setByUserId: string;
+  setAt: string;
+  /** Yalnız "Tüm kurumlar" birleşik görünümünde: kaydın ait olduğu kurumun öğretmenleri. */
+  teacherIds?: string[];
 }
 
 /** Hakediş dökümünde tek dersin elle düzeltilmiş değerleri; boş alan = hesaplanan değer. */
@@ -1167,6 +1500,10 @@ export interface AppData {
   payments: Payment[];
   teacherFeeRules: TeacherFeeRule[];
   teacherPayouts: TeacherPayout[];
+  /** 2026-09-29 — ay bazlı hakediş politikası (opsiyonel: yoksa her ay mevcut politika). */
+  teacherPayoutPolicies?: TeacherPayoutPolicyPeriod[];
+  /** 2026-09-30 — hakedişten hariç tutulan dersler (ders/takvim/yoklama kaydı değişmez). */
+  teacherPayoutExclusions?: TeacherPayoutExclusion[];
   /**
    * ÖNCELİK 4 (devam) — Paket Yönetimi. Opsiyonel (required değil) —
    * mevcut birçok test fixture'ı elle AppData nesnesi kurar ve bu alanı
@@ -1195,7 +1532,7 @@ export interface AppData {
 }
 
 /** Faz 12 — bkz. src/lib/entity-sequence.ts. */
-export type EntityTypeForSequence = "student" | "teacher" | "staff";
+export type EntityTypeForSequence = "student" | "teacher" | "staff" | "package" | "campaign";
 export type EntitySequenceRecord = { tenantId: string; entityType: EntityTypeForSequence; nextValue: number };
 
 export type DiscountCampaignKind = "sibling";
@@ -1214,9 +1551,23 @@ export type DiscountCampaignKind = "sibling";
  * motorunu (computeMonthlyFee, ödeme oluşturma) etkileyecek daha büyük ve
  * ayrı bir karar/iş kalemidir.
  */
+/**
+ * Paket & Kampanya Motoru — bir öğrenciye birden fazla kampanya uygulanmak
+ * istendiğinde çakışma kuralı (bkz. `resolveCampaignStack`, discount-campaigns.ts):
+ * - "none": başka hiçbir kampanyayla birleşemez; birden fazla "none" varsa en yüksek öncelikli kazanır.
+ * - "additive": diğer additive kampanyalarla toplanır (toplam %100'ü geçemez).
+ * - "override": en yüksek öncelikli override kampanyası diğerlerini ezer.
+ * - "yield": başka herhangi bir aktif kampanya varsa devreye girmez.
+ */
+export type CampaignStackingRule = "none" | "additive" | "override" | "yield";
+
 export interface DiscountCampaign {
   id: string;
+  /** Paket & Kampanya Motoru — kurum bazında okunabilir numara (ör. "KMP-001"). NULL = motor öncesi eski kayıt. */
+  displayId?: string;
   name: string;
+  /** Uzun açıklama (opsiyonel). */
+  description?: string;
   kind: DiscountCampaignKind;
   /** 0-100 arası yüzde. */
   discountPercent: number;
@@ -1227,9 +1578,26 @@ export interface DiscountCampaign {
   validTo?: string;
   /** Kurum/şube kapsamı — verilmezse tüm şubelerde geçerli. */
   branchId?: BranchId;
+  /** Çoklu şube kapsamı — boş/undefined = tüm şubeler (branchId tekil kapsamla birlikte değerlendirilir). */
+  applicableBranchIds?: BranchId[];
+  stackingRule: CampaignStackingRule;
+  /** Aynı anda birden fazla kampanya aktifse yüksek öncelikli önce uygulanır. */
+  priority: number;
+  /** NULL = sınırsız; dolunca kampanya kapanmaz, yalnız uyarı üretilir (soft). */
+  maxUsageCount?: number;
+  /** Her uygulamada artırılır. */
+  usageCount: number;
+  /** İleride genişletilebilir kural alanı (şimdilik serbest JSON). */
+  conditions?: Record<string, unknown>;
   createdBy: string;
+  /** Oluşturan kullanıcı (User.id). Eski kayıtlarda undefined. */
+  createdByUserId?: string;
   createdAt: string;
   updatedAt: string;
+  /** 2026-09-29 — soft delete: dolu = silinmiş (yeni kayıtta seçilemez, düzenlenemez; geçmiş korunur). */
+  deletedAt?: string;
+  deletedByUserId?: string;
+  deletionReason?: string;
 }
 
 /**
@@ -1858,6 +2226,8 @@ export interface TrialLesson {
   id: string;
   name: string;
   phone: string;
+  /** Veli adı (opsiyonel). */
+  parentName?: string;
   instrument: Instrument;
   branchId: BranchId;
   teacherId: string;
@@ -1922,7 +2292,9 @@ export type DocumentInstanceStatus =
   | "signed"
   | "uploaded"
   | "cancelled"
-  | "expired";
+  | "expired"
+  /** 2026-09-29 — arşivlenmiş evrak kritik şifre + gerekçeyle silindi (soft delete; satır/dosya DB'de kalır). */
+  | "deleted";
 
 export interface DocumentTemplate {
   id: string;
@@ -2166,6 +2538,8 @@ export interface ContractInstallmentView {
 
 export interface StudentContract {
   id: string;
+  /** 2026-10-04 — sözleşmenin ait olduğu eğitim; yoksa birincil/eski eğitim. */
+  enrollmentId?: string;
   studentId: string;
   contractNumber: string;
   versionNumber: number;
@@ -2404,3 +2778,4 @@ export interface TaskActivity {
 
 /** Öğrenci silme/geri alma — store'ların dar yazma yolu. `null` = geri al. */
 export type StudentDeletionState = { deletedAt: string; deletedByUserId: string; deletionReason: string } | null;
+export type TeacherDeletionState = StudentDeletionState;

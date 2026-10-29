@@ -36,9 +36,9 @@ export type SiteContent = {
   locale: SiteLocale;
   meta: { title: string; description: string };
   skip: string;
-  header: { login: string; languageLabel: string };
+  header: { login: string; languageLabel: string; demo: string };
   nav: NavItem[];
-  hero: { headline: string; subline: string; login: string; trial: string; tour: string };
+  hero: { headline: string; subline: string; login: string; trial: string; tour: string; highlights: string[] };
   about: { title: string; description: string };
   features: { title: string; description: string };
   groups: FeatureGroup[];
@@ -86,6 +86,8 @@ export type SiteContent = {
     email: string;
     address: string;
     pending: string;
+    demoTitle: string;
+    demoCta: string;
     follow: string;
     soon: string;
     mapTitle: string;

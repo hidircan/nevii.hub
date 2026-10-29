@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { getStaffPerformanceTool, listStaffTool } from "@/lib/services";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { BackButton } from "@/components/back-button";
@@ -93,7 +93,7 @@ export default async function StaffPerformancePage({
   const kurum = await getInstitutionContext(session);
   const [staffResult, data, result] = await Promise.all([
     listStaffTool(session, {}),
-    readScopedData(kurum.scope),
+    readScopedReferenceData(kurum.scope),
     getStaffPerformanceTool(session, { staffId, yearMonth }),
   ]);
 

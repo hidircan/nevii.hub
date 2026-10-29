@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext } from "@/lib/auth/session";
 import { readData } from "@/lib/store";
+import { withReturnTo } from "@/lib/safe-return-to";
 import { listAllHomework, listAllHomeworkSubmissions } from "@/lib/homework";
 import { Badge, Card, Input, Label, PageHeader, Select } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -95,6 +96,20 @@ export default async function HomeworkDetailReportPage({
 
   const teachers = [...data.teachers].sort((a, b) => a.name.localeCompare(b.name, "tr"));
   const students = [...data.students].sort((a, b) => a.name.localeCompare(b.name, "tr"));
+
+  // 11. tur iş #7 — satır içi izlenebilirlik bağlantıları mevcut filtreleri korur.
+  const detailParams = () => {
+    const p = new URLSearchParams();
+    if (sp.teacherId) p.set("teacherId", sp.teacherId);
+    if (sp.studentId) p.set("studentId", sp.studentId);
+    if (sp.branchId) p.set("branchId", sp.branchId);
+    if (sp.status) p.set("status", sp.status);
+    if (sp.from) p.set("from", sp.from);
+    if (sp.to) p.set("to", sp.to);
+    const qs = p.toString();
+    return `/panel/odev-raporu/detay${qs ? `?${qs}` : ""}`;
+  };
+  const currentHref = detailParams();
 
   return (
     <div>
@@ -212,24 +227,63 @@ export default async function HomeworkDetailReportPage({
               <th className="px-4 py-3">Durum</th>
               <th className="px-4 py-3">Teslim tarihi</th>
               <th className="px-4 py-3">Gün farkı</th>
+              <th className="px-4 py-3">Değerlendirme</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={10} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtrelerle eşleşen ödev yok.
                 </td>
               </tr>
             ) : (
               filtered.map((r) => (
                 <tr key={r.homework.id} className="border-b border-[var(--color-border)] align-top">
-                  <td className="px-4 py-2.5 font-medium text-[var(--color-text)]">{r.teacher?.name ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-[var(--color-text)]">{r.student?.name ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
-                    {r.lesson ? `${formatDate(r.lesson.startAt)} · ${r.lesson.instrument}` : "—"}
+                  <td className="px-4 py-2.5 font-medium text-[var(--color-text)]">
+                    {r.teacher ? (
+                      <Link
+                        href={`/panel/ogretmenler/${r.teacher.id}`}
+                        className="hover:text-[var(--color-primary)] hover:underline"
+                      >
+                        {r.teacher.name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{r.homework.title}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-text)]">
+                    {r.student ? (
+                      <Link
+                        href={`/panel/ogrenciler/${r.student.id}`}
+                        className="hover:text-[var(--color-primary)] hover:underline"
+                      >
+                        {r.student.name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
+                    {r.lesson ? (
+                      <Link
+                        href={withReturnTo(`/panel/program?week=${r.lesson.startAt.slice(0, 10)}`, currentHref)}
+                        className="text-[var(--color-primary)] hover:underline"
+                      >
+                        {formatDate(r.lesson.startAt)} · {r.lesson.instrument}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
+                    {r.homework.title}
+                    {r.homework.fileName || r.submission?.fileName ? (
+                      <span className="ml-1.5 rounded-full border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] font-medium">
+                        Dosya
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{formatDate(r.homework.createdAt)}</td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{formatDate(r.homework.dueDate)}</td>
                   <td className="px-4 py-2.5">
@@ -239,6 +293,11 @@ export default async function HomeworkDetailReportPage({
                   </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
                     {r.submission ? formatDateTime(r.submission.submittedAt) : "—"}
+                    {r.submission?.note ? (
+                      <p className="mt-1 max-w-56 truncate text-xs" title={r.submission.note}>
+                        Öğrenci notu: {r.submission.note}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
                     {r.daysDiff === null
@@ -248,6 +307,22 @@ export default async function HomeworkDetailReportPage({
                         : r.daysDiff < 0
                           ? `${Math.abs(r.daysDiff)} gün geç`
                           : "zamanında"}
+                  </td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">
+                    {!r.submission ? (
+                      "—"
+                    ) : r.submission.teacherFeedback ? (
+                      <div>
+                        <p className="max-w-56 truncate text-xs text-[var(--color-text)]" title={r.submission.teacherFeedback}>
+                          {r.submission.teacherFeedback}
+                        </p>
+                        {r.submission.reviewedAt ? (
+                          <p className="mt-0.5 text-[11px]">{formatDate(r.submission.reviewedAt)}</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-amber-700">Değerlendirilmedi</span>
+                    )}
                   </td>
                 </tr>
               ))

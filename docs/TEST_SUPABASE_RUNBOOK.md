@@ -1,5 +1,9 @@
 # Test Supabase Runbook — `neviihub-test`
 
+> ⚠️ **2026-10-01'den beri güncel değil:** canlı DB `wsbucznpujcfzhitzrbl`; `vxzewyiwfshobjizzetw` gerçek veri
+> taşıyan salt-okunur geri dönüş kaynağıdır (test hedefi DEĞİL); `uqkafczrplqitzumtrqy` artık erişilebilir değil.
+> Güncel model ve ortam haritası: `docs/operations/LOCAL_FIRST_DEPLOYMENT.md`.
+
 **Hedef proje:** `neviihub-test` · ref `vxzewyiwfshobjizzetw` · bölge `ap-south-1`
 **Production (DOKUNULMAZ):** `NeviiHub` · ref `uqkafczrplqitzumtrqy` · `ap-southeast-1`
 

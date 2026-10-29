@@ -13,6 +13,7 @@ export type TrialListRow = {
   id: string;
   name: string;
   phone: string;
+  parentName?: string;
   instrument: string;
   teacherId: string;
   teacherName: string;

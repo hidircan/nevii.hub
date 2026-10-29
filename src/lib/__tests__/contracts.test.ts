@@ -35,6 +35,8 @@ import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
 import { STUDENT_PORTAL_ACCESS_FILE } from "../student-portal-access";
 import { grantStudentAccess } from "./portal-access-test-helper";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -54,6 +56,7 @@ beforeEach(async () => {
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
   await fs.rm(STUDENT_PORTAL_ACCESS_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 /**
@@ -779,8 +782,9 @@ describe("Faz 6 — sözleşme başlığı ve dosya adı", () => {
     expect(html.ok).toBe(true);
     if (!html.ok) return;
     expect(html.data.titleMain).toContain("Zeynep Arslan");
-    expect(html.data.fileName).toMatch(/^ogrenci-kayit-sozlesmesi-.*\.pdf$/);
-    expect(html.data.html).toContain("Öğrenci Kayıt Sözleşmesi — Zeynep Arslan");
+    // 5f71941 (branş kaydı): branşlı sözleşmede başlık/dosya adı öğrenci + branşla başlar (contractTitleFields).
+    expect(html.data.fileName).toMatch(/^zeynep-arslan-piyano-ogrenci-sozlesmesi-.*\.pdf$/);
+    expect(html.data.html).toContain("Zeynep Arslan — Piyano — Öğrenci Sözleşmesi");
   });
 });
 
@@ -790,7 +794,8 @@ describe("Faz 5 (ENROLLMENT_PAYMENT_RENEWAL_VALIDATION_FIX) — iptal edilmiş s
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), { contractId: created.data.contract.id });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(adminCtx(), secureCancelInput(created.data.contract));
     expect(cancelled.ok).toBe(true);
     if (!cancelled.ok) return;
     expect(cancelled.data.contract.status).toBe("cancelled");
@@ -1146,6 +1151,8 @@ describe("Owner policy (2026-08-30, final) — İlk ödeme kayıt anında alın�
 
   it("regresyon — üç ödeme yönteminin (nakit/kart/EFT) HİÇBİRİNDE ilk tahsilat tarihi gerekçe gerektirmez", async () => {
     for (const paymentMethod of ["cash", "credit_card", "transfer"] as const) {
+      // 2026-10-04 — aynı öğrenciye ikinci AKTİF ilk sözleşme açılamaz; her yöntem bağımsız denenir.
+      await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
       const res = await createStudentContractTool(
         adminCtx(),
         await initialInput({
@@ -1272,7 +1279,9 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
     ]);
     expect(second!.kind).toBe("period_fee");
     expect(second!.periodLabel).toBe("Kasım 2026");
-    expect(second!.amount).toBe(0); // Kasım'da hiç ders yok (seed'de) → 0, kopyalanmadı
+    // 2026-10-04 (Ela vakası) — Kasım'da program YOK (seri Ekim'de bitiyor): eskiden 0 TL yazılıyordu ("sebepsiz 0");
+    // artık programın bittiği yerden sonrası haftalık sıklıkla projekte edilir → tam dönem ücreti.
+    expect(second!.amount).toBe(monthlyFee);
 
     // Toplam sözleşme tutarı = taksit satırlarının toplamı (item 7 gereksinimi).
     const sum = res.data.installments.reduce((s, i) => s + i.amount, 0);
@@ -1355,9 +1364,10 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
       createdAt: "2026-09-01T00:00:00.000Z",
       lessonDurationMinutes: 40,
     } as unknown as (typeof data.students)[number]);
-    // Eylül: 4 ders (eşik üstü) → birleşmez.
+    // Eylül: 4 ders (eşik üstü) → birleşmez. Ekim: program ay sonuna kadar var ama 2 ders iptal → 2 ücretli ders.
     const septDates = ["2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"];
-    const octDates = ["2026-10-05", "2026-10-12"];
+    const octDates = ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"];
+    const cancelledOct = new Set(["2026-10-19", "2026-10-26"]);
     for (const [i, day] of [...septDates, ...octDates].entries()) {
       data.lessons.push({
         id: `les_pl2_${i}`,
@@ -1369,7 +1379,7 @@ describe("createStudentContractTool — per-lesson öğrenci (usePerLessonBillin
         startAt: `${day}T10:00:00.000Z`,
         endAt: `${day}T10:40:00.000Z`,
         type: "regular",
-        status: "scheduled",
+        status: cancelledOct.has(day) ? "cancelled" : "scheduled",
       } as unknown as (typeof data.lessons)[number]);
     }
     await writeData(data);

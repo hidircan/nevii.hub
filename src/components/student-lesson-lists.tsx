@@ -127,6 +127,7 @@ export function StudentAttendanceList({ lessons }: { lessons: Lesson[] }) {
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm text-[var(--color-text)]">{formatDate(l.startAt)} · {formatTime(l.startAt)}</p>
               <LessonOpsBadges
+                plannedMakeup={l.type === "makeup"}
                 studentAttended={l.studentAttended}
                 lessonProcessed={l.lessonProcessed}
                 opsMakeupFlag={l.opsMakeupFlag}

@@ -30,6 +30,7 @@ export async function createTrialLesson(input: {
   tenantId: string;
   name: string;
   phone: string;
+  parentName?: string;
   instrument: Instrument;
   branchId: BranchId;
   teacherId: string;
@@ -45,6 +46,7 @@ export async function createTrialLesson(input: {
     tenantId: input.tenantId,
     name: input.name,
     phone: input.phone,
+    parentName: input.parentName?.trim() || undefined,
     instrument: input.instrument,
     branchId: input.branchId,
     teacherId: input.teacherId,
@@ -65,6 +67,7 @@ export async function createTrialLesson(input: {
         tenantId: input.tenantId,
         name: row.name,
         phone: row.phone,
+        parentName: row.parentName ?? null,
         instrument: row.instrument,
         branchId: row.branchId,
         teacherId: row.teacherId,
@@ -122,7 +125,7 @@ export async function updateTrialLessonStatus(
 
 /** Düzenlenebilir alanlar — `undefined` alan dokunulmaz (kısmi güncelleme). */
 export type TrialLessonPatch = Partial<
-  Pick<TrialLesson, "name" | "phone" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
+  Pick<TrialLesson, "name" | "phone" | "parentName" | "instrument" | "branchId" | "teacherId" | "startAt" | "endAt" | "durationMinutes" | "notes">
 > & { resultNotes?: string; resultNotesAt?: string; resultNotesByUserId?: string };
 
 /** Kısmi güncelleme; json/db aynı davranış. Dönüşüm/statü alanlarına dokunmaz. */
@@ -153,10 +156,33 @@ export async function updateTrialLesson(tenantId: string, id: string, patch: Tri
   return pub;
 }
 
+/**
+ * Deneme dersini kalıcı siler (sahip emri 2026-09-28: satır her zaman
+ * silinebilir). json/db aynı davranış. Bağlı ÖĞRENCİ kaydına dokunmaz —
+ * yalnız deneme satırı gider; öğrencideki `convertedFromTrialId` iz olarak
+ * kalır. İmza nüshası olan evraklar (varsa) arşiv niteliğiyle korunur.
+ */
+export async function deleteTrialLesson(tenantId: string, id: string): Promise<boolean> {
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const r = await prisma.trialLesson.findFirst({ where: { id, tenantId } });
+    if (!r) return false;
+    await prisma.trialLesson.delete({ where: { id } });
+    return true;
+  }
+  const all = await loadAll();
+  const idx = all.findIndex((t) => t.id === id && t.tenantId === tenantId);
+  if (idx < 0) return false;
+  all.splice(idx, 1);
+  await saveAll(all);
+  return true;
+}
+
 function mapDb(r: {
   id: string;
   name: string;
   phone: string;
+  parentName?: string | null;
   instrument: string;
   branchId: string;
   teacherId: string;
@@ -179,6 +205,7 @@ function mapDb(r: {
     id: r.id,
     name: r.name,
     phone: r.phone,
+    parentName: r.parentName ?? undefined,
     instrument: r.instrument as Instrument,
     branchId: r.branchId,
     teacherId: r.teacherId,

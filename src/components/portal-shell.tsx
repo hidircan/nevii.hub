@@ -10,7 +10,7 @@
  * gövdelerini masaüstünde genişletmek ayrı, kapsam dışı bırakılan bir
  * takip işidir (bkz. final rapor).
  */
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/notification-bell";
 import { UserMenu } from "@/components/user-menu";

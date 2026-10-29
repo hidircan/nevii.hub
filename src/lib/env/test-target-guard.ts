@@ -1,8 +1,7 @@
 /**
  * Test ortamı hedef guard'ı — fail-closed.
  *
- * NEDEN: production Supabase (`uqkafczrplqitzumtrqy`) ile test Supabase
- * (`vxzewyiwfshobjizzetw`) aynı hesapta, aynı organizasyonda ve connection
+ * NEDEN: production ve test Supabase projeleri aynı hesapta ve connection
  * string'leri neredeyse aynı şekilde. Yanlış `DATABASE_URL` ile çalıştırılan
  * TEK bir `prisma migrate deploy` / demo seed komutu production veritabanına
  * yazar. Bu modül, test amaçlı her komutun ÖNCE hedefini sınıflandırmasını ve
@@ -13,9 +12,18 @@
  * LOGLAMAZ. Dışarı yalnız sınıflandırma + host son eki + port çıkar.
  */
 
-/** Bilinen Supabase projeleri. Env ile override edilebilir (CI/başka hesap). */
-export const PRODUCTION_SUPABASE_REF = process.env.PROD_SUPABASE_REF || "uqkafczrplqitzumtrqy";
-export const TEST_SUPABASE_REF = process.env.TEST_SUPABASE_REF || "vxzewyiwfshobjizzetw";
+/**
+ * Bilinen Supabase projeleri (2026-10-01 canlı geçişinden sonra). Env ile override edilebilir.
+ * - Production: `ddskhtirzywbuucxeovz` (2026-10-18'den beri, org NeviiHub-October, eu-central-1).
+ * - Önceki canlı proje (`wsbucznpujcfzhitzrbl`, 2026-10-01→10-18) donmuş geri dönüş kaynağı → production gibi korunur.
+ * - Eski test projesi (`vxzewyiwfshobjizzetw`) geçişe kadar GERÇEK veriyi taşıdı ve geri dönüş kaynağı
+ *   olarak salt-okunur saklanıyor → production gibi korunur; artık test hedefi DEĞİL.
+ * - Uzak test DB'si yok (local-first, docs/operations/LOCAL_FIRST_DEPLOYMENT.md). Geçici bir test
+ *   projesi açılırsa ref'i `TEST_SUPABASE_REF` ile verilir; verilmezse hiçbir uzak hedef "test" sayılmaz.
+ */
+export const PRODUCTION_SUPABASE_REF = process.env.PROD_SUPABASE_REF || "ddskhtirzywbuucxeovz";
+const PROTECTED_SUPABASE_REFS = new Set([PRODUCTION_SUPABASE_REF, "wsbucznpujcfzhitzrbl", "vxzewyiwfshobjizzetw"]);
+export const TEST_SUPABASE_REF = process.env.TEST_SUPABASE_REF || "";
 
 export type TargetClassification =
   | "missing" // DATABASE_URL hiç yok
@@ -116,8 +124,8 @@ export function classifyDatabaseTarget(rawUrl: string | undefined | null): Targe
   const ref = extractSupabaseRef(url);
 
   let classification: TargetClassification;
-  if (ref === PRODUCTION_SUPABASE_REF) classification = "production";
-  else if (ref === TEST_SUPABASE_REF) classification = "test";
+  if (ref && PROTECTED_SUPABASE_REFS.has(ref)) classification = "production";
+  else if (ref && ref === TEST_SUPABASE_REF) classification = "test";
   else if (["localhost", "127.0.0.1", "::1"].includes(url.hostname)) classification = "local";
   else classification = "unknown";
 
@@ -180,6 +188,23 @@ export function assertMigrationSafeConnection(rawUrl: string | undefined | null)
   return info;
 }
 
+/**
+ * Demo/seed betikleri yalnız YEREL veya açıkça verilmiş TEST veritabanına yazar (ya da DATABASE_URL hiç
+ * yoksa json store'a). Varsayılan tenant (`DEFAULT_TENANT_ID`) canlıdaki GERÇEK kurumdur; `.env`'den
+ * gelen bir production URL'iyle çalışan seed o kurumun verisini silip demo veriyle yeniden yazabilir.
+ */
+export function assertSeedTarget(rawUrl: string | undefined | null = process.env.DATABASE_URL): TargetInfo {
+  const info = classifyDatabaseTarget(rawUrl);
+  if (info.classification !== "local" && info.classification !== "test" && info.classification !== "missing") {
+    throw new TargetGuardError(
+      `REDDEDİLDİ: demo/seed yalnız yerel veya test veritabanına yazar (${info.safeLabel}). ` +
+        "DATABASE_URL'i yerel PostgreSQL'e çevirin (bkz. docs/operations/LOCAL_FIRST_DEPLOYMENT.md).",
+      info
+    );
+  }
+  return info;
+}
+
 /** Production runtime'da (Vercel prod veya NODE_ENV=production) koşulsuz durur. */
 export function assertNotProductionRuntime(): void {
   if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
@@ -231,7 +256,7 @@ export function productionLeakWarnings(): string[] {
     );
   }
   const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  if (supabaseUrl.includes(PRODUCTION_SUPABASE_REF)) {
+  if ([...PROTECTED_SUPABASE_REFS].some((ref) => supabaseUrl.includes(ref))) {
     warnings.push("NEXT_PUBLIC_SUPABASE_URL PRODUCTION Supabase projesini gösteriyor.");
   }
   return warnings;

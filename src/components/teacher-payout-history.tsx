@@ -3,53 +3,53 @@
 import { Card } from "@/components/ui";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { TeacherPayout } from "@/lib/types";
+import { payoutPaymentRows } from "@/lib/payout-ledger";
 
 const METHOD_LABEL: Record<string, string> = {
   cash: "Nakit",
   transfer: "Havale",
 };
 
-/** Yalnız ödenmiş kayıtlar. Bekleyen hakediş ödeme geçmişine girmez. */
+/** Gerçekleşen ödeme satırları (kısmi ödemeler ayrı satır; ters kaydı yapılanlar girmez). */
 export function TeacherPayoutHistory({ payouts }: { payouts: TeacherPayout[] }) {
-  const paid = payouts
-    .filter((p) => p.status === "paid")
-    .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  const rows = payoutPaymentRows(payouts);
 
   return (
     <div className="space-y-3">
       <div>
-        {paid.length === 0 ? (
+        {rows.length === 0 ? (
           <Card>
-            <p className="text-sm text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">Henüz ödenmiş hakediş kaydı yok.</p>
+            <p className="text-sm text-[var(--color-text-muted)]">Henüz yapılmış hakediş ödemesi yok.</p>
           </Card>
         ) : (
           <Card className="overflow-hidden p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
+            {/* Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar (kolon gizlenmez). */}
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
                 <tr>
-                  <th className="px-4 py-3">Dönem</th>
-                  <th className="px-4 py-3">Dakika</th>
-                  <th className="px-4 py-3">Tutar</th>
                   <th className="px-4 py-3">Ödeme tarihi</th>
+                  <th className="px-4 py-3">Hakediş dönemi</th>
+                  <th className="px-4 py-3">Tutar</th>
                   <th className="px-4 py-3">Yöntem</th>
+                  <th className="px-4 py-3">Not</th>
                 </tr>
               </thead>
               <tbody>
-                {paid.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-50 dark:border-slate-800">
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {formatDate(p.periodStart)} – {formatDate(p.periodEnd)}
+                {rows.map((r) => (
+                  <tr key={r.key} className="border-b border-[var(--color-border)]">
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{formatDate(r.paidAt)}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">
+                      {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
                     </td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{p.totalMinutes} dk</td>
-                    <td className="px-4 py-3 font-medium text-[var(--color-text)] dark:text-slate-50">{formatMoney(p.totalAmount)}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">{p.paidAt ? formatDate(p.paidAt) : "—"}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-muted)] dark:text-[var(--color-text-muted)]">
-                      {p.method ? METHOD_LABEL[p.method] ?? p.method : "—"}
-                    </td>
+                    <td className="px-4 py-3 font-medium text-[var(--color-text)]">{formatMoney(r.amount)}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.method ? METHOD_LABEL[r.method] ?? r.method : "—"}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.note ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </Card>
         )}
       </div>

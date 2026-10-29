@@ -48,7 +48,7 @@ function makePkg(overrides?: Partial<Package>): Package {
 
 describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
   it("aylık ders adedi, grup ders adedi, varsayılan süre/gün ve not alanları kaydedilir", async () => {
-    const res = await createPackageTool(ctx(), {
+    const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Bireysel ders + 4 grup solfej dersi",
       price30Min: 6000,
       price40Min: 7000,
@@ -72,7 +72,7 @@ describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
   });
 
   it("negatif fiyat reddedilir", async () => {
-    const res = await createPackageTool(ctx(), {
+    const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Geçersiz paket",
       price30Min: -100,
       price40Min: 7000,
@@ -82,7 +82,7 @@ describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
   });
 
   it("negatif ders adedi reddedilir", async () => {
-    const res = await createPackageTool(ctx(), {
+    const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Geçersiz paket",
       price30Min: 6000,
       price40Min: 7000,
@@ -93,7 +93,7 @@ describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
   });
 
   it("geçersiz varsayılan ödeme günü reddedilir", async () => {
-    const res = await createPackageTool(ctx(), {
+    const res = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Geçersiz paket",
       price30Min: 6000,
       price40Min: 7000,
@@ -104,7 +104,7 @@ describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
   });
 
   it("pasifleştirilen paket aktif paket listesinde görünmez, ama var olan referansta kalır", async () => {
-    const created = await createPackageTool(ctx(), {
+    const created = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Arşivlenecek paket",
       price30Min: 6000,
       price40Min: 7000,
@@ -113,7 +113,7 @@ describe("Paket Yönetimi — oluşturma/düzenleme/pasifleştirme", () => {
     expect(created.ok).toBe(true);
     if (!created.ok) return;
 
-    await updatePackageTool(ctx(), { packageId: created.data.packageId, status: "archived" });
+    await updatePackageTool(ctx({ role: "SUPER_ADMIN" }), { packageId: created.data.packageId, status: "archived" });
     const data = await readData();
     const active = activePackages(data.packages);
     expect(active.some((p) => p.id === created.data.packageId)).toBe(false);
@@ -220,7 +220,7 @@ describe("Öğrenci ödeme profili — süre bazlı fiyat + indirim + override h
 
 describe("Öğrenci ödeme profili — Tool Layer (RBAC, tenant, geçmiş Payment korunur)", () => {
   async function createTestStudent() {
-    const pkgRes = await createPackageTool(ctx(), {
+    const pkgRes = await createPackageTool(ctx({ role: "SUPER_ADMIN" }), {
       title: "Test paketi",
       price30Min: 6000,
       price40Min: 7000,

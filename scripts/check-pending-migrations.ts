@@ -1,10 +1,10 @@
 /**
- * Build kapısı (SALT OKUNUR) — repo'daki migration'lardan test DB'de uygulanmamış olan varsa
+ * Build kapısı (SALT OKUNUR) — repo'daki migration'lardan hedef DB'de uygulanmamış olan varsa
  * build'i durdurur; Vercel böylece önceki READY deployment'ı sunmaya devam eder ve panel
  * eksik kolon yüzünden çökmez (2026-09-27 P0: Room.deletedAt / P2022).
  *
- * Yalnız `test` dalının Vercel build'inde çalışır (VERCEL_GIT_COMMIT_REF=test). Production ve
- * yerel build'ler etkilenmez. Acil durumda SKIP_MIGRATION_GATE=1 ile atlanabilir (loglanır).
+ * `test` ve `main` (production, 2026-10-01'den beri) dallarının Vercel build'inde çalışır; yerel
+ * build'ler etkilenmez. Acil durumda SKIP_MIGRATION_GATE=1 ile atlanabilir (loglanır).
  */
 import "dotenv/config";
 import fs from "node:fs";
@@ -14,7 +14,7 @@ import { resolvePgConnection } from "../src/lib/db/connection";
 import { findPendingMigrations, pendingMigrationsMessage, type AppliedMigrationRow } from "../src/lib/ops/pending-migrations";
 
 async function main() {
-  if (process.env.VERCEL_GIT_COMMIT_REF !== "test") return;
+  if (!["test", "main"].includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) return;
   if (process.env.SKIP_MIGRATION_GATE === "1") {
     console.warn("[migration-gate] SKIP_MIGRATION_GATE=1 — kontrol atlandı.");
     return;

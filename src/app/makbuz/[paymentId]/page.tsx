@@ -1,7 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readPaymentById, readStudentScope } from "@/lib/store";
 import { assertStudentAccess } from "@/lib/services/context";
 import { buildReceiptViewModel, canViewReceipt, receiptIneligibleReason } from "@/lib/receipt";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -66,8 +66,8 @@ export default async function ReceiptPage({
     redirect(homePathForRole(session.role));
   }
 
-  const data = await readData();
-  const payment = data.payments.find((p) => p.id === paymentId);
+  // DB egress (2026-10-10): tek ödeme + yalnız o öğrencinin dilimi (makbuz logoyu ve başka öğrenciyi okumaz).
+  const payment = await readPaymentById(paymentId);
 
   if (!payment) {
     return (
@@ -80,6 +80,7 @@ export default async function ReceiptPage({
     );
   }
 
+  const data = await readStudentScope(payment.studentId);
   const student = data.students.find((s) => s.id === payment.studentId);
 
   if (!isStaff) {
@@ -124,6 +125,12 @@ export default async function ReceiptPage({
 
   const branch = data.settings.branches.find((b) => b.id === student.branchId);
   const model = buildReceiptViewModel(payment, student, data.settings, branch);
+  // 2026-10-09 — çok branşlı öğrencinin makbuzu hangi branşın (ve sözleşmenin) ödemesi olduğunu söyler.
+  const { makePaymentBranchLabeler } = await import("@/lib/student-enrollments");
+  const { listContractsForStudent } = await import("@/lib/contracts");
+  const studentContracts = await listContractsForStudent(session.tenantId, student.id);
+  const receiptBranch = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts: studentContracts })(payment);
+  const receiptContractNumber = payment.contractId ? studentContracts.find((c) => c.id === payment.contractId)?.contractNumber : undefined;
   const issuedAtIso = new Date().toISOString();
 
   return (
@@ -165,6 +172,13 @@ export default async function ReceiptPage({
               <div className="min-w-0">
                 <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">Açıklama</p>
                 <p className="mt-1 truncate text-[var(--color-text)]">{model.description}</p>
+                {receiptBranch || receiptContractNumber ? (
+                  <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                    {receiptBranch ? `Branş: ${receiptBranch}` : ""}
+                    {receiptBranch && receiptContractNumber ? " · " : ""}
+                    {receiptContractNumber ? `Sözleşme: ${receiptContractNumber}` : ""}
+                  </p>
+                ) : null}
                 {model.method ? (
                   <p className="mt-1 text-xs text-[var(--color-text-muted)]">Yöntem: {model.method}</p>
                 ) : null}

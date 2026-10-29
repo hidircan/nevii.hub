@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { requireSessionContext } from "@/lib/auth/session";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { listTeachingMaterialsForTeacherTool } from "@/lib/services";
 import { Card, EmptyState } from "@/components/ui";
 import { TeachingMaterialForm } from "@/components/teaching-material-form";
@@ -21,7 +22,7 @@ export default async function TeacherMaterialsPage() {
     redirect("/login?next=/ogretmen/materyaller");
   }
 
-  const result = await listTeachingMaterialsForTeacherTool(session);
+  const [result, instrumentOptions] = await Promise.all([listTeachingMaterialsForTeacherTool(session), activeInstrumentOptions(session)]);
   const materials = result.ok ? result.data.materials : [];
 
   return (
@@ -39,7 +40,7 @@ export default async function TeacherMaterialsPage() {
           <p className="mb-3 text-xs font-medium uppercase tracking-wide text-cyan-600">
             Yeni materyal paylaş
           </p>
-          <TeachingMaterialForm />
+          <TeachingMaterialForm instrumentOptions={instrumentOptions} />
         </Card>
 
         <section>

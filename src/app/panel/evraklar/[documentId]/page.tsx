@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { withReturnTo } from "@/lib/safe-return-to";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -6,12 +6,15 @@ import { getDocumentInstanceTool } from "@/lib/services";
 import { documentKindLabel, documentStatusLabel, documentStatusHint } from "@/lib/documents";
 import { findContractIdByDocumentInstanceId } from "@/lib/contracts";
 import { listAuditLogs } from "@/lib/audit/log";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { DocumentSignedUpload } from "@/components/document-signed-upload";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { DocumentSignedVersions, type SignedVersionRow } from "@/components/document-signed-versions";
+import { DocumentDeleteButton } from "@/components/document-delete-button";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
+import { DocumentArchiveButton } from "@/components/document-archive-button";
 import { formatDateTime } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -28,9 +31,13 @@ export default async function DocumentDetailPage({
   } catch {
     redirect(`/login?next=/panel/evraklar/${documentId}`);
   }
-  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN") {
+  if (session.role !== "SCHOOL_ADMIN" && session.role !== "SUPER_ADMIN" && session.role !== "BRANCH_MANAGER") {
     redirect("/panel");
   }
+  // Şube müdürü: görüntüleme + arşivleme (kapsam tool katmanında).
+  // Görev oluşturma ve imzalı sürüm yükleme adminlerde kalır.
+  const isBranchManager = session.role === "BRANCH_MANAGER";
+  const canDelete = canRunCriticalActions(session.role);
 
   const result = await getDocumentInstanceTool(session, { documentId });
   if (!result.ok) {
@@ -44,7 +51,7 @@ export default async function DocumentDetailPage({
   }
 
   const doc = result.data.document;
-  const data = await readData();
+  const data = await readReferenceData();
   const student = doc.studentId ? data.students.find((s) => s.id === doc.studentId) : undefined;
   const teacher = doc.teacherId ? data.teachers.find((t) => t.id === doc.teacherId) : undefined;
   const branch = doc.branchId ? data.settings.branches.find((b) => b.id === doc.branchId) : undefined;
@@ -84,7 +91,7 @@ export default async function DocumentDetailPage({
             >
               {contractId ? "Sözleşmeyi görüntüle / yazdır" : "Yazdırma görünümü"}
             </Link>
-            {canCreateTask ? (
+            {canCreateTask && !isBranchManager ? (
               <QuickTaskLink
                 relatedEntityType="document"
                 relatedEntityId={doc.id}
@@ -94,6 +101,10 @@ export default async function DocumentDetailPage({
                 returnTo={`/panel/evraklar/${doc.id}`}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 text-sm font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
               />
+            ) : null}
+            {doc.status !== "cancelled" ? <DocumentArchiveButton documentId={doc.id} variant="button" /> : null}
+            {canDelete ? (
+              <DocumentDeleteButton documentId={doc.id} reference={doc.reference} afterDeleteHref="/panel/evraklar" />
             ) : null}
             <span title={documentStatusHint(doc.status)}>
               <Badge status={doc.status}>{documentStatusLabel(doc.status)}</Badge>
@@ -142,13 +153,13 @@ export default async function DocumentDetailPage({
                   >
                     Görüntüle / indir
                   </a>
-                  <DocumentSignedUpload documentId={doc.id} hasExisting />
+                  {!isBranchManager ? <DocumentSignedUpload documentId={doc.id} hasExisting /> : null}
                 </div>
               </div>
             ) : (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm text-[var(--color-text-muted)]">Henüz imzalı sürüm yüklenmedi.</p>
-                <DocumentSignedUpload documentId={doc.id} />
+                {!isBranchManager ? <DocumentSignedUpload documentId={doc.id} /> : null}
               </div>
             )}
             {(doc.signedVersions ?? []).length > 0 ? (
@@ -158,6 +169,7 @@ export default async function DocumentDetailPage({
                 </p>
                 <DocumentSignedVersions
                   documentId={doc.id}
+                  canDelete={canDelete}
                   versions={(doc.signedVersions ?? []).map(
                     (v): SignedVersionRow => ({
                       id: v.id,

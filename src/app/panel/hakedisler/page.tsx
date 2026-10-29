@@ -1,10 +1,10 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, parseISO } from "date-fns";
 import { tr } from "date-fns/locale";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedPayoutWindow } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { Badge, Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import {
@@ -16,12 +16,16 @@ import {
   sumPayoutRows,
 } from "@/lib/payout-overview";
 import { ScopeTabs } from "@/components/scope-tabs";
+import { PayoutThresholdCell } from "@/components/payout-threshold-cell";
+import { PayoutPolicyPanel } from "@/components/payout-policy-panel";
+import { payoutsOverlappingMonth, resolvePayoutPolicyWithSource } from "@/lib/teacher-payout";
 import { formatMoney } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 const PAYOUT_STATUS_LABELS: Record<string, string> = {
   pending: "Bekliyor",
+  partial: "Kısmi ödendi",
   paid: "Ödendi",
   no_lessons: "Ders yok",
 };
@@ -52,11 +56,18 @@ export default async function TeacherPayoutOverviewPage({
   const { month, teacherId: teacherFilter, status: statusFilter, kapsam } = await searchParams;
   const scope = parsePayoutScope(kapsam);
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
 
   const monthAnchor = month && /^\d{4}-\d{2}$/.test(month) ? parseISO(`${month}-01`) : new Date();
   const periodStart = format(startOfMonth(monthAnchor), "yyyy-MM-dd");
   const periodEnd = format(endOfMonth(monthAnchor), "yyyy-MM-dd");
+  // DB egress: kurumun tüm dersleri yerine seçili ayın ders penceresi (hesabın kendi gün süzgecinden
+  // ±2–3 gün geniş) + tüm kayıtlı hakedişler + hariç tutmalar (bkz. reference-data.ts `PayoutWindowData`).
+  // Kayıtlı hakediş donmuş satırlardan, canlı hesap ve fark aynı dönemin derslerinden — ayrım aynen korunur.
+  const data = await readScopedPayoutWindow(
+    kurum.scope,
+    new Date(Date.parse(`${periodStart}T00:00:00Z`) - 2 * 86_400_000),
+    new Date(Date.parse(`${periodEnd}T00:00:00Z`) + 3 * 86_400_000)
+  );
   const monthParam = format(monthAnchor, "yyyy-MM");
   const prevMonthParam = format(addMonths(monthAnchor, -1), "yyyy-MM");
   const nextMonthParam = format(addMonths(monthAnchor, 1), "yyyy-MM");
@@ -84,6 +95,22 @@ export default async function TeacherPayoutOverviewPage({
   const withScope = (href: string) => (scope === "aktif" ? href : `${href}&kapsam=${scope}`);
   const monthLabel = format(monthAnchor, "MMMM yyyy", { locale: tr });
 
+  // 2026-09-29 — ayın hakediş politikası (kurum geneli). Birleşik görünümde yazma yok.
+  const policies = data.teacherPayoutPolicies ?? [];
+  const policyRecord = kurum.scope.mode === "all" ? undefined : policies.find((p) => p.month === monthParam);
+  // 2026-10-04 — yürürlük tarihli politika: bu ay seçim yoksa önceki en son seçim devralınır (bkz. teacher-payout.ts).
+  const policyResolution =
+    kurum.scope.mode === "all" ? undefined : resolvePayoutPolicyWithSource({ teacherPayoutPolicies: policies.filter((p) => !p.teacherIds) }, "", monthParam);
+  const currentPolicy = policyResolution ? policyResolution.terms : { policy: "per_teacher_rule" as const };
+  const inheritedFromLabel =
+    policyResolution?.source === "inherited" && policyResolution.fromMonth
+      ? format(new Date(`${policyResolution.fromMonth}-15T12:00:00Z`), "MMMM yyyy", { locale: tr })
+      : undefined;
+  const lastFixed = [...policies].filter((p) => p.policy === "fixed_duration").sort((a, b) => b.month.localeCompare(a.month))[0];
+  const ratePrefill = currentPolicy.policy === "fixed_duration" ? currentPolicy : (lastFixed ?? {});
+  const monthPayouts = payoutsOverlappingMonth(data.teacherPayouts, monthParam);
+  const durationExceptionCount = allRows.reduce((sum, r) => sum + r.durationExceptions, 0);
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
@@ -106,6 +133,24 @@ export default async function TeacherPayoutOverviewPage({
           Sonraki ay <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
+
+      <PayoutPolicyPanel
+        key={`${monthParam}-${policyRecord?.setAt ?? "none"}`}
+        month={monthParam}
+        monthLabel={monthLabel}
+        current={currentPolicy}
+        explicit={Boolean(policyRecord)}
+        inheritedFromLabel={inheritedFromLabel}
+        setAtLabel={policyRecord ? format(parseISO(policyRecord.setAt), "d MMM yyyy HH:mm", { locale: tr }) : undefined}
+        prefill={{ rate30: ratePrefill.rate30, rate40: ratePrefill.rate40, rate50: ratePrefill.rate50 }}
+        recordCount={monthPayouts.length}
+        paidRecordCount={monthPayouts.filter((p) => p.status === "paid" || p.status === "partial").length}
+        durationExceptionCount={durationExceptionCount}
+        canEdit={session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN"}
+        readOnlyReason={
+          kurum.scope.mode === "all" ? "“Tüm kurumlar” görünümünde politika değiştirilemez; üstten tek bir kurum seçin." : undefined
+        }
+      />
 
       <div className="mb-3">
         <ScopeTabs
@@ -138,17 +183,17 @@ export default async function TeacherPayoutOverviewPage({
       </dl>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard label="Net hakediş" value={formatMoney(totals.net)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} />
+        <StatCard label="Ödenen" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
         <StatCard
-          label={scope === "pasif" ? "Pasif öğretmene kalan yükümlülük" : "Bekleyen toplam"}
+          label={scope === "pasif" ? "Pasif öğretmene kalan yükümlülük" : "Kalan (ödenecek)"}
           value={formatMoney(totals.pending)}
-          hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`}
+          hint={totals.missingFeeRule > 0 ? `${totals.missingFeeRule} derste ücret kuralı eksik` : `${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`}
           accent="warning"
         />
-        <StatCard label="Ödenen toplam" value={formatMoney(totals.paid)} hint={`${PAYOUT_SCOPE_LABEL[scope]} · ${monthLabel}`} accent="success" />
-        <StatCard label="Ücret kuralı eksik ders" value={totals.missingFeeRule} accent="danger" />
       </div>
       <p className="-mt-3 mb-6 text-xs text-[var(--color-text-muted)]">
-        Tutarlar mevcut hakediş kurallarıyla (oran, süre, ders bazlı) hesaplanır; kayıtlı hakediş varsa kayıttaki tutar esas alınır.
+        Tutarlar bu ay için seçili hakediş politikasıyla hesaplanır; kayıtlı hakediş varsa kayıttaki (donmuş) tutar esas alınır.
         Pasif öğretmen yalnız bu ayda işlenmiş dersi veya kayıtlı hakedişi varsa listelenir. &quot;Tüm dönemler&quot; yalnız
         kayda geçmiş hakedişleri toplar; hiç hakediş oluşturulmamış eski aylar hesaplanmaz.
       </p>
@@ -177,6 +222,7 @@ export default async function TeacherPayoutOverviewPage({
             >
               <option value="">Tüm durumlar</option>
               <option value="pending">Bekliyor</option>
+              <option value="partial">Kısmi ödendi</option>
               <option value="paid">Ödendi</option>
               <option value="no_lessons">Ders yok</option>
             </select>
@@ -204,14 +250,18 @@ export default async function TeacherPayoutOverviewPage({
       {filteredRows.length === 0 ? (
         <EmptyState title="Sonuç yok" description="Bu filtrelerle eşleşen öğretmen bulunamadı." />
       ) : (
-        <Card className="overflow-hidden p-0">
-          <table className="w-full text-left text-sm">
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
               <tr>
                 <th className="px-4 py-3">Öğretmen</th>
-                <th className="px-4 py-3">Ders sayısı</th>
-                <th className="px-4 py-3">Tutar</th>
+                <th className="px-4 py-3">Ders</th>
+                <th className="px-4 py-3">Net hakediş</th>
+                <th className="px-4 py-3">Ödenen</th>
+                <th className="px-4 py-3">Kalan</th>
                 <th className="px-4 py-3">Durum</th>
+                {/* 10. tur iş #11 — eşik yönetimi bu ekranda (öğretmen başına, satır-içi). */}
+                <th className="px-4 py-3">Eşik (sa/hafta)</th>
                 <th className="px-4 py-3">İşlem</th>
               </tr>
             </thead>
@@ -227,14 +277,39 @@ export default async function TeacherPayoutOverviewPage({
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">{r.lessonCount}</td>
-                  <td className="px-4 py-3 font-medium">{formatMoney(r.totalAmount)}</td>
+                  <td className="px-4 py-3 font-medium tabular-nums">
+                    {formatMoney(r.totalAmount)}
+                    {r.adjustments !== 0 ? (
+                      <span className="block text-[11px] font-normal text-[var(--color-text-muted)]">
+                        döküm {formatMoney(r.calculated)} {r.adjustments > 0 ? "+" : "−"} {formatMoney(Math.abs(r.adjustments))}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-muted)]">{formatMoney(r.paid)}</td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {r.balance < 0 ? <span className="text-rose-600">Fazla ödeme {formatMoney(-r.balance)}</span> : formatMoney(r.balance)}
+                  </td>
                   <td className="px-4 py-3">
                     <Badge status={r.status === "no_lessons" ? undefined : r.status}>
-                      {PAYOUT_STATUS_LABELS[r.status] ?? r.status}
+                      {r.hasRecord ? PAYOUT_STATUS_LABELS[r.status] ?? r.status : r.status === "no_lessons" ? "Ders yok" : "Kayıt yok"}
                     </Badge>
-                    {r.missingFeeRule > 0 ? (
-                      <span className="ml-2 text-xs text-rose-600">{r.missingFeeRule} ders için ücret kuralı eksik</span>
+                    {Math.abs(r.drift) >= 0.01 ? (
+                      <span className="mt-1 block text-[11px] text-amber-700">Güncel hesapla fark {r.drift > 0 ? "+" : "−"}{formatMoney(Math.abs(r.drift))}</span>
                     ) : null}
+                    {r.missingFeeRule > 0 ? (
+                      <span className="mt-1 block text-[11px] text-rose-600">{r.missingFeeRule} derste ücret kuralı eksik</span>
+                    ) : null}
+                    {r.durationExceptions > 0 ? (
+                      <span className="mt-1 block text-[11px] text-[var(--color-text-muted)]">{r.durationExceptions} süre istisnası</span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 text-[var(--color-text-muted)]">
+                    <PayoutThresholdCell
+                      teacherId={r.teacher.id}
+                      teacherName={r.teacher.name}
+                      threshold={r.teacher.weeklyHoursThreshold}
+                      canEdit={session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN"}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <Link

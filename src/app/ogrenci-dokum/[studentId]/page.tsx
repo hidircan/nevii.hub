@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { requireSessionContext } from "@/lib/auth/session";
@@ -20,6 +20,16 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 function planAmount(plan: CalendarMonthPlan) {
+  const prior = plan.state === "no_installment_for_month" ? plan.coveredByPriorVersion : undefined;
+  if (prior) {
+    // 2026-10-25 — revizyonda mahsup edilen ay: tahsilat önceki sözleşme sürümünde.
+    return {
+      planned: formatMoney(prior.paidAmount),
+      paid: formatMoney(prior.paidAmount),
+      remaining: formatMoney(0),
+      status: `${PAYMENT_STATUS_TEXT.paid ?? "Ödendi"} (önceki sürüm ${prior.contractNumbers.join(", ")})`,
+    };
+  }
   if (!planHasRows(plan)) {
     return { planned: "—", paid: "—", remaining: "—", status: plan.message ?? "Bu ay için aktif ödeme planı bulunmuyor." };
   }
@@ -58,6 +68,8 @@ export default async function StudentStatementPrintPage({
     studentId,
     term,
     anchorYear,
+    // 2026-10-09 — çok branşlı öğrencide döküm branş başınadır (Program sekmesindeki branş seçimi taşınır).
+    ...(typeof sp.brans === "string" && sp.brans ? { enrollmentId: sp.brans } : {}),
   });
 
   if (!result.ok) {
@@ -79,6 +91,9 @@ export default async function StudentStatementPrintPage({
   const countedPlanRows = new Set<string>();
   const planTotals = s.months.reduce(
     (acc, m) => {
+      // Önceki sürümde tahsil edilen ay: yalnız bu aya düşen tahsilat payı (ay başına ayrı, çift sayım yok).
+      const prior = m.plan.state === "no_installment_for_month" ? m.plan.coveredByPriorVersion : undefined;
+      if (prior) return { planned: acc.planned + prior.paidAmount, paid: acc.paid + prior.paidAmount, remaining: acc.remaining };
       if (!planHasRows(m.plan)) return acc;
       const key = m.plan.paymentIds.join(",");
       if (countedPlanRows.has(key)) return acc;
@@ -117,6 +132,7 @@ export default async function StudentStatementPrintPage({
         institution={s.institutionName}
         rows={[
           ["Öğrenci", s.studentName],
+          ...(s.branchLabel ? [["Branş", s.branchLabel] as [string, string]] : []),
           ["Şube", s.branchName],
           ["Dönem", `${s.termLabel} · ${formatDate(s.termStart)} – ${formatDate(s.termEnd)}`],
           ...(s.contractNumber ? ([["Sözleşme", s.contractNumber]] as [string, string][]) : []),

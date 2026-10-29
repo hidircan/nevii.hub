@@ -24,12 +24,12 @@ describe("computeAverageMonthlyFeePerStudent", () => {
       students,
       month: "2026-10",
     });
-    expect(r).toEqual({ average: 7000, studentCount: 3, totalMonthly: 21000 });
+    expect(r).toEqual({ average: 7000, studentCount: 3, totalMonthly: 21000, studentIds: ["s1", "s2", "s3"] });
   });
 
   it("şube filtresi yalnız o şubenin öğrencilerini sayar", () => {
     const r = computeAverageMonthlyFeePerStudent({ contracts: [c("s1", 6000), c("s2", 8000), c("s3", 7000)], students, month: "2026-10", branchId: "b2" });
-    expect(r).toEqual({ average: 7000, studentCount: 1, totalMonthly: 7000 });
+    expect(r).toEqual({ average: 7000, studentCount: 1, totalMonthly: 7000, studentIds: ["s3"] });
   });
 
   it("taslak/iptal/yenilenmiş, ayı kapsamayan ve silinmiş öğrenci sözleşmeleri hariç", () => {

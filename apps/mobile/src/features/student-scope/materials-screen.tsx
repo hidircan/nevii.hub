@@ -1,18 +1,23 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
-import { useAuth } from "../../auth/auth-context";
-import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge } from "../../components/ui";
-import { useApiGet } from "../../hooks/use-api";
+import { View } from "react-native";
+import { AppHeader, Button, Card, EmptyState, ErrorState, Icon, LoadingSkeleton, Screen, StatusBadge, AppText } from "../../components/ui";
+import { CacheStatus } from "../../cache/cache-status";
+import { useCachedApiGet } from "../../cache/use-cached-api";
+import { useSelectedStudentId } from "../../student/student-context";
 import { shortDayMonth } from "../../lib/date";
 import { downloadAndOpenFile } from "../../lib/open-file";
+import { useLocale } from "../../i18n/locale-context";
 import { useTheme } from "../../theme/theme-context";
+import { listFallback, usePersonaBasePath } from "../../lib/navigation";
 import type { TeachingMaterialsResponse } from "../../types/api";
 
 /** Öğretmenin paylaştığı materyaller — veli ve öğrenci için ortak, salt-okunur liste. */
 export function StudentScopeMaterialsScreen() {
   const t = useTheme();
-  const { user } = useAuth();
-  const res = useApiGet<TeachingMaterialsResponse>(user?.studentId ? `/api/v1/students/${user.studentId}/teaching-materials` : "");
+  const { t: tr } = useLocale();
+  const base = usePersonaBasePath();
+  const studentId = useSelectedStudentId();
+  const res = useCachedApiGet<TeachingMaterialsResponse>(studentId ? `/api/v1/students/${studentId}/teaching-materials` : "");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -26,35 +31,36 @@ export function StudentScopeMaterialsScreen() {
 
   return (
     <Screen onRefresh={res.refresh} refreshing={res.status === "loading"}>
-      <AppHeader title="Materyaller" showBack showNotifications={false} />
+      <AppHeader title={tr("materials.title")} showBack backFallback={listFallback(base, "gelisim")} showNotifications={false} />
+      <CacheStatus cachedAt={res.cachedAt} isStale={res.isStale} />
 
       {res.status === "loading" ? (
         <LoadingSkeleton rows={4} />
       ) : res.status === "error" ? (
         <ErrorState message={res.message} onRetry={res.refresh} />
       ) : res.data.materials.length === 0 ? (
-        <EmptyState icon="folder-open-outline" title="Henüz materyal paylaşılmadı" />
+        <EmptyState icon="folder-open-outline" title={tr("materials.empty")} />
       ) : (
         <View style={{ gap: 10 }}>
-          {downloadError ? <Text style={{ color: t.colors.danger }}>{downloadError}</Text> : null}
+          {downloadError ? <AppText style={[t.typography.caption, { color: t.colors.danger }]}>{downloadError}</AppText> : null}
           {res.data.materials.map((m) => (
             <Card key={m.id}>
               <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
                 <Icon name={m.fileName ? "document-attach-outline" : "book-outline"} size={18} color={t.colors.primary} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</Text>
-                  <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
+                  <AppText style={[t.typography.cardTitle, { color: t.colors.text }]}>{m.title}</AppText>
+                  <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]} numberOfLines={3}>
                     {m.description}
-                  </Text>
+                  </AppText>
                   <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                     {m.targetInstrument ? <StatusBadge label={m.targetInstrument} tone="info" /> : null}
                     {m.targetLevel ? <StatusBadge label={m.targetLevel} tone="neutral" /> : null}
                   </View>
-                  <Text style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</Text>
+                  <AppText style={[t.typography.caption, { color: t.colors.textFaint, marginTop: 6 }]}>{shortDayMonth(new Date(m.createdAt))}</AppText>
                   {m.fileName ? (
                     <View style={{ marginTop: 10 }}>
                       <Button
-                        label={downloadingId === m.id ? "İndiriliyor…" : `Dosyayı aç · ${m.fileName}`}
+                        label={downloadingId === m.id ? tr("materials.downloading") : tr("materials.openFile", { v: m.fileName })}
                         icon="download-outline"
                         variant="secondary"
                         size="sm"

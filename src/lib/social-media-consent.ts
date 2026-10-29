@@ -192,3 +192,31 @@ export async function listSocialMediaConsentHistory(
   const all = await loadAll();
   return sortByRecency(all.filter((r) => r.tenantId === tenantId && r.studentId === studentId)).map(toPublic);
 }
+
+/**
+ * Öğrenci listesi filtresi — tenant'ın TÜM öğrencileri için en güncel izin kaydı TEK sorguda
+ * (öğrenci başına okuma yok). Sıralama `getLatestSocialMediaConsent` ile aynı kuraldır.
+ */
+export async function listLatestSocialMediaConsentsByStudent(
+  tenantId: string
+): Promise<Map<string, Pick<SocialMediaConsent, "status" | "scopes">>> {
+  const latest = new Map<string, Pick<SocialMediaConsent, "status" | "scopes">>();
+  if (isDbMode) {
+    const { prisma } = await import("./db");
+    const rows = await prisma.socialMediaConsent.findMany({
+      where: { tenantId },
+      select: { studentId: true, status: true, scopes: true },
+      orderBy: [{ grantedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    });
+    for (const r of rows) {
+      if (!latest.has(r.studentId)) {
+        latest.set(r.studentId, { status: r.status as SocialMediaConsentStatus, scopes: r.scopes as SocialMediaScope[] });
+      }
+    }
+    return latest;
+  }
+  for (const r of sortByRecency((await loadAll()).filter((r) => r.tenantId === tenantId))) {
+    if (!latest.has(r.studentId)) latest.set(r.studentId, { status: r.status, scopes: r.scopes });
+  }
+  return latest;
+}

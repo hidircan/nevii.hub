@@ -3,6 +3,12 @@
  * Marka rengi web'deki --color-primary (amber/kahve) ile uyumlu; koyu tema
  * için ayrı, kontrastı test edilmiş bir palet tanımlı (aynı tonların koyulaştırılmış
  * hali değil — koyu zeminde okunabilirlik için ayrıca ayarlandı).
+ *
+ * Tipografi: Inter (400/500/600/700) tüm hiyerarşide; Gloock YALNIZ marka
+ * kelimesinde (`brand`). Ölçek `display → title → headline → body → caption`
+ * sırasıyla tanımlıdır; ekranlar `t.typography.*` token'larını tüketir.
+ * Kullanıcı yazı boyutu tercihi `buildTheme(mode, scale)` ile tüm ölçeği
+ * orantılı büyütür (bkz. theme-context.tsx).
  */
 
 export const spacing = {
@@ -22,6 +28,20 @@ export const radius = {
   lg: 16,
   xl: 20,
   pill: 999,
+} as const;
+
+/**
+ * Font ailesi token'ları — tek kaynak.
+ * - `display`: marka kelimesi (Gloock 400, tek ağırlık) — YALNIZ BrandMark.
+ * - `regular`/`medium`/`semibold`/`bold`: Inter kesitleri; kalınlık DOSYA
+ *   adıyla seçilir (regular dosya üzerine `fontWeight` override'ı YOK).
+ */
+export const fonts = {
+  display: "Gloock_400Regular",
+  regular: "Inter_400Regular",
+  medium: "Inter_500Medium",
+  semibold: "Inter_600SemiBold",
+  bold: "Inter_700Bold",
 } as const;
 
 export type ThemeColors = {
@@ -102,15 +122,74 @@ const darkColors: ThemeColors = {
   overlay: "rgba(0,0,0,0.6)",
 };
 
-export const typography = {
-  screenTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700" as const },
-  sectionTitle: { fontSize: 17, lineHeight: 22, fontWeight: "700" as const },
-  cardTitle: { fontSize: 15, lineHeight: 20, fontWeight: "600" as const },
-  body: { fontSize: 14, lineHeight: 20, fontWeight: "400" as const },
-  bodyStrong: { fontSize: 14, lineHeight: 20, fontWeight: "600" as const },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
-  label: { fontSize: 11, lineHeight: 14, fontWeight: "700" as const, textTransform: "uppercase" as const, letterSpacing: 0.4 },
+export type TypographyToken = {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  fontWeight: "400" | "500" | "600" | "700";
+  textTransform?: "uppercase";
+  letterSpacing?: number;
 };
+
+/**
+ * Ölçek (8pt grid'e oturan satır yükseklikleri):
+ * display 32/40 · title 26/32 · headline 20/26 · body 16/22 · caption 14/19.
+ * `screenTitle`/`sectionTitle`/`cardTitle`/`bodyStrong`/`label` eski
+ * çağrıların karşılıklarıdır (aynı ölçeğe oturur, paralel ikinci sistem yok).
+ * `compact*` — Program ekranındaki kompakt ödev/hakediş özeti (title 15,
+ * body 14, caption 12).
+ */
+export const typography = {
+  /** Marka kelimesi — YALNIZ BrandMark (Gloock tek kesit). */
+  brand: { fontFamily: fonts.display, fontSize: 32, lineHeight: 40, fontWeight: "400" },
+  display: { fontFamily: fonts.bold, fontSize: 32, lineHeight: 40, fontWeight: "700" },
+  title: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, fontWeight: "700" },
+  screenTitle: { fontFamily: fonts.bold, fontSize: 26, lineHeight: 32, fontWeight: "700" },
+  headline: { fontFamily: fonts.semibold, fontSize: 20, lineHeight: 26, fontWeight: "600" },
+  sectionTitle: { fontFamily: fonts.semibold, fontSize: 20, lineHeight: 26, fontWeight: "600" },
+  cardTitle: { fontFamily: fonts.semibold, fontSize: 17, lineHeight: 23, fontWeight: "600" },
+  body: { fontFamily: fonts.regular, fontSize: 16, lineHeight: 22, fontWeight: "400" },
+  bodyStrong: { fontFamily: fonts.semibold, fontSize: 16, lineHeight: 22, fontWeight: "600" },
+  caption: { fontFamily: fonts.medium, fontSize: 14, lineHeight: 19, fontWeight: "500" },
+  label: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  compactTitle: { fontFamily: fonts.semibold, fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  compactBody: { fontFamily: fonts.regular, fontSize: 14, lineHeight: 19, fontWeight: "400" },
+  compactCaption: { fontFamily: fonts.medium, fontSize: 12, lineHeight: 16, fontWeight: "500" },
+} as const satisfies Record<string, TypographyToken>;
+
+export type Typography = { -readonly [K in keyof typeof typography]: TypographyToken };
+
+export type FontScalePreference = "normal" | "large" | "xlarge";
+
+/** Kullanıcı "Yazı boyutu" tercihi — ölçeğin tamamına uygulanır. */
+export const FONT_SCALE: Record<FontScalePreference, number> = {
+  normal: 1,
+  large: 1.15,
+  xlarge: 1.3,
+};
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+function scaleTypography(scale: number): Typography {
+  if (scale === 1) return typography;
+  const out = {} as Typography;
+  for (const key of Object.keys(typography) as Array<keyof Typography>) {
+    const token = typography[key];
+    out[key] = {
+      ...token,
+      fontSize: round1(token.fontSize * scale),
+      lineHeight: round1(token.lineHeight * scale),
+    };
+  }
+  return out;
+}
 
 export const shadow = {
   card: {
@@ -134,9 +213,26 @@ export type Theme = {
   colors: ThemeColors;
   spacing: typeof spacing;
   radius: typeof radius;
-  typography: typeof typography;
+  typography: Typography;
+  fonts: typeof fonts;
   shadow: typeof shadow;
+  /** Aktif yazı boyutu çarpanı (1 / 1.15 / 1.3) — AppText ve özel durumlar için. */
+  fontScale: number;
 };
 
-export const lightTheme: Theme = { mode: "light", colors: lightColors, spacing, radius, typography, shadow };
-export const darkTheme: Theme = { mode: "dark", colors: darkColors, spacing, radius, typography, shadow };
+/** Tema üretimi — yazı boyutu tercihi tüm tipografi ölçeğini orantılı büyütür. */
+export function buildTheme(mode: "light" | "dark", scale = 1): Theme {
+  return {
+    mode,
+    colors: mode === "dark" ? darkColors : lightColors,
+    spacing,
+    radius,
+    typography: scaleTypography(scale),
+    fonts,
+    shadow,
+    fontScale: scale,
+  };
+}
+
+export const lightTheme: Theme = buildTheme("light", 1);
+export const darkTheme: Theme = buildTheme("dark", 1);

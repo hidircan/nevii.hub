@@ -2,9 +2,10 @@ import { PageHeader, Card, Badge } from "@/components/ui";
 import { listMemoriesForAdmin } from "@/lib/ai/memory";
 import { requireSessionContext } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { formatDateTime } from "@/lib/utils";
 import { MemoryDeleteButton } from "@/components/memory-delete-button";
+import { canRunCriticalActions } from "@/lib/critical-action-password";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function AiMemoryPage() {
   }
 
   const memories = await listMemoriesForAdmin(session.tenantId, 150);
+  const canDelete = canRunCriticalActions(session.role);
 
   const byScope = {
     conversation: memories.filter((m) => m.scope === "conversation").length,
@@ -90,7 +92,7 @@ export default async function AiMemoryPage() {
                     {formatDateTime(m.updatedAt)}
                   </td>
                   <td className="px-3 py-2">
-                    <MemoryDeleteButton id={m.id} />
+                    {canDelete ? <MemoryDeleteButton id={m.id} summary={m.content} /> : null}
                   </td>
                 </tr>
               ))

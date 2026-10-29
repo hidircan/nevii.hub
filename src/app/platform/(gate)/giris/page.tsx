@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 import { homePathForRole, resolveSafeLoginNext } from "@/lib/auth/role-routes";

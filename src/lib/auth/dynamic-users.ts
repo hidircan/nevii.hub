@@ -36,6 +36,7 @@ export type DynamicUserRecord = {
   role: AppRole;
   teacherId: string | null;
   studentId: string | null;
+  invitationPending?: boolean;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -104,6 +105,7 @@ export async function createDynamicUser(input: {
   role: AppRole;
   teacherId?: string;
   studentId?: string;
+  invitationPending?: boolean;
 }): Promise<DynamicUserRecord> {
   const all = await loadAll();
   const now = new Date().toISOString();
@@ -115,6 +117,7 @@ export async function createDynamicUser(input: {
     role: input.role,
     teacherId: input.teacherId ?? null,
     studentId: input.studentId ?? null,
+    invitationPending: input.invitationPending ?? false,
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -122,6 +125,46 @@ export async function createDynamicUser(input: {
   all.push(record);
   await saveAll(all);
   return record;
+}
+
+export async function updatePendingTeacherInvitationEmail(
+  tenantId: string,
+  userId: string,
+  teacherId: string,
+  email: string
+): Promise<"updated" | "not_pending" | "email_taken"> {
+  const normalized = email.trim().toLowerCase();
+  const all = await loadAll();
+  const owner = all.find((user) => user.tenantId === tenantId && user.email.toLowerCase() === normalized);
+  if (owner && owner.userId !== userId) return "email_taken";
+
+  const index = all.findIndex(
+    (user) =>
+      user.userId === userId &&
+      user.tenantId === tenantId &&
+      user.teacherId === teacherId &&
+      user.role === "TEACHER" &&
+      user.invitationPending === true
+  );
+  if (index < 0) return "not_pending";
+  all[index] = { ...all[index]!, email: normalized, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  return "updated";
+}
+
+export async function setDynamicTeacherInvitationPending(
+  tenantId: string,
+  userId: string,
+  invitationPending: boolean
+): Promise<boolean> {
+  const all = await loadAll();
+  const index = all.findIndex(
+    (user) => user.userId === userId && user.tenantId === tenantId && user.role === "TEACHER"
+  );
+  if (index < 0) return false;
+  all[index] = { ...all[index]!, invitationPending, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  return true;
 }
 
 export async function setDynamicUserActive(userId: string, active: boolean): Promise<boolean> {
@@ -138,6 +181,19 @@ export async function setDynamicUserPasswordHash(userId: string, passwordHash: s
   const idx = all.findIndex((u) => u.userId === userId);
   if (idx === -1) return false;
   all[idx] = { ...all[idx], passwordHash, updatedAt: new Date().toISOString() };
+  await saveAll(all);
+  return true;
+}
+
+/**
+ * 10. tur iş #1 — SELF davet bağlaması / bayat bağ onarımının dosya-tabanlı
+ * yazma ucu. `null` bağlamayı temizler (veli-çoklu-öğrenci onarımı).
+ */
+export async function setDynamicUserStudentId(userId: string, studentId: string | null): Promise<boolean> {
+  const all = await loadAll();
+  const idx = all.findIndex((u) => u.userId === userId);
+  if (idx === -1) return false;
+  all[idx] = { ...all[idx], studentId, updatedAt: new Date().toISOString() };
   await saveAll(all);
   return true;
 }

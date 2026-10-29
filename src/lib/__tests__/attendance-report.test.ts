@@ -93,10 +93,12 @@ describe("buildAttendanceReport", () => {
     expect(res.summary).toEqual({
       totalPlanned: 7,
       attended: 1,
+      attendedPlannedMakeup: 0,
       absent: 0,
       excused: 0,
       processed: 1,
       makeup: 1,
+      makeupPlanned: 0,
       cancelled: 1,
       riskyStudentCount: 0,
     });

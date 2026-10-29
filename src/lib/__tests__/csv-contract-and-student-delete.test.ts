@@ -18,6 +18,7 @@ import {
   createStudentContractTool,
   createStudentTool,
   deleteStudentTool,
+  getPersonPurgePreviewTool,
   getContractHtmlTool,
   getStudentDeletionImpactTool,
   previewContractInstallmentPlanTool,
@@ -319,24 +320,28 @@ describe("C — güvenli öğrenci silme", () => {
     expect(auditCalls.some((c) => c.action === "student.delete_restore")).toBe(true);
   });
 
-  it("kalıcı silme ödemeli/sözleşmeli öğrencide engellenir; boş öğrencide yapılır", async () => {
+  it("kalıcı silme önce Silinenler'e taşımayı ve önizleme parmak izini ister; boş öğrenci tamamen silinir", async () => {
     await setPassword();
     const withPayment = await createNormalStudent();
-    const blocked = await deleteStudentTool(owner(), {
+    const notDeletedYet = await deleteStudentTool(owner(), {
       studentId: withPayment, mode: "hard", confirmationName: "Normal Öğrenci", criticalPassword: PW, reason: "deneme kaydı",
     });
-    expect(blocked.ok).toBe(false);
+    expect(notDeletedYet.ok).toBe(false);
+    if (!notDeletedYet.ok) expect(notDeletedYet.error.message).toContain("Silinenler");
     expect((await readData()).students.some((s) => s.id === withPayment)).toBe(true);
 
     const empty = await importCsvStudent("Boş Deneme");
-    const impact = await getStudentDeletionImpactTool(owner(), { studentId: empty });
-    expect(impact.ok && impact.data.hardDeleteEligible).toBe(true);
-    const hard = await deleteStudentTool(owner(), {
-      studentId: empty, mode: "hard", confirmationName: "Boş Deneme", criticalPassword: PW, reason: "deneme kaydı",
-    });
-    expect(hard.ok).toBe(true);
+    const soft = { studentId: empty, confirmationName: "Boş Deneme", criticalPassword: PW, reason: "deneme kaydı" };
+    expect((await deleteStudentTool(owner(), { ...soft, mode: "soft" })).ok).toBe(true);
+    const preview = await getPersonPurgePreviewTool(owner(), { kind: "student", id: empty });
+    expect(preview.ok && preview.data.outcome).toBe("delete");
+    if (!preview.ok) return;
+    const noPreview = await deleteStudentTool(owner(), { ...soft, mode: "hard" });
+    expect(noPreview.ok).toBe(false);
+    const hard = await deleteStudentTool(owner(), { ...soft, mode: "hard", expectedFingerprint: preview.data.fingerprint });
+    expect(hard.ok, hard.ok ? "" : hard.error.message).toBe(true);
     expect((await readData()).students.some((s) => s.id === empty)).toBe(false);
-    expect(auditCalls.some((c) => c.action === "student.delete_hard" && c.outcome === "success")).toBe(true);
+    expect(auditCalls.some((c) => c.action === "student.purge" && c.outcome === "success")).toBe(true);
   });
 
   it("kritik işlem şifresi değiştirilirken mevcut şifre zorunludur", async () => {

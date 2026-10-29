@@ -251,6 +251,14 @@ export async function resetPlatformStoreForTests(): Promise<void> {
   }
 }
 
+/**
+ * DB egress (2026-09-30): kurum görünen adı için School'dan YALNIZ `name` okunur.
+ * `include: { schools: true }` her satırda ~79 KB data-URI `School.logoUrl`'i de
+ * taşıyordu; `getPlatformTenant` ayar çözümlemesi (rol preset'i, hakediş erişimi)
+ * üzerinden neredeyse her panel isteğinde birkaç kez çalışıyordu.
+ */
+const TENANT_SCHOOL_NAME = { schools: { select: { name: true } } } as const;
+
 export async function listPlatformTenants(): Promise<PlatformTenant[]> {
   if (isDbMode) {
     try {
@@ -258,7 +266,7 @@ export async function listPlatformTenants(): Promise<PlatformTenant[]> {
       const prisma = getPrisma();
       const rows = await prisma.tenant.findMany({
         where: { id: { not: PLATFORM_TENANT_ID } },
-        include: { schools: true },
+        include: TENANT_SCHOOL_NAME,
         orderBy: { createdAt: "desc" },
       });
       return rows.map((row) =>
@@ -279,6 +287,17 @@ export async function listPlatformTenants(): Promise<PlatformTenant[]> {
 }
 
 export async function getPlatformTenant(tenantId: string): Promise<PlatformTenant | null> {
+  // db: tüm kurumları listeleyip aramak yerine tek satır (platform tenant'ı listede yoktu → null).
+  if (isDbMode) {
+    if (tenantId === PLATFORM_TENANT_ID) return null;
+    try {
+      const { getPrisma } = await import("../db");
+      const row = await getPrisma().tenant.findUnique({ where: { id: tenantId }, include: TENANT_SCHOOL_NAME });
+      return row ? mapPrismaTenant(row, row.schools[0]?.name ?? row.name) : null;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
   const all = await listPlatformTenants();
   return all.find((t) => t.tenantId === tenantId) ?? null;
 }

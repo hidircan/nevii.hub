@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
 import { PageHeader } from "@/components/ui";
 import { BackButton } from "@/components/back-button";
 import { FeeRuleManager } from "@/components/fee-rule-manager";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { FeeRoundingModeSelector } from "@/components/fee-rounding-mode-selector";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function FeeRulesPage() {
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  const data = await readScopedReferenceData(kurum.scope);
 
   return (
     <div>
@@ -41,6 +42,7 @@ export default async function FeeRulesPage() {
         branches={data.settings.branches.map((b) => ({ id: b.id, shortName: b.shortName }))}
         rules={data.teacherFeeRules}
         canWrite={kurum.scope.mode === "single"}
+        instrumentOptions={await activeInstrumentOptions(session)}
       />
     </div>
   );

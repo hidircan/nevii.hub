@@ -19,8 +19,9 @@
  *  - Toplamlar yalnız listelenen satırlardan hesaplanır → rapor = detay.
  *  - Devamsızlık/iptal hakedişten OTOMATİK kesinti üretmez (owner onayı olmadan yeni finans kuralı yok).
  */
-import { computeTeacherEarningsWithRevisions, payoutPeriodDayKey } from "./teacher-payout";
-import type { AppData, Teacher } from "./types";
+import { computeTeacherEarningsWithRevisions, payoutDrift, payoutPeriodDayKey, type PayoutLedgerData } from "./teacher-payout";
+import { payoutAdjustmentTotal, payoutBalance, payoutNetAmount, payoutPaidAmount } from "./payout-ledger";
+import type { AppData, Teacher, TeacherPayoutStatus } from "./types";
 
 export type PayoutScope = "aktif" | "pasif" | "tum";
 
@@ -38,12 +39,28 @@ export type PayoutOverviewRow = {
   teacher: Teacher;
   active: boolean;
   lessonCount: number;
+  /** Hesaplanan (kayıttaki donmuş döküm veya canlı hesap, satır düzeltmeleri dahil). */
+  calculated: number;
+  /** Düzeltme kayıtları toplamı (+/−). */
+  adjustments: number;
+  /** Net hakediş = hesaplanan + düzeltmeler. Eski alan adıyla uyum: totalAmount = net. */
   totalAmount: number;
-  status: "pending" | "paid" | "no_lessons";
+  paid: number;
+  /** Kalan bakiye; negatif = fazla ödeme. */
+  balance: number;
+  /** Kayıtla güncel hesap farkı (politika/kural/hariç tutma sonrası). */
+  drift: number;
+  hasRecord: boolean;
+  status: TeacherPayoutStatus | "no_lessons";
   missingFeeRule: number;
+  durationExceptions: number;
 };
 
-export function buildPayoutOverviewRows(data: AppData, periodStart: string, periodEnd: string): PayoutOverviewRow[] {
+export function buildPayoutOverviewRows(
+  data: PayoutLedgerData & Pick<AppData, "teachers">,
+  periodStart: string,
+  periodEnd: string
+): PayoutOverviewRow[] {
   const startKey = payoutPeriodDayKey(periodStart);
   const endKey = payoutPeriodDayKey(periodEnd);
   const rows: PayoutOverviewRow[] = [];
@@ -51,19 +68,29 @@ export function buildPayoutOverviewRows(data: AppData, periodStart: string, peri
     const existingPayout = data.teacherPayouts.find(
       (p) =>
         p.teacherId === teacher.id &&
+        p.status !== "cancelled" &&
         payoutPeriodDayKey(p.periodStart) === startKey &&
         payoutPeriodDayKey(p.periodEnd) === endKey
     );
     const earnings = computeTeacherEarningsWithRevisions(data, teacher.id, periodStart, periodEnd);
     const active = teacher.active !== false;
     if (!active && !existingPayout && earnings.totalLessons === 0) continue;
+    const net = existingPayout ? payoutNetAmount(existingPayout) : earnings.totalAmount;
+    const paid = existingPayout ? payoutPaidAmount(existingPayout) : 0;
     rows.push({
       teacher,
       active,
       lessonCount: earnings.totalLessons,
-      totalAmount: existingPayout ? existingPayout.totalAmount : earnings.totalAmount,
+      calculated: existingPayout ? existingPayout.totalAmount : earnings.totalAmount,
+      adjustments: existingPayout ? payoutAdjustmentTotal(existingPayout) : 0,
+      totalAmount: net,
+      paid,
+      balance: existingPayout ? payoutBalance(existingPayout) : earnings.totalAmount,
+      drift: existingPayout ? payoutDrift(data, existingPayout) : 0,
+      hasRecord: Boolean(existingPayout),
       status: existingPayout ? existingPayout.status : earnings.totalLessons > 0 ? "pending" : "no_lessons",
       missingFeeRule: earnings.missingFeeRuleLessonIds.length,
+      durationExceptions: earnings.unsupportedDurationLessonIds.length,
     });
   }
   return rows;
@@ -74,16 +101,22 @@ export function rowsInPayoutScope(rows: PayoutOverviewRow[], scope: PayoutScope)
   return rows.filter((r) => (scope === "aktif" ? r.active : !r.active));
 }
 
-export function sumPayoutRows(rows: PayoutOverviewRow[]): { pending: number; paid: number; missingFeeRule: number } {
+/** pending = ödenecek kalan (pozitif bakiyeler), paid = gerçekleşen ödemeler, net = toplam hakediş. */
+export function sumPayoutRows(rows: PayoutOverviewRow[]): { pending: number; paid: number; net: number; missingFeeRule: number; durationExceptions: number } {
   let pending = 0;
   let paid = 0;
+  let net = 0;
   let missingFeeRule = 0;
+  let durationExceptions = 0;
   for (const r of rows) {
-    if (r.status === "pending") pending += r.totalAmount;
-    if (r.status === "paid") paid += r.totalAmount;
+    if (r.balance > 0) pending += r.balance;
+    paid += r.paid;
+    net += r.totalAmount;
     missingFeeRule += r.missingFeeRule;
+    durationExceptions += r.durationExceptions;
   }
-  return { pending, paid, missingFeeRule };
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  return { pending: r2(pending), paid: r2(paid), net: r2(net), missingFeeRule, durationExceptions };
 }
 
 /** Pasif öğretmenlerin TÜM dönemlerdeki kayıtlı ama ödenmemiş hakedişleri. */
@@ -93,9 +126,9 @@ export function passiveTeacherOpenPayouts(data: Pick<AppData, "teachers" | "teac
   teacherCount: number;
 } {
   const passive = new Set(data.teachers.filter((t) => t.active === false).map((t) => t.id));
-  const open = data.teacherPayouts.filter((p) => p.status === "pending" && passive.has(p.teacherId));
+  const open = data.teacherPayouts.filter((p) => p.status !== "cancelled" && passive.has(p.teacherId) && payoutBalance(p) > 0.005);
   return {
-    total: open.reduce((s, p) => s + p.totalAmount, 0),
+    total: open.reduce((s, p) => s + payoutBalance(p), 0),
     count: open.length,
     teacherCount: new Set(open.map((p) => p.teacherId)).size,
   };

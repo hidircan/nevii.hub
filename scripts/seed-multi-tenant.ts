@@ -14,7 +14,7 @@
  * çalıştırılmamalıdır (bkz. README "Multi-Tenant Demo" bölümü).
  */
 import "dotenv/config";
-import { assertNotProductionRuntime } from "../src/lib/env/test-target-guard";
+import { assertNotProductionRuntime, assertSeedTarget } from "../src/lib/env/test-target-guard";
 import { createSeedData } from "../src/lib/seed";
 import { seedDatabase, readData as readDataDb, listTenants as listTenantsDb } from "../src/lib/store-db";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
@@ -63,6 +63,8 @@ function remapIds(data: AppData, prefix: string): AppData {
     confirmedLessonId: m.confirmedLessonId ? p(m.confirmedLessonId) : undefined,
   }));
   const payments = data.payments.map((pay) => ({ ...pay, id: p(pay.id), studentId: p(pay.studentId) }));
+  // Paket kimlikleri de global benzersiz; öğrenciler pakete adla (packageName) bağlı.
+  const packages = (data.packages ?? []).map((pkg) => ({ ...pkg, id: p(pkg.id) }));
   const teacherFeeRules = data.teacherFeeRules.map((r) => ({
     ...r,
     id: p(r.id),
@@ -80,6 +82,7 @@ function remapIds(data: AppData, prefix: string): AppData {
     attendances,
     makeupRequests,
     payments,
+    packages,
     teacherFeeRules,
     lessonSeries: [],
     teacherPayouts: [],
@@ -89,6 +92,7 @@ function remapIds(data: AppData, prefix: string): AppData {
 async function main() {
   // Demo/QA seed — production ortamında KOŞULSUZ reddedilir (fail-closed).
   assertNotProductionRuntime();
+  assertSeedTarget();
   if (process.env.STORE_MODE !== "db") {
     throw new Error("Bu betik yalnızca STORE_MODE=db ile çalışır. Örnek: STORE_MODE=db npx tsx scripts/seed-multi-tenant.ts");
   }

@@ -140,7 +140,7 @@ Three execution surfaces share the same Tool Layer/Agent Runtime:
    voice, MCP).
 
 **Provider chain** (`src/lib/ai/provider-chain.ts`, `config.ts`, `provider-bridge.ts`): `auto`
-mode tries Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
+mode tries Claude (Anthropic, `providers/claude.ts`, official `@anthropic-ai/sdk`) → Gemini → Groq → NVIDIA NIM → Cerebras → heuristic, in that fixed order, skipping any
 provider with a missing/blank key and never retrying a provider after an auth/key failure
 (`isAuthConfigError`); heuristic (`providers/heuristic.ts`, keyless, regex-based intent
 detection) is the deterministic final fallback and is always "configured". Gemini needs its own
@@ -177,6 +177,34 @@ local dev/tests/demo), `db` (Prisma → PostgreSQL via `@prisma/adapter-pg`, pro
 cold start, serverless demo without disk). On Vercel/Lambda, `json` mode writes to `/tmp`, not
 the repo (`resolveDataDir`). The AI platform's own persistence (follow-up cases, workflow
 state/runs, conversations, memory) follows the same per-mode parity contract.
+
+**Read only what the screen needs (DB egress, 2026-09-30).** `readData()`/`readScopedData()` hydrate
+the tenant's ENTIRE `School` + relations (~1.8 MB per call on test data) and were the dominant Supabase
+egress. Prefer the typed slices in `src/lib/reference-data.ts` (`readReferenceData`, `readStudentScope`,
+`readLessonWindow`, `readStudentListData`, `readPaymentsPageData`, `readStudentById`; `readScoped*` in
+`institution/context.ts`) — slice types omit heavy collections so misuse fails to compile. Row-filtered
+slices (student/window) need a line-by-line audit of every access; never read `School.logoUrl` (~79 KB
+data-URI) where only the name is needed. Measure with `scripts/bench/` (docs/performance/DB_EGRESS_2026_09_30.md).
+Since 2026-10-10: never add a full `readData()` just to check that a row exists — use `readLessonById` /
+`readPaymentById` / `readTeacherPayoutsForTeacher` (or add a single-row reader in all three stores). Prisma 7
+`updateMany` runs as BEGIN/UPDATE/COMMIT — use `update` with an extended `where` for single-row conditional writes;
+DB work after the response goes through `after()` (next/server), never fire-and-forget. Method, slice catalog and
+bench recipe: skill `performance-db-egress` (docs/performance/DB_EGRESS_2026_10_10.md).
+
+**Egress rules — enforced (owner, 2026-10-16: "never hit the Supabase quota").** Measured on prod
+`pg_stat_statements`: one helper that listed ALL of a user's notifications inside a loop read 19 M rows (~4.8 GB)
+in ~1 day. So:
+1. `readData()` / `readScopedData(` count per file is capped by `src/lib/__tests__/egress-full-read-ratchet.test.ts`
+   (baseline `egress-full-read-baseline.json`). A new full read fails the test — use a slice; only raise the
+   baseline with a written reason in the PR. When you remove one, lower the baseline.
+2. Never "list everything, then filter in JS" inside a loop or per-row helper — push the filter into SQL
+   (`where` + `select` + `take`), e.g. `hasRecentNotification`.
+3. Every cron/tick states its per-run read cost × runs/day before shipping; frequent ticks read only their time
+   window (`readLessonsStartingBetween`) and return early when nothing is due; 24 h-deduped sweeps run daily.
+4. Large columns (`School.logoUrl`, `StudentContract.contractDataSnapshot` ~45 KB, file/HTML columns) are selected
+   only on the single screen that shows them, never in lists or tenant-wide reads.
+5. Verify on prod with aggregate-only `pg_stat_statements` (calls/rows per table, before/after one run); keep
+   measured row counts separate from byte estimates.
 
 ### Notable conventions
 

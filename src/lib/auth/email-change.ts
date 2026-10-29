@@ -89,11 +89,9 @@ export async function requestEmailChange(input: {
   const newEmail = normalizeEmailChangeAddress(input.newEmail);
   if (!isValidEmailChangeAddress(newEmail)) return { ok: false, code: "INVALID_EMAIL" };
 
-  const { getUserById, getUserIdByEmail } = await import("./users");
+  const { getUserById, getAnyUserIdByEmail } = await import("./users");
   const { verifyPassword } = await import("./password");
   const { isRateLimited } = await import("./password-reset");
-  const { sendEmail, getPublicAppBaseUrl } = await import("../email");
-  const { auditLog } = await import("./audit");
 
   const user = await getUserById(input.userId);
   // Not: getUserById pasif kullanıcı için null döner (aktiflik filtresi içeride).
@@ -108,13 +106,88 @@ export async function requestEmailChange(input: {
     return { ok: false, code: "WRONG_PASSWORD" };
   }
 
-  const takenBy = await getUserIdByEmail(input.tenantId, newEmail);
+  // 2026-10-14 — çakışma kurumlar arası (giriş e-postası tenant'tan bağımsız aranır; pasif/silinmiş hesaplar dahil).
+  const takenBy = await getAnyUserIdByEmail(newEmail);
   if (takenBy && takenBy !== input.userId) return { ok: false, code: "TAKEN" };
 
   if (isRateLimited(`email-change:${input.tenantId}:${input.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
     return { ok: false, code: "RATE_LIMITED" };
   }
 
+  return issueEmailChange({ tenantId: input.tenantId, userId: input.userId, role: user.role, currentEmail, newEmail, institutionName: input.institutionName });
+}
+
+/**
+ * 2026-10-14 — KURUM SAHİBİ başlatmalı giriş e-postası değişikliği (öğretmen portal hesabı). Yetki çağıranda
+ * (`changeTeacherPortalEmailTool`, yalnız `isInstitutionOwner`) doğrulanır. Hesap sahibinin şifresi istenmez ama
+ * yeni adresin sahipliği yine kanıtlanır: değişiklik, YENİ adrese giden tek kullanımlık bağlantı açılana kadar
+ * GERÇEKLEŞMEZ ("bekleyen yeni adres"); eski adrese güvenlik bildirimi gider. Ham token yanıta DÖNMEZ (sağlayıcı yoksa
+ * bile) — aksi halde kurum sahibi kutu sahipliği kanıtı olmadan değişikliği kesinleştirebilirdi.
+ */
+export async function requestEmailChangeByOwner(input: {
+  tenantId: string;
+  userId: string;
+  newEmail: string;
+  actorUserId: string;
+  institutionName?: string;
+}): Promise<{ ok: true; sentToNew: boolean; notifiedOld: boolean } | { ok: false; code: "USER_NOT_FOUND" | "SAME_EMAIL" | "INVALID_EMAIL" | "TAKEN" | "RATE_LIMITED" }> {
+  const newEmail = normalizeEmailChangeAddress(input.newEmail);
+  if (!isValidEmailChangeAddress(newEmail)) return { ok: false, code: "INVALID_EMAIL" };
+  const { getUserById, getAnyUserIdByEmail } = await import("./users");
+  const { isRateLimited } = await import("./password-reset");
+  const user = await getUserById(input.userId);
+  if (!user || user.tenantId !== input.tenantId) return { ok: false, code: "USER_NOT_FOUND" };
+  const currentEmail = (user.email ?? "").toLowerCase();
+  if (currentEmail === newEmail) return { ok: false, code: "SAME_EMAIL" };
+  const takenBy = await getAnyUserIdByEmail(newEmail);
+  if (takenBy && takenBy !== input.userId) return { ok: false, code: "TAKEN" };
+  if (isRateLimited(`email-change-owner:${input.tenantId}:${input.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
+    return { ok: false, code: "RATE_LIMITED" };
+  }
+  const res = await issueEmailChange({
+    tenantId: input.tenantId,
+    userId: input.userId,
+    role: user.role,
+    currentEmail,
+    newEmail,
+    institutionName: input.institutionName,
+    actorUserId: input.actorUserId,
+  });
+  return { ok: true, sentToNew: res.sentToNew, notifiedOld: res.notifiedOld };
+}
+
+/** Bekleyen (kullanılmamış, süresi dolmamış) giriş e-postası değişikliği — "bekleyen yeni adres" göstergesi. */
+export async function getPendingEmailChange(userId: string): Promise<{ newEmail: string; expiresAt: string } | null> {
+  const now = new Date();
+  if (isDbMode) {
+    const { getPrisma } = await import("../db");
+    const row = await getPrisma().emailChangeToken.findFirst({
+      where: { userId, usedAt: null, expiresAt: { gt: now } },
+      orderBy: { createdAt: "desc" },
+      select: { newEmail: true, expiresAt: true },
+    });
+    return row ? { newEmail: row.newEmail, expiresAt: row.expiresAt.toISOString() } : null;
+  }
+  const row = (await loadAll())
+    .filter((t) => t.userId === userId && !t.usedAt && new Date(t.expiresAt) > now)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return row ? { newEmail: row.newEmail, expiresAt: row.expiresAt } : null;
+}
+
+/** Token üretir (öncekileri geçersiz kılar), yeni adrese doğrulama + eski adrese bildirim gönderir, denetime yazar. */
+async function issueEmailChange(input: {
+  tenantId: string;
+  userId: string;
+  role: import("./types").AppRole;
+  currentEmail: string;
+  newEmail: string;
+  institutionName?: string;
+  /** Kurum sahibi başlattıysa onun kimliği (denetim). */
+  actorUserId?: string;
+}): Promise<{ ok: true; sentToNew: boolean; notifiedOld: boolean; devToken?: string }> {
+  const { sendEmail, getPublicAppBaseUrl } = await import("../email");
+  const { auditLog } = await import("./audit");
+  const { newEmail, currentEmail } = input;
   const raw = generateToken();
   const tokenHash = hashToken(raw);
   const expiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
@@ -163,10 +236,11 @@ export async function requestEmailChange(input: {
   auditLog({
     action: "auth.email_change_requested",
     requestId: uid("req"),
-    userId: input.userId,
+    userId: input.actorUserId ?? input.userId,
     tenantId: input.tenantId,
-    role: user.role,
+    role: input.role,
     outcome: "success",
+    meta: { targetUserId: input.userId, ...(input.actorUserId ? { initiatedBy: "institution_owner" } : {}) },
   });
 
   if (!verify.delivered) {
@@ -220,22 +294,26 @@ export async function confirmEmailChange(rawToken: string): Promise<ConfirmEmail
     }
   };
 
-  const { getUserById, getUserIdByEmail, updateUserEmail } = await import("./users");
+  const { getUserById, getAnyUserIdByEmail, updateUserEmail } = await import("./users");
   const { auditLog } = await import("./audit");
   const user = await getUserById(row.userId);
   if (!user || user.tenantId !== row.tenantId) {
     await markUsed();
     return { ok: false, code: "USER_NOT_FOUND" };
   }
-  const takenBy = await getUserIdByEmail(row.tenantId, row.newEmail);
+  const takenBy = await getAnyUserIdByEmail(row.newEmail);
   if (takenBy && takenBy !== row.userId) {
     await markUsed();
     return { ok: false, code: "TAKEN" };
   }
 
+  // Giriş adresi değişir + açık oturumlar kapanır (`updateUserEmail`); eski adrese gitmiş kullanılmamış sıfırlama/davet
+  // bağlantıları geçersizleşir — eski kutuya erişim hesabı geri almaya yetmez.
   const updated = await updateUserEmail(row.userId, row.newEmail);
   await markUsed();
   if (!updated) return { ok: false, code: "UPDATE_FAILED" };
+  const { revokeAllResetTokensForUser } = await import("./password-reset");
+  await revokeAllResetTokensForUser(row.tenantId, row.userId);
 
   auditLog({
     action: "auth.email_changed",

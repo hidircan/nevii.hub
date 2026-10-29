@@ -321,8 +321,8 @@ describe("lessonCardStatusVisual — ders programı tam-kutu durum renkleri (202
     expect(lessonCardStatusVisual(l, now)).toBe("processed");
   });
 
-  it("telafi dersi (type='makeup' veya opsMakeupFlag) → 'makeup'", () => {
-    expect(lessonCardStatusVisual(lesson({ type: "makeup" }), now)).toBe("makeup");
+  it("kaçan ders (opsMakeupFlag) → 'makeup'; Telafi Merkezi'nden planlanan ders (type='makeup') → 'makeup_planned' (2026-09-30)", () => {
+    expect(lessonCardStatusVisual(lesson({ type: "makeup" }), now)).toBe("makeup_planned");
     expect(lessonCardStatusVisual(lesson({ opsMakeupFlag: true }), now)).toBe("makeup");
   });
 
@@ -376,5 +376,26 @@ describe("program-studio.tsx — kart dolgusu tek kaynaktan (kaynak seviyesi reg
     expect(fill.backgroundColor).toBe(ATTENDANCE_CALENDAR_COLORS.makeup);
     // Sarı üzerinde beyaz metin AA'yı geçmez — hesaplanan renk koyu olmalı.
     expect(fill.color).not.toBe("#ffffff");
+  });
+});
+
+describe("2026-10-17 — ek şube (branş kaydının şubesi)", () => {
+  it("şube filtresi ana şubeyi VE aktif branş kaydının şubesini eşler; pasif kayıt eşlemez", () => {
+    const base = { active: true, name: "Çok Şubeli", instruments: ["Piyano", "Keman"] } as unknown as Student;
+    const s = {
+      ...base,
+      id: "s_multi",
+      branchId: "br_a",
+      enrollments: [
+        { id: "e1", instrument: "Piyano", active: true, createdAt: "" },
+        { id: "e2", instrument: "Keman", branchId: "br_b", active: true, createdAt: "" },
+        { id: "e3", instrument: "Gitar", branchId: "br_c", active: false, createdAt: "" },
+      ],
+    } as Student;
+    expect(studentsForBranch([s], "br_a")).toHaveLength(1);
+    expect(studentsForBranch([s], "br_b")).toHaveLength(1);
+    expect(studentsForBranch([s], "br_c")).toHaveLength(0);
+    expect(resolveStudentFilterForBranch([s], "br_b", "s_multi")).toBe("s_multi");
+    expect(resolveStudentFilterForBranch([s], "br_c", "s_multi")).toBe("");
   });
 });

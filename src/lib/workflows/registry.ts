@@ -103,7 +103,7 @@ export const WORKFLOW_REGISTRY: Record<WorkflowId, WorkflowDefinition> = {
 
   makeup_suggestions: {
     id: "makeup_suggestions",
-    name: "Telafi slot önerileri",
+    name: "Telafi saat önerileri",
     description: "Açık telafi talepleri için Agent Runtime ile slot önerir.",
     intervalMinutes: 60 * 6,
     defaultEnabled: true,

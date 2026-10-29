@@ -6,8 +6,14 @@
  */
 
 import type { AppData, Lesson } from "./types";
+import { reoccupyBlockMessage } from "./lesson-occupancy";
 
-export type LessonFinalStatus = "planned" | "attended" | "processed" | "makeup" | "cancelled";
+/**
+ * `makeup` = kaçırılıp telafiye alınan ders (kaynak ders, sarı).
+ * `makeup_planned` = Telafi Merkezi'nden planlanan telafi dersi, henüz yoklaması girilmemiş (turuncu).
+ * Telafi dersi işlendiğinde/geldiğinde yoklama statüsünü (İşlendi/Geldi) gösterir.
+ */
+export type LessonFinalStatus = "planned" | "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled";
 
 export type LessonFinalStatusInput = Pick<
   Lesson,
@@ -49,12 +55,31 @@ export function resolveLessonFinalStatus(
   now: Date = new Date()
 ): LessonFinalStatus {
   if (lesson.status === "cancelled") return "cancelled";
-  if (lesson.type === "makeup" || lesson.opsMakeupFlag) return "makeup";
+  if (lesson.opsMakeupFlag) return "makeup";
   if (lesson.lessonProcessed) return "processed";
   if (lesson.studentAttended) return "attended";
+  // 2026-09-30 — planlanan telafi dersi eskiden "makeup"a katlanıyordu: kaçırılan dersle aynı renk/ad,
+  // Yoklama Takvimi'nde de "Telafi" düğmesi etkin görünüyordu (dersi Geldi/İşlendi yapmak geçişe zorluyordu).
+  if (lesson.type === "makeup") return "makeup_planned";
   if (new Date(lesson.startAt).getTime() > now.getTime()) return "planned";
   if (lesson.status === "completed") return "attended";
   return "planned";
+}
+
+/**
+ * 2026-10-06 — "Planlanan telafiye geldi". Telafi Merkezi'nden planlanan ders (`type: "makeup"`, kaynağı
+ * `makeupRequestId`) "Geldi" işaretlenince statü yine `attended`dır (aynı yeşil, aynı toplamlar); ayrım
+ * KALICI kaynaktan (ders tipi) hesaplanır — renk/etiket metninden asla çıkarılmaz. Kulüp oturumu (`group`)
+ * ve sıradan ders bu işareti hiçbir zaman almaz.
+ */
+export const ATTENDED_PLANNED_MAKEUP_LABEL = "Planlanan telafiye geldi";
+export const ATTENDED_PLANNED_MAKEUP_HINT = "T: Telafi Merkezi'nden planlanan telafi dersine geldi (kaçırılan dersin telafisi)";
+
+export function isAttendedPlannedMakeup(
+  lesson: LessonFinalStatusInput,
+  now: Date = new Date()
+): boolean {
+  return lesson.type === "makeup" && resolveLessonFinalStatus(lesson, now) === "attended";
 }
 
 export type LiveDisplayStatus =
@@ -187,6 +212,9 @@ export function applyStartLesson(
   if (!result.ok) return result;
   const nextData = applyLessonPatch(data, lessonId, result.patch);
   const nextLesson = findLesson(nextData, lessonId)!;
+  // Telafi'ye alınıp saati başka derse verilmiş ders başlatılırsa saat yeniden dolar (bkz. lesson-occupancy).
+  const blocked = reoccupyBlockMessage(data, lesson, nextLesson, "Ders başlatılamadı");
+  if (blocked) return { ok: false, message: blocked };
   return { ok: true, data: nextData, lesson: nextLesson };
 }
 

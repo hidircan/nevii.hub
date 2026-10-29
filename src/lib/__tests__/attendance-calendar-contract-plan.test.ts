@@ -6,7 +6,7 @@
  * gerçek zinciri doğrular: createStudentContractTool → dondurulmuş taksit
  * satırları → getAttendanceCalendarMonthTool → collectAttendanceCalendarPaymentTool.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, onTestFinished, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -21,6 +21,8 @@ import { DOCUMENT_TEMPLATES_FILE, DOCUMENT_INSTANCES_FILE } from "../documents";
 import { readData } from "../store";
 import { DEFAULT_TENANT_ID } from "../auth/config";
 import type { ServiceContext } from "../services/context";
+import { CRITICAL_ACTION_PASSWORD_FILE } from "../critical-action-password";
+import { setupCriticalPassword, secureCancelInput } from "./contract-cancel-test-helper";
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 
@@ -33,6 +35,7 @@ beforeEach(async () => {
   await fs.rm(STUDENT_CONTRACTS_FILE, { force: true });
   await fs.rm(DOCUMENT_TEMPLATES_FILE, { force: true });
   await fs.rm(DOCUMENT_INSTANCES_FILE, { force: true });
+  await fs.rm(CRITICAL_ACTION_PASSWORD_FILE, { force: true });
 });
 
 async function seedRegistrationFirstPayment(studentId: string, amount: number, collectedAt: string) {
@@ -188,6 +191,12 @@ describe("Senaryo 4 — plan satırı olmayan ay", () => {
 
 describe("Senaryo 5 — tahsilat AYNI plan satırına yazılır; ödenen/kalan/durum doğru", () => {
   it("kısmi tahsilat sonrası takvim partial + kalan borcu gösterir", async () => {
+    // 2026-10-20 — durum vade gününden türetilir (payments/status.ts): Ekim taksidinin vadesi henüz gelmemişken kısmi.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-25T09:00:00Z"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const created = await createContractFor(5950);
     expect(created.ok).toBe(true);
     if (!created.ok) return;
@@ -289,10 +298,11 @@ describe("Senaryo 6 — iptal edilmiş sözleşme ödeme kaynağı OLAMAZ", () =
     if (!created.ok) return;
     expect((await calendarPlan(2026, 10)).state).toBe("ok");
 
-    const cancelled = await cancelStudentContractTool(adminCtx(), {
-      contractId: created.data.contract.id,
-      reason: "P0 testi — iptal senaryosu",
-    });
+    await setupCriticalPassword();
+    const cancelled = await cancelStudentContractTool(
+      adminCtx(),
+      secureCancelInput(created.data.contract, { reason: "P0 testi — iptal senaryosu" })
+    );
     expect(cancelled.ok).toBe(true);
 
     // İptal edilen sözleşmenin satırları ödeme kaynağı olamaz (8. tur: sözleşmesiz plana da karışmaz).
@@ -324,5 +334,26 @@ describe("Senaryo 7 — tenant izolasyonu", () => {
     } else {
       expect(["NOT_FOUND", "FORBIDDEN"]).toContain(res.error.code);
     }
+  });
+});
+
+describe("2026-10-24 — bayat 'takip eden ay' işareti Ekim tahsilatını engellemez", () => {
+  it("ilk tahsilat tek aya ait ama işaret açık; sözleşmenin Ekim taksiti var → Ekim tahsilatı o taksite yazılır", async () => {
+    const created = await createContractFor(5950);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const { mutateStoreUnderLock } = await import("../store-json");
+    await mutateStoreUnderLock(async (d) => ({
+      ...d,
+      payments: d.payments.map((p) => (p.source === "registration_first_payment" ? { ...p, firstCollectionIncludesNextMonth: true } : p)),
+    }));
+    const ekim = created.data.installments.find((r) => r.sequence === 2)!;
+
+    const res = await collectAttendanceCalendarPaymentTool(adminCtx(), { studentId: "s1", month: "2026-10", amount: 5950, method: "cash" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.data.paymentId).toBe(ekim.paymentId);
+    const after = (await readData()).payments.find((p) => p.id === ekim.paymentId);
+    expect(after?.paidAmount).toBe(5950);
   });
 });

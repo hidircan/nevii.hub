@@ -15,7 +15,9 @@ export function isMonday(date: Date): boolean {
 }
 
 export function toYmd(d: Date): string {
-  const y = d.getFullYear();
+  // 4 haneye doldurulur: 1000 öncesi yıl "2-10-17" gibi ISO dışı bir değer üretip
+  // `parseISO` → Invalid Date → `format` RangeError zincirini başlatıyordu.
+  const y = String(d.getFullYear()).padStart(4, "0");
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;

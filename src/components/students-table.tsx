@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ChevronRight, SlidersHorizontal, X } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import { StudentArchiveAction } from "@/components/student-archive-action";
+import { PersonPurgeDialog } from "@/components/person-purge-dialog";
+import { StudentSearchCombobox } from "@/components/student-search-combobox";
 import { StudentsBulkBar, type BulkOptions } from "@/components/students-bulk-bar";
 import { actionFindStudentsByNationalId } from "@/lib/actions";
+import { KVKK_CONSENT_LABELS, PHOTO_CONSENT_LABELS, type KvkkConsentLabel, type PhotoConsentLabel } from "@/lib/student-consent-labels";
 import {
   DEFAULT_STUDENT_COLUMNS,
   STUDENT_COLUMN_LABELS,
@@ -23,11 +26,21 @@ export const LEGACY_CREATOR_LABEL = "Bilinmiyor (eski kayıt)";
 export type StudentRow = {
   id: string;
   name: string;
+  /** Ana şube (öğrenci kartındaki). */
   branchName?: string;
+  /** 2026-10-17 — ana şube + aktif branş kayıtlarının şubeleri (filtre/sütun). */
+  branchNames?: string[];
   instruments: string[];
+  /** Öğretmen/paket/ücret/seviye: çok branşlı öğrencide ilk branşın değil TÜM aktif branşların özeti. */
   teacherName?: string;
   packageName: string;
   monthlyFee: number;
+  /** Filtreler için aktif branşların öğretmen/paket/seviye listeleri (tek branşlıda tek elemanlı). */
+  teacherNames?: string[];
+  packageNames?: string[];
+  levels?: string[];
+  /** Çok branşlı öğrenci: her aktif branşın tek satırlık özeti (liste hücresinde alt alta). */
+  branchLines?: string[];
   active: boolean;
   /** Faz 1B — öğrenci birden fazla türe sahip olabilir; boş dizi = belirtilmemiş. */
   studentTypes: string[];
@@ -38,6 +51,9 @@ export type StudentRow = {
   educationMethod?: string;
   /** Öğrencinin en güncel/aciliyeti en yüksek ödeme durumu — tek etiket. */
   paymentStatus: "paid" | "overdue" | "partial" | "pending" | "none";
+  /** 2026-10-04 — açık (canlı) borç ve vadesi geçmiş kısmı; sözleşmeli/sözleşmesiz AYNI kural (`summarizeStudentDebt`). */
+  openDebt?: number;
+  overdueDebt?: number;
   /**
    * D — Sözleşme filtreleri (2026-09-20). Öğrencinin GÜNCEL sözleşmesinin
    * özeti; `getLatestContractForStudent` ile AYNI "güncel" tanımından gelir
@@ -58,7 +74,27 @@ export type StudentRow = {
   /** Denemeden dönüştüyse dönüşümü yapan kişi (kaydı açandan farklı olabilir). */
   convertedByName?: string;
   fromTrial?: boolean;
+  /** KVKK açık rıza (kvkk_general) — merged kurum görünümünde boş. */
+  kvkkConsent?: KvkkConsentLabel;
+  /** Fotoğraf paylaşım izni — merged kurum görünümünde boş. */
+  photoConsent?: PhotoConsentLabel;
 };
+
+/** Satır alanından okunan basit çoklu seçim filtreleri (URL anahtarı → etiket + değer). */
+/** `options` sabitse filtre veride o değer olmasa da tüm seçenekleri sunar (izinler: "var" da "yok" da seçilebilir). */
+const EXTRA_FILTERS: { key: string; label: string; chip: string; value: (r: StudentRow) => string[]; options?: string[] }[] = [
+  { key: "kvkk", label: "KVKK izni", chip: "KVKK", value: (r) => (r.kvkkConsent ? [r.kvkkConsent] : []), options: [...KVKK_CONSENT_LABELS] },
+  {
+    key: "photo",
+    label: "Fotoğraf paylaşım izni",
+    chip: "Fotoğraf izni",
+    value: (r) => (r.photoConsent ? [r.photoConsent] : []),
+    options: [...PHOTO_CONSENT_LABELS],
+  },
+  { key: "instrument", label: "Enstrüman", chip: "Enstrüman", value: (r) => r.instruments },
+  { key: "exam", label: "Hedef sınav", chip: "Hedef sınav", value: (r) => (r.targetExam ? [r.targetExam] : []) },
+  { key: "source", label: "Kayıt kaynağı", chip: "Kaynak", value: (r) => [r.fromTrial ? "Denemeden dönüşen" : "Doğrudan kayıt"] },
+];
 
 /**
  * Sözleşme durumu — OPERASYONEL kategoriler (ham sözleşme statüsü değil).
@@ -238,6 +274,19 @@ export function StudentsTable({
     }
   }
 
+  /**
+   * 2026-10-15 — arama dropdown'undan seçilen öğrenci (`?studentId=`). Arama metniyle AYNI desen: yerel state anında
+   * filtreler, URL'e q ile birlikte TEK debounced yazımda gider (iki ayrı replace birbirinin parametresini ezmesin).
+   */
+  const urlStudentId = searchParams.get("studentId") ?? "";
+  const [selectedStudentId, setSelectedStudentId] = useState(urlStudentId);
+  const [lastUrlStudentId, setLastUrlStudentId] = useState(urlStudentId);
+  if (urlStudentId !== lastUrlStudentId) {
+    const previous = lastUrlStudentId;
+    setLastUrlStudentId(urlStudentId);
+    if (selectedStudentId === previous) setSelectedStudentId(urlStudentId);
+  }
+
   // Filtre toggle'ları searchParams kimliğini değiştirir; debounce effect'inin
   // deps'inde tutmak yazma sırasında gereksiz yeniden zamanlama üretir.
   // Güncel params'ı ref'ten oku — q senkronu yalnız searchInput değişince.
@@ -248,17 +297,37 @@ export function StudentsTable({
     searchParamsRef.current = searchParams;
   }, [searchParams]);
 
+  /**
+   * DB egress (2026-10-18, canlı ölçüm: 8 saatte 375 GET `/panel/ogrenciler`, referrer `?q=A`, `?q=se`…): her filtre/arama
+   * URL yazımı `router.replace` ile SUNUCU turuydu → her seferinde tüm öğrenci + ödeme + sözleşme okuması. Filtreleme
+   * tamamen istemcide; sunucu sayfası yalnız `silinenler`'i okur. O değişmiyorsa URL native history ile yazılır
+   * (Next `useSearchParams` ile senkron, sunucuya istek YOK — node_modules/next/dist/docs "Native History API").
+   */
+  const replaceUrl = useCallback(
+    (url: string) => {
+      const deleted = (search: string) => new URLSearchParams(search).get("silinenler");
+      if (deleted(new URL(url, window.location.href).search) !== deleted(window.location.search)) {
+        router.replace(url, { scroll: false });
+      } else {
+        window.history.replaceState(null, "", url);
+      }
+    },
+    [router]
+  );
+
   // Yazma bitince URL'i güncelle — tuş başına navigasyon YOK.
   useEffect(() => {
-    if (searchInput === urlSearch) return;
+    if (searchInput === urlSearch && selectedStudentId === urlStudentId) return;
     const id = setTimeout(() => {
       const params = new URLSearchParams(searchParamsRef.current.toString());
       if (searchInput) params.set("q", searchInput);
       else params.delete("q");
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      if (selectedStudentId) params.set("studentId", selectedStudentId);
+      else params.delete("studentId");
+      replaceUrl(`${pathname}?${params.toString()}`);
     }, 250);
     return () => clearTimeout(id);
-  }, [searchInput, urlSearch, router, pathname]);
+  }, [searchInput, urlSearch, selectedStudentId, urlStudentId, replaceUrl, pathname]);
 
   /** Filtre ve "aktif filtre var mı" göstergeleri ANINDA yerel değeri kullanır. */
   const search = searchInput;
@@ -272,6 +341,12 @@ export function StudentsTable({
   const levelFilter = searchParams.getAll("level");
   const paymentFilter = searchParams.getAll("payment");
   const creatorFilter = searchParams.getAll("creator");
+  // İzin alanı hiç dolmamışsa (merged kurum görünümü) sabit seçenekli grup YOK sayılır: hem gizlenir hem de
+  // URL'de kalmış `?kvkk=Var` gibi bir değer listeyi sessizce 0'a indirmez (grup, sayaç, çip ve eşleşme aynı küme).
+  const extraFilters = EXTRA_FILTERS.filter((f) => !f.options || rows.some((r) => f.value(r).length > 0)).map((f) => ({
+    ...f,
+    selected: searchParams.getAll(f.key),
+  }));
   const enrolledFrom = searchParams.get("from") ?? "";
   const enrolledTo = searchParams.get("to") ?? "";
   // D — sözleşme filtreleri
@@ -288,7 +363,7 @@ export function StudentsTable({
   function updateParams(mutate: (params: URLSearchParams) => void) {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    replaceUrl(`${pathname}?${params.toString()}`);
   }
 
   function setSingle(key: string, value: string) {
@@ -346,7 +421,9 @@ export function StudentsTable({
     // echo koruması eski metni URL temizlendikten sonra bile tutardı.
     setSearchInput("");
     setLastUrlSearch("");
-    router.replace(pathname, { scroll: false });
+    setSelectedStudentId("");
+    setLastUrlStudentId("");
+    replaceUrl(pathname);
   }
 
   useEffect(() => {
@@ -370,24 +447,30 @@ export function StudentsTable({
     };
   }, []);
 
-  const branchOptions = useMemo(() => uniqueSorted(rows.map((r) => r.branchName)), [rows]);
+  const branchOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.branchNames ?? [r.branchName])), [rows]);
   const typeOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.studentTypes)), [rows]);
-  const packageOptions = useMemo(() => uniqueSorted(rows.map((r) => r.packageName)), [rows]);
-  const teacherOptions = useMemo(() => uniqueSorted(rows.map((r) => r.teacherName)), [rows]);
+  const packageOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.packageNames ?? [r.packageName])), [rows]);
+  const teacherOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.teacherNames ?? [r.teacherName])), [rows]);
   const methodOptions = useMemo(() => uniqueSorted(rows.map((r) => r.educationMethod)), [rows]);
-  const levelOptions = useMemo(() => uniqueSorted(rows.map((r) => r.level)), [rows]);
+  const levelOptions = useMemo(() => uniqueSorted(rows.flatMap((r) => r.levels ?? [r.level])), [rows]);
   const creatorOptions = useMemo(() => uniqueSorted(rows.map((r) => r.createdByName ?? LEGACY_CREATOR_LABEL)), [rows]);
 
   const groups: FilterGroup[] = [
     { key: "status", label: "Durum", type: "status" },
     { key: "type", label: "Öğrenci türü", type: "multi", options: typeOptions },
-    { key: "branch", label: "Şube", type: "multi", options: branchOptions },
+    { key: "branch", label: "Şubeler", type: "multi", options: branchOptions },
     { key: "teacher", label: "Öğretmen", type: "multi", options: teacherOptions },
     { key: "method", label: "Eğitim metodu", type: "multi", options: methodOptions },
     { key: "package", label: "Paket", type: "multi", options: packageOptions },
     { key: "level", label: "MEB/LCM seviye", type: "multi", options: levelOptions },
     { key: "payment", label: "Ödeme durumu", type: "multi", options: PAYMENT_VALUES.map((v) => PAYMENT_LABELS[v]) },
     { key: "creator", label: "Kaydı oluşturan", type: "multi", options: creatorOptions },
+    ...extraFilters.map((f): FilterGroup => ({
+      key: f.key,
+      label: f.label,
+      type: "multi",
+      options: f.options ?? uniqueSorted(rows.flatMap(f.value)),
+    })),
     { key: "enrollment", label: "Kayıt tarihi", type: "dateRange" },
     { key: "contract", label: "Sözleşme durumu", type: "multi", options: CONTRACT_FILTER_KEYS.map((k) => CONTRACT_FILTER_LABELS[k]) },
     { key: "contractStart", label: "Sözleşme başlangıcı", type: "contractStartRange" },
@@ -402,6 +485,8 @@ export function StudentsTable({
     if (key === "package") return packageFilter;
     if (key === "level") return levelFilter;
     if (key === "creator") return creatorFilter;
+    const extra = extraFilters.find((f) => f.key === key);
+    if (extra) return extra.selected;
     if (key === "payment") return paymentFilter.map((p) => PAYMENT_LABELS[p as StudentRow["paymentStatus"]] ?? p);
     if (key === "contract") return contractFilter.map((c) => CONTRACT_FILTER_LABELS[c] ?? c);
     return [];
@@ -451,6 +536,7 @@ export function StudentsTable({
     (levelFilter.length ? 1 : 0) +
     (paymentFilter.length ? 1 : 0) +
     (creatorFilter.length ? 1 : 0) +
+    extraFilters.filter((f) => f.selected.length).length +
     (enrolledFrom || enrolledTo ? 1 : 0) +
     (contractFilter.length ? 1 : 0) +
     (contractStartFrom || contractStartTo ? 1 : 0) +
@@ -459,24 +545,29 @@ export function StudentsTable({
   const filterQuery = search.trim().toLocaleLowerCase("tr");
   // 8. tur (C) — sözleşme dışındaki tüm filtreler; chip sayıları bu kümeden
   // sayılır ki "Aktif sözleşmeli (23)" seçilince listede gerçekten 23 satır olsun.
+  // Tablo ve arama dropdown'u AYNI eşleşmeyi kullanır (Türkçe küçük harf; ad soyad veya öğrenci no).
+  const matchesQuery = (row: StudentRow) =>
+    !filterQuery ||
+    row.name.toLocaleLowerCase("tr").includes(filterQuery) ||
+    (row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery);
   const matchesExceptContract = (row: StudentRow) => {
+    if (selectedStudentId ? row.id !== selectedStudentId : !matchesQuery(row)) return false;
+    return matchesFilters(row);
+  };
+  /** Arama metni ve öğrenci seçimi DIŞINDAKİ tüm filtreler (sözleşme hariç; o ayrıca uygulanır). */
+  const matchesFilters = (row: StudentRow) => {
     if (tcMatch && !tcMatch.ids.has(row.id)) return false;
-    if (
-      filterQuery &&
-      !row.name.toLocaleLowerCase("tr").includes(filterQuery) &&
-      !(row.displayId ?? "").toLocaleLowerCase("tr").includes(filterQuery)
-    )
-      return false;
     if (statusFilter === "active" && !row.active) return false;
     if (statusFilter === "inactive" && row.active) return false;
     if (typeFilter.length && !row.studentTypes.some((t) => typeFilter.includes(t))) return false;
-    if (branchFilter.length && !(row.branchName && branchFilter.includes(row.branchName))) return false;
-    if (packageFilter.length && !packageFilter.includes(row.packageName)) return false;
-    if (teacherFilter.length && !(row.teacherName && teacherFilter.includes(row.teacherName))) return false;
+    if (branchFilter.length && !(row.branchNames ?? [row.branchName]).some((b) => b && branchFilter.includes(b))) return false;
+    if (packageFilter.length && !(row.packageNames ?? [row.packageName]).some((n) => packageFilter.includes(n))) return false;
+    if (teacherFilter.length && !(row.teacherNames ?? [row.teacherName]).some((n) => n && teacherFilter.includes(n))) return false;
     if (methodFilter.length && !(row.educationMethod && methodFilter.includes(row.educationMethod))) return false;
-    if (levelFilter.length && !(row.level && levelFilter.includes(row.level))) return false;
+    if (levelFilter.length && !(row.levels ?? [row.level]).some((l) => l && levelFilter.includes(l))) return false;
     if (paymentFilter.length && !paymentFilter.includes(row.paymentStatus)) return false;
     if (creatorFilter.length && !creatorFilter.includes(row.createdByName ?? LEGACY_CREATOR_LABEL)) return false;
+    if (extraFilters.some((f) => f.selected.length && !f.value(row).some((v) => f.selected.includes(v)))) return false;
     if (enrolledFrom && (!row.enrollmentStartDate || row.enrollmentStartDate < enrolledFrom)) return false;
     if (enrolledTo && (!row.enrollmentStartDate || row.enrollmentStartDate > enrolledTo)) return false;
     if (contractStartFrom && (!row.contractStartDate || row.contractStartDate < contractStartFrom)) return false;
@@ -486,6 +577,13 @@ export function StudentsTable({
     return true;
   };
   const baseRows = rows.filter(matchesExceptContract);
+  // Durum (varsayılan "Aktif") bir filtre değil listenin KAPSAMIDIR: tüm sayaçlar bu kümeden türer.
+  // Eskiden alt satır `rows.length` (pasifler dahil) sayıyordu → "Filtrelere uyan 145" / "Toplam 147" çelişkisi.
+  const scopeRows = rows.filter(
+    (r) => statusFilter === "all" || (statusFilter === "active" ? r.active : !r.active)
+  );
+  const scopeNoun = deletedView ? "silinen öğrenci" : statusFilter === "all" ? "öğrenci" : `${STATUS_LABELS[statusFilter].toLocaleLowerCase("tr")} öğrenci`;
+  const inactiveOutsideScope = !deletedView && statusFilter === "active" ? rows.length - scopeRows.length : 0;
   const filtered = contractFilter.length
     ? baseRows.filter((row) => contractFilter.includes(resolveContractFilterKey(row, today)))
     : baseRows;
@@ -493,7 +591,20 @@ export function StudentsTable({
   // render'da yeniden üretilmesi nedeniyle korunamıyor (lint uyarısı).
   const sorted = [...filtered].sort((a, b) => compareStudents(a, b, sort));
 
-  const anyFilterActive = Boolean(search) || activeGroupCount > 0 || tcMatch !== null;
+  const anyFilterActive = Boolean(search) || Boolean(selectedStudentId) || activeGroupCount > 0 || tcMatch !== null;
+  /** Durum dışındaki gerçek daraltmalar (sözleşme chip'i dahil) — "Filtrelere uyan" yalnız bunlar varsa söylenir. */
+  const anyNarrowing =
+    Boolean(search) || Boolean(selectedStudentId) || tcMatch !== null || activeGroupCount > (statusFilter !== "active" ? 1 : 0);
+  // Dropdown: mevcut filtrelere (durum/şube/öğretmen/sözleşme…) ve kapsamdaki TÜM satırlara uyan öğrenciler — tablonun
+  // yalnız yüklü sayfası değil. Sunucu isteği yok: `rows` kullanıcının yetkili olduğu kapsamın tamamıdır.
+  const searchOptions = rows
+    .filter((r) => matchesQuery(r) && matchesFilters(r) && (!contractFilter.length || contractFilter.includes(resolveContractFilterKey(r, today))))
+    .sort((a, b) => a.name.localeCompare(b.name, "tr"))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      hint: [r.displayId, r.branchName, statusFilter !== "active" && !r.active ? "Pasif" : undefined].filter(Boolean).join(" · ") || undefined,
+    }));
   // H — sayfa başına 10/20/50/100; seçim URL'de saklanır (yenileme/geri-ileri korur).
   const { pageItems, page, setPage, pageSize, setPageSize, totalPages, totalCount } = usePagination(sorted, 10, {
     urlParam: "per",
@@ -509,6 +620,7 @@ export function StudentsTable({
     { key: "package", label: "Paket", values: packageFilter },
     { key: "level", label: "Seviye", values: levelFilter },
     { key: "creator", label: "Oluşturan", values: creatorFilter },
+    ...extraFilters.map((f) => ({ key: f.key, label: f.chip, values: f.selected })),
   ];
   const chips: Chip[] = [
     ...(statusFilter !== "active"
@@ -585,13 +697,36 @@ export function StudentsTable({
     <>
       <Card className="mb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+          <StudentSearchCombobox
+            idPrefix="students-search"
+            className="shrink-0 sm:w-80"
+            label="Ad soyad veya öğrenci numarasına göre ara"
             placeholder="Ad soyad veya öğrenci no ara..."
-            aria-label="Ad soyad veya öğrenci numarasına göre ara"
-            className="w-full max-w-xs rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus:ring-2 focus:ring-[var(--color-focus-ring)]/30 sm:w-auto"
+            query={searchInput}
+            onQueryChange={(v) => {
+              setSearchInput(v);
+              // Yeniden yazmak seçimi bırakır; liste yazılan metne göre süzülür.
+              if (selectedStudentId) setSelectedStudentId("");
+            }}
+            options={searchOptions}
+            selectedId={selectedStudentId || null}
+            onSelect={(o) => {
+              setSearchInput(o.name);
+              setSelectedStudentId(o.id);
+            }}
+            onClear={() => {
+              setSearchInput("");
+              setSelectedStudentId("");
+            }}
+            statusText={
+              selectedStudentId
+                ? "Liste seçilen öğrenciye göre süzüldü"
+                : search
+                  ? `${searchOptions.length} öğrenci eşleşiyor`
+                  : anyNarrowing
+                    ? `Filtrelere uyan ${searchOptions.length} öğrenci`
+                    : `${searchOptions.length} ${scopeNoun}`
+            }
           />
 
           {canManage ? (
@@ -909,7 +1044,10 @@ export function StudentsTable({
 
         <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-[var(--color-text-muted)]">
           <span>
-            {anyFilterActive ? `${rows.length} öğrenciden ${filtered.length} öğrenci gösteriliyor` : `Toplam ${rows.length} öğrenci`}
+            {anyNarrowing
+              ? `${scopeRows.length} ${scopeNoun} içinden ${filtered.length} öğrenci gösteriliyor`
+              : `Toplam ${scopeRows.length} ${scopeNoun}`}
+            {inactiveOutsideScope > 0 ? ` · ${inactiveOutsideScope} pasif öğrenci Arşiv'de` : ""}
           </span>
           {canBulk && selectedIds.size > 0 && selectedIds.size < sorted.length ? (
             <button
@@ -924,7 +1062,13 @@ export function StudentsTable({
       </Card>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-left text-sm">
+        {/*
+         * Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar
+         * (documents-table / student-payment-history ile AYNI kalıp).
+         * Kolon gizlenmez, veri kaybı yok.
+         */}
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
             <tr>
               {canBulk ? (
@@ -994,7 +1138,7 @@ export function StudentsTable({
                       href={`/panel/ogrenciler/${s.id}`}
                       className="block px-4 py-3 hover:bg-[var(--color-surface-muted)] focus-visible:bg-[var(--color-surface-muted)] focus-visible:outline-none"
                     >
-                      <p className="font-medium text-[var(--color-text)]">{s.name}</p>
+                      <p className="break-words font-medium text-[var(--color-text)]">{s.name}</p>
                       {!s.active ? <span className="text-xs font-medium text-[var(--color-danger)]">Pasif</span> : null}
                     </Link>
                   </td>
@@ -1015,7 +1159,7 @@ export function StudentsTable({
                           ) : null}
                         </span>
                       ) : key === "branch" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.branchName ?? "—"}</span>
+                        <span className="text-[var(--color-text-muted)]">{(s.branchNames?.length ? s.branchNames.join(", ") : s.branchName) ?? "—"}</span>
                       ) : key === "type" ? (
                         <>
                           {s.studentTypes.length > 0 ? (
@@ -1027,22 +1171,46 @@ export function StudentsTable({
                           ) : (
                             <span className="text-xs text-[var(--color-text-muted)]">Belirtilmemiş</span>
                           )}
-                          {s.level ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">Seviye: {s.level}</p> : null}
+                          {s.branchLines ? (
+                            <ul className="mt-1 space-y-0.5 text-xs text-[var(--color-text-muted)]">
+                              {s.branchLines.map((l) => (
+                                <li key={l}>{l}</li>
+                              ))}
+                            </ul>
+                          ) : s.level ? (
+                            <p className="mt-1 text-xs text-[var(--color-text-muted)]">Seviye: {s.level}</p>
+                          ) : null}
                         </>
                       ) : key === "instruments" ? (
                         s.instruments.map((i) => <Badge key={i}>{i}</Badge>)
                       ) : key === "teacher" ? (
-                        <span className="text-[var(--color-text)]">{s.teacherName}</span>
+                        <span className="text-[var(--color-text)]">{(s.teacherNames ?? [s.teacherName]).filter(Boolean).join(", ")}</span>
                       ) : key === "package" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.packageName.split("—")[0]?.trim() ?? s.packageName}</span>
+                        <span className="text-[var(--color-text-muted)]">
+                          {s.packageNames && s.packageNames.length > 1
+                            ? s.packageNames.map((n) => n.split("—")[0]?.trim() ?? n).join(", ")
+                            : (s.packageName.split("—")[0]?.trim() ?? s.packageName)}
+                        </span>
                       ) : key === "level" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.level ?? "—"}</span>
+                        <span className="text-[var(--color-text-muted)]">{(s.levels ?? [s.level]).filter(Boolean).join(", ") || "—"}</span>
                       ) : key === "method" ? (
                         <span className="text-[var(--color-text-muted)]">{s.educationMethod ?? "—"}</span>
                       ) : key === "payment" ? (
-                        <span className="text-[var(--color-text-muted)]">{PAYMENT_LABELS[s.paymentStatus]}</span>
+                        <span className="block text-[var(--color-text-muted)]">
+                          {PAYMENT_LABELS[s.paymentStatus]}
+                          {s.openDebt ? (
+                            <span className="block text-xs tabular-nums text-[var(--color-text)]">
+                              Açık {s.openDebt.toLocaleString("tr-TR")} ₺
+                              {s.overdueDebt ? (
+                                <span className="text-[var(--color-danger)]"> · gecikmiş {s.overdueDebt.toLocaleString("tr-TR")} ₺</span>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </span>
                       ) : key === "monthlyFee" ? (
-                        <span className="text-[var(--color-text-muted)]">{s.monthlyFee.toLocaleString("tr-TR")} ₺</span>
+                        <span className="text-[var(--color-text-muted)]" title={s.branchLines?.join("\n")}>
+                          {s.monthlyFee.toLocaleString("tr-TR")} ₺{s.branchLines ? ` (${s.branchLines.length} branş toplamı)` : ""}
+                        </span>
                       ) : key === "contract" ? (
                         (() => {
                           const state = resolveContractFilterKey(s, today);
@@ -1074,7 +1242,11 @@ export function StudentsTable({
                   ))}
                   {canManage ? (
                     <td className="px-4 py-3">
-                      <StudentArchiveAction studentId={s.id} studentName={s.name} archived={!s.active} />
+                      {deletedView ? (
+                        <PersonPurgeDialog kind="student" id={s.id} name={s.name} compact />
+                      ) : (
+                        <StudentArchiveAction studentId={s.id} studentName={s.name} archived={!s.active} />
+                      )}
                     </td>
                   ) : null}
                 </tr>
@@ -1082,6 +1254,7 @@ export function StudentsTable({
             )}
           </tbody>
         </table>
+        </div>
         <PaginationControls
           page={page}
           totalPages={totalPages}

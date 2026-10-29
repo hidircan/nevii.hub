@@ -2,13 +2,19 @@ import { redirect } from "next/navigation";
 import { BackButton } from "@/components/back-button";
 import { Card, PageHeader } from "@/components/ui";
 import { NewStudentForm } from "@/components/new-student-form";
+import { isMembershipActive, listClubs, listClubMemberships } from "@/lib/clubs";
+import { DEFAULT_APP_TIMEZONE as CLUB_TZ, toZonedYmd as clubYmd } from "@/lib/timezone";
+import { DEFAULT_APP_TIMEZONE, toZonedYmd } from "@/lib/timezone";
+import { buildEnrollmentFormContext } from "@/lib/enrollment-form-context";
+import { groupLessonFormOptions } from "@/lib/group-lessons";
+import { activeInstrumentOptions } from "@/lib/instrument-options";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedReferenceData } from "@/lib/institution/context";
 import { KurumScopeNote } from "@/components/kurum-scope-note";
-import { listInstrumentCatalogTool, getCurrentConsentTextVersionTool } from "@/lib/services";
+import { getCurrentConsentTextVersionTool } from "@/lib/services";
 import { getTrialLesson } from "@/lib/trial-lessons";
 import { formatDateTime } from "@/lib/utils";
-import Link from "next/link";
+import Link from "@/components/link";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +29,9 @@ export const dynamic = "force-dynamic";
 export default async function NewStudentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ deneme?: string }>;
+  searchParams: Promise<{ deneme?: string; kulupBasvuru?: string; grupDersi?: string }>;
 }) {
-  const { deneme } = await searchParams;
+  const { deneme, kulupBasvuru, grupDersi } = await searchParams;
   let session;
   try {
     session = await requireSessionContext();
@@ -33,11 +39,8 @@ export default async function NewStudentPage({
     redirect("/login?next=/panel/ogrenciler/yeni");
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
-  const catalogResult = await listInstrumentCatalogTool(session, {});
-  const instrumentOptions = catalogResult.ok
-    ? catalogResult.data.entries.filter((e) => e.status === "active").map((e) => e.name)
-    : ["Piyano", "Yan Flüt", "Gitar", "Bateri", "Keman", "Şan", "Elektro Gitar", "Bağlama"];
+  const data = await readScopedReferenceData(kurum.scope);
+  const instrumentOptions = await activeInstrumentOptions(session);
   const kvkkTextResult = await getCurrentConsentTextVersionTool(session, { consentType: "kvkk_general" });
   const kvkkText = kvkkTextResult.ok ? kvkkTextResult.data.version : undefined;
 
@@ -50,6 +53,7 @@ export default async function NewStudentPage({
           convertedFromTrialId: trial.id,
           name: trial.name,
           parentPhone: trial.phone,
+          ...(trial.parentName ? { parentName: trial.parentName } : {}),
           instrument: trial.instrument,
           teacherId: trial.teacherId,
           branchId: trial.branchId,
@@ -57,13 +61,62 @@ export default async function NewStudentPage({
         }
       : undefined;
 
+  // 2026-10-07 — grup dersi başvurusundan kayıt: aday bilgileriyle ön doldurma (yalnız kendi kurumunda, eklenmemiş başvuru).
+  const clubApp =
+    kulupBasvuru && kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const { getClubApplicationTool } = await import("@/lib/club-applications");
+          const r = await getClubApplicationTool(session, { id: kulupBasvuru });
+          return r.ok && r.data.application.status !== "added" ? r.data.application : null;
+        })()
+      : null;
+  const clubAppPrefill = clubApp
+    ? {
+        clubApplicationId: clubApp.id,
+        clubApplicationClubId: clubApp.clubId,
+        registrationKind: "club_only",
+        name: clubApp.participantName,
+        ...(clubApp.parentName
+          ? { accountResponsibility: "PARENT_MANAGED", parentName: clubApp.parentName, parentPhone: clubApp.phone }
+          : { accountResponsibility: "SELF_MANAGED", phone: clubApp.phone }),
+        ...(clubApp.email ? { email: clubApp.email } : {}),
+        ...(clubApp.birthDate ? { birthDate: clubApp.birthDate } : {}),
+        ...(clubApp.branchId ? { branchId: clubApp.branchId } : {}),
+        notes: `Grup dersi başvurusu ${clubApp.reference} (${clubApp.clubSnapshot.name})${clubApp.note ? ` — Eğitim geçmişi: ${clubApp.note}` : ""}`.slice(0, 500),
+      }
+    : undefined;
+
+  // 2026-10-05 — Kulüp seçimi yalnız kendi kurumunda (yazım oturumun kurumuna gider).
+  const clubOptions =
+    kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId
+      ? await (async () => {
+          const [clubs, memberships] = await Promise.all([listClubs(session.tenantId), listClubMemberships(session.tenantId)]);
+          const t = clubYmd(new Date(), CLUB_TZ);
+          return clubs
+            .filter((c) => c.active)
+            .map((c) => ({
+              id: c.id,
+              name: c.name,
+              instrument: c.instrument,
+              monthlyFee: c.monthlyFee,
+              maxMembers: c.maxMembers,
+              activeMembers: memberships.filter((m) => m.clubId === c.id && isMembershipActive(m, t)).length,
+            }));
+        })()
+      : [];
+
+  // 2026-10-23 — grup dersi seçenekleri (yalnız kendi kurumunda; yazım oturumun kurumuna gider).
+  const ownTenant = kurum.scope.mode === "single" && kurum.scope.tenantId === session.tenantId;
+  const groupLessons = ownTenant ? await groupLessonFormOptions(session.tenantId, data.students) : [];
+  const groupPrefill = grupDersi && groupLessons.some((g) => g.id === grupDersi) ? { groupLessonId: grupDersi } : undefined;
+
   return (
     <div>
       <KurumScopeNote scope={kurum.scope} />
       <div className="mb-4">
         <BackButton fallbackHref="/panel/ogrenciler" label="Öğrencilere dön" />
       </div>
-      <PageHeader title={trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
+      <PageHeader title={clubAppPrefill ? "Grup dersi başvurusundan öğrenci kaydı" : trialPrefill ? "Deneme öğrencisini kayda dönüştür" : "Yeni Öğrenci Kaydı"} />
       {trial?.convertedStudentId ? (
         <Card className="mb-4">
           <p className="text-sm text-[var(--color-text)]">
@@ -93,28 +146,22 @@ export default async function NewStudentPage({
         </Card>
       ) : (
         <NewStudentForm
-          branches={data.settings.branches.map((b) => ({ id: b.id, name: b.name }))}
-          teachers={data.teachers.map((t) => ({
-            id: t.id,
-            name: t.name,
-            active: t.active,
-            instruments: t.instruments,
-          }))}
-          instrumentOptions={instrumentOptions}
-          packages={(data.packages ?? [])
-            .filter((p) => p.status === "active")
-            .map((p) => ({
-              id: p.id,
-              title: p.title,
-              price30Min: p.price30Min,
-              price40Min: p.price40Min,
-              price50Min: p.price50Min,
-            }))}
+          clubs={clubOptions}
+          enrollmentContext={buildEnrollmentFormContext(data, {
+            instrumentOptions,
+            personBranchId: data.settings.branches[0]?.id ?? "",
+            todayYmd: toZonedYmd(new Date(), DEFAULT_APP_TIMEZONE),
+            groupLessons,
+          })}
           kvkkText={kvkkText}
-          workDayOverrides={data.closedDayOverrides ?? []}
-          termWeeklyClosedDays={data.settings.termWeeklyClosedDays}
-          prefill={trialPrefill}
-          trialSummary={trial ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}` : undefined}
+          prefill={clubAppPrefill ?? trialPrefill ?? groupPrefill}
+          trialSummary={
+            clubApp
+              ? `${clubApp.reference} · ${clubApp.participantName} · ${clubApp.clubSnapshot.name}`
+              : trial
+                ? `${trial.name} · ${trial.instrument} · ${formatDateTime(trial.startAt)}`
+                : undefined
+          }
         />
       )}
     </div>

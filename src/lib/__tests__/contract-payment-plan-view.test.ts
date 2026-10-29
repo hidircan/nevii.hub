@@ -168,3 +168,28 @@ describe("humanizeEmailLocalPart", () => {
     expect(humanizeEmailLocalPart("12345@x.com")).toBeUndefined();
   });
 });
+
+describe("işlemi yapan — personel kaydındaki ad soyad (e-postadan türetilmez)", () => {
+  it("portal hesabı personele bağlı değilse e-posta eşleşmesiyle personel adı yazılır", async () => {
+    const { promises: fs } = await import("fs");
+    const { STAFF_FILE, createStaffMember } = await import("../staff");
+    const { DEFAULT_TENANT_ID } = await import("../auth/config");
+    const { resolveActorLabels } = await import("../contract-payment-plan-view");
+    await fs.rm(STAFF_FILE, { force: true });
+    try {
+      // Bootstrap kullanıcı `user_manager_ezgi` = ezgi.guclu@…; e-postadan tahmin "Ezgi Guclu" (ü/ç kaybolur) olurdu.
+      const created = await createStaffMember({
+        tenantId: DEFAULT_TENANT_ID,
+        createdBy: "test",
+        name: "Ezgi Güçlü Kaya",
+        position: "Kurum Müdürü",
+        email: "EZGI.GUCLU@niluferacar.com.tr",
+      } as Parameters<typeof createStaffMember>[0]);
+      expect(created.ok).toBe(true);
+      const names = await resolveActorLabels({ tenantId: DEFAULT_TENANT_ID, userIds: ["user_manager_ezgi"], teachers: [] });
+      expect(names.get("user_manager_ezgi")).toBe("Ezgi Güçlü Kaya");
+    } finally {
+      await fs.rm(STAFF_FILE, { force: true });
+    }
+  });
+});

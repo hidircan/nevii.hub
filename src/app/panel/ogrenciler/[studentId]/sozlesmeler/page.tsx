@@ -1,10 +1,23 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
 import { listStudentContractsTool } from "@/lib/services";
 import { ContractPanel, type RegistrationSummary } from "@/components/contract-panel";
 import { paymentMethodLabelTr } from "@/lib/utils";
+import { DEBT_SOURCE_LABEL, debtSourceOf } from "@/lib/payment-profile";
+import {
+  contractEnrollmentId,
+  effectiveEnrollments,
+  enrollmentDisplayName,
+  enrollmentTerms,
+  lessonEnrollmentId,
+  paymentEnrollmentId,
+  studentWithEnrollmentTerms,
+  UNASSIGNED_ENROLLMENT_LABEL,
+} from "@/lib/student-enrollments";
+import { AssignEnrollmentControl } from "@/components/assign-enrollment-control";
+import { contractStatusLabel } from "@/lib/contracts";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { isFormalContractDuration } from "@/lib/contracts";
 import { selectCurrentContract } from "@/lib/contract-list-helpers";
@@ -28,10 +41,10 @@ export default async function StudentContractsCenterPage({
   searchParams,
 }: {
   params: Promise<{ studentId: string }>;
-  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string }>;
+  searchParams: Promise<{ yeniKayit?: string; sure?: string; davetUyari?: string; brans?: string }>;
 }) {
   const { studentId } = await params;
-  const { yeniKayit, sure, davetUyari } = await searchParams;
+  const { yeniKayit, sure, davetUyari, brans } = await searchParams;
   const isNewStudent = yeniKayit === "1";
 
   let session;
@@ -42,7 +55,8 @@ export default async function StudentContractsCenterPage({
   }
 
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress: yalnız bu öğrencinin dilimi — aşağıdaki her ağır erişim `studentId` ile süzülü.
+  const data = await readScopedStudentData(kurum.scope, studentId);
   const student = data.students.find((s) => s.id === studentId);
 
   if (!student) {
@@ -60,29 +74,97 @@ export default async function StudentContractsCenterPage({
     );
   }
 
-  // 2026-09-19 — süre KALICI kayıttan (Student.intendedDurationMonths); URL `sure` yalnız eski bağlantılar için yedek.
-  const savedDurationMonths = clampDurationMonths(student.intendedDurationMonths) ?? clampDurationMonths(sure);
-  const intendedDurationMonths = savedDurationMonths ?? DEFAULT_CONTRACT_DURATION_MONTHS;
-
   const contractsResult = await listStudentContractsTool(session, { studentId: student.id });
-  const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  const allContracts = contractsResult.ok ? contractsResult.data.contracts : [];
+  // 2026-10-09 — BRANŞ SEKMELERİ: her branşın sözleşmesi, ön dolgusu, ilk tahsilatı ve taşınabilir borcu yalnız o
+  // branştan gelir (ana/yedek ayrımı yok). Branşı belirtilmemiş eski sözleşmeler ayrı sekmede "Branşa bağla" ile bağlanır.
+  const branchList = effectiveEnrollments(student, data.teachers);
+  const multiBranch = branchList.length > 1;
+  const branchName = (id?: string) => {
+    const e = id ? branchList.find((x) => x.id === id) : undefined;
+    return e ? enrollmentDisplayName(e, branchList, data.teachers) : UNASSIGNED_ENROLLMENT_LABEL;
+  };
+  const unassignedContracts = multiBranch ? allContracts.filter((c) => !contractEnrollmentId(student, c, data.teachers)) : [];
+  const showUnassigned = brans === "__unassigned__" && unassignedContracts.length > 0;
+  // 2026-10-10 — çok branşlı öğrencide branş seçilmeden sözleşme önizlemesi/oluşturması YOK: "ilk aktif branş" sessizce seçilmez
+  // (yanlış branşın ücret/öğretmen/MEB bilgisiyle sözleşme çıkmasın). Tek branşlıda eski davranış aynıdır.
+  const mustChooseBranch = multiBranch && !showUnassigned && !branchList.some((e) => e.id === brans);
+  const selected = showUnassigned
+    ? undefined
+    : multiBranch
+      ? branchList.find((e) => e.id === brans)
+      : branchList[0];
+  if (mustChooseBranch) {
+    return (
+      <div>
+        <h2 className="mb-1 text-sm font-semibold text-[var(--color-text)]">Sözleşme Merkezi</h2>
+        <p className="mb-4 text-xs text-[var(--color-text-muted)]">
+          Bu öğrencinin {branchList.length} branş kaydı var ve her branşın sözleşmesi, ödeme planı ve tahsilatı ayrıdır. Sözleşme önizlemesi veya oluşturma için önce branşı seçin.
+        </p>
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {branchList.map((e) => {
+            const t = enrollmentTerms(student, e, data.teachers);
+            const own = allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === e.id);
+            const cur = selectCurrentContract(own);
+            return (
+              <li key={e.id}>
+                <Link
+                  href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=${encodeURIComponent(e.id)}`}
+                  className="block rounded-lg border border-[var(--color-border)] p-3 text-sm transition hover:border-[var(--color-primary)]"
+                >
+                  <p className="font-semibold text-[var(--color-text)]">
+                    {branchName(e.id)}
+                    {!e.active ? " (sonlandı)" : ""}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                    {t.packageName?.split("—")[0]?.trim() || "Paketsiz"} · Aylık {t.monthlyFee.toLocaleString("tr-TR")} ₺ ·{" "}
+                    {cur ? `Güncel sözleşme ${cur.contractNumber} (${contractStatusLabel(cur.status)})` : own.length > 0 ? "Aktif sözleşme yok" : "Sözleşme bekliyor"}
+                  </p>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {unassignedContracts.length > 0 ? (
+          <p className="mt-4 text-xs">
+            <Link href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=__unassigned__`} className="font-medium text-amber-800 underline dark:text-amber-300">
+              {UNASSIGNED_ENROLLMENT_LABEL} ({unassignedContracts.length}) — bir branşa bağlamak için açın
+            </Link>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  const terms = selected ? enrollmentTerms(student, selected, data.teachers) : undefined;
+  const branchStudent = terms ? studentWithEnrollmentTerms(student, terms) : student;
+  const contracts = selected ? allContracts.filter((c) => contractEnrollmentId(student, c, data.teachers) === selected.id) : allContracts;
+  const branchPayments = data.payments.filter(
+    (p) =>
+      p.studentId === student.id &&
+      (!selected || paymentEnrollmentId(student, p, { contracts: allContracts, lessons: data.lessons }, data.teachers) === selected.id)
+  );
+  const branchLessons = data.lessons.filter(
+    (l) => l.studentId === student.id && (!selected || lessonEnrollmentId(student, l, data.teachers) === selected.id)
+  );
+
+  // 2026-09-19 — süre KALICI kayıttan (Student.intendedDurationMonths); URL `sure` yalnız eski bağlantılar için yedek.
+  const savedDurationMonths = clampDurationMonths(branchStudent.intendedDurationMonths) ?? clampDurationMonths(sure);
+  const intendedDurationMonths = savedDurationMonths ?? DEFAULT_CONTRACT_DURATION_MONTHS;
   // P0 revizyonu — kayıtta GERÇEKTEN alınmış ilk tahsilatın kaydı: sözleşme
   // önizlemesindeki "İlk Tahsilat Tarihi"/"Ödeme Türü" bu kaynaktan beslenir.
   // Yoksa prefill boş kalır, önizleme "Henüz tahsil edilmedi" gösterir —
-  // ders başlangıç tarihi asla tahsilat tarihi gibi yazılmaz.
-  const registrationFirstPayment = data.payments.find(
-    (p) => p.studentId === student.id && p.source === "registration_first_payment"
-  );
+  // ders başlangıç tarihi asla tahsilat tarihi gibi yazılmaz. (2026-10-09: yalnız bu branşın.)
+  const registrationFirstPayment = branchPayments.find((p) => p.source === "registration_first_payment");
   const selfManaged = student.accountResponsibility === "SELF_MANAGED";
   const registration: RegistrationSummary = {
-    registeredAt: student.enrollmentStartDate,
-    contractStartDay: (student.lessonStartDate ?? student.enrollmentStartDate)?.slice(0, 10),
+    registeredAt: branchStudent.enrollmentStartDate,
+    contractStartDay: (branchStudent.lessonStartDate ?? branchStudent.enrollmentStartDate)?.slice(0, 10),
     intendedDurationMonths: savedDurationMonths ?? undefined,
-    lessonDurationMinutes: student.lessonDurationMinutes,
-    weeklyLessonCount: student.weeklyLessonCount,
-    monthlyFee: student.monthlyFee,
-    paymentMethod: student.paymentMethod,
-    paymentMethodLabel: paymentMethodLabelTr(student.paymentMethod),
+    lessonDurationMinutes: branchStudent.lessonDurationMinutes,
+    weeklyLessonCount: branchStudent.weeklyLessonCount,
+    monthlyFee: branchStudent.monthlyFee,
+    paymentMethod: branchStudent.paymentMethod,
+    paymentMethodLabel: paymentMethodLabelTr(branchStudent.paymentMethod),
     firstPayment: registrationFirstPayment
       ? {
           paymentId: registrationFirstPayment.id,
@@ -96,11 +178,34 @@ export default async function StudentContractsCenterPage({
     signatoryName: selfManaged ? student.name : student.parentName,
     signatoryRelationship: selfManaged ? "öğrenci" : "veli",
     address: student.address,
+    // 2026-10-04 — T.C. tam değeri istemciye gönderilmez; yalnız kayıtta olup olmadığı (son 2 hane).
+    studentNationalIdLast2: student.nationalIdLast2 || undefined,
+    // Sözleşmenin branşı sekmeden gelir (formda ikinci bir seçici yok).
+    educations: selected ? [{ id: selected.id, instrument: selected.instrument, label: branchName(selected.id), primary: true }] : [],
+    openStandaloneDebts: branchPayments
+      .filter(
+        (p) =>
+          !p.contractId &&
+          // Kulüp ücreti sözleşmeye hiçbir koşulda taşınmaz (2026-10-05).
+          p.source !== "club" &&
+          (p.status === "pending" || p.status === "overdue") &&
+          p.paidAmount === 0 &&
+          p.amount > 0
+      )
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .map((p) => ({
+        id: p.id,
+        label: p.installmentPeriodLabel ?? p.description,
+        dueDate: p.dueDate,
+        amount: p.amount,
+        source: p.source,
+        sourceLabel: DEBT_SOURCE_LABEL[debtSourceOf(p)],
+      })),
   };
   // Ön doldurma sözleşme geçmişine DEĞİL, öğrencinin kayıt verisine dayanır:
   // iptal edilmiş bir sözleşmeden sonra da form dolu açılır (boş önizleme kök nedeni).
   const contractPrefill = buildContractPrefill({
-    student,
+    student: branchStudent,
     latestContract: selectCurrentContract(contracts) ?? undefined,
     registrationFirstPayment,
     requestedDurationMonths: sure,
@@ -111,9 +216,7 @@ export default async function StudentContractsCenterPage({
      * hiçbir kayıt boş kalmaz. Eskiden yalnız ikinci yol vardı ve o da
      * saatleri UTC okuduğu için 3 saat kaymış gösteriyordu.
      */
-    lessonScheduleText:
-      student.lessonScheduleText ||
-      deriveLessonScheduleTextFromLessons(data.lessons.filter((l) => l.studentId === student.id)),
+    lessonScheduleText: branchStudent.lessonScheduleText || deriveLessonScheduleTextFromLessons(branchLessons),
   });
   const canManagePaymentProfile = session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN";
   const isFormal = isFormalContractDuration(intendedDurationMonths);
@@ -128,6 +231,47 @@ export default async function StudentContractsCenterPage({
       {/* Kimlik başlığı, kurum kapsamı notu ve sekme navigasyonu ÜST LAYOUT'tan
           gelir (bkz. `[studentId]/layout.tsx`) — burada tekrarlanmaz. */}
       <h2 className="mb-4 text-sm font-semibold text-[var(--color-text)]">Sözleşme Merkezi</h2>
+
+      {multiBranch && unassignedContracts.length > 0 ? (
+        <p className="mb-4 text-xs">
+          <Link
+            href={`/panel/ogrenciler/${student.id}/sozlesmeler?brans=__unassigned__`}
+            aria-current={showUnassigned ? "page" : undefined}
+            className={`rounded-full border px-3 py-1 font-medium ${
+              showUnassigned ? "border-amber-600 bg-amber-600 text-white" : "border-amber-400 text-amber-800 dark:text-amber-300"
+            }`}
+          >
+            {UNASSIGNED_ENROLLMENT_LABEL} ({unassignedContracts.length})
+          </Link>
+        </p>
+      ) : null}
+
+      {showUnassigned ? (
+        <Card className="mb-4 !p-4">
+          <p className="mb-3 text-sm text-[var(--color-text)]">
+            Bu sözleşmeler öğrenci birden fazla branşa sahip olmadan önce oluşturulmuş ve hangi branşa ait oldukları kayıtlardan
+            kesin olarak belirlenemiyor. Sistem tahmin yapmaz: her birini ilgili branşa siz bağlayın. Bağlama, sözleşmenin tüm
+            sürümlerini, taksitlerini ve ondan üretilen dersleri aynı branşa taşır; sözleşme içeriği değişmez.
+          </p>
+          <ul className="divide-y divide-[var(--color-border)] text-sm">
+            {unassignedContracts.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span>
+                  <span className="font-medium">{c.contractNumber}</span> · v{c.versionNumber} · {c.programmeName} ·{" "}
+                  {contractStatusLabel(c.status)}
+                </span>
+                {canManagePaymentProfile && kurum.scope.mode === "single" ? (
+                  <AssignEnrollmentControl
+                    studentId={student.id}
+                    contractId={c.id}
+                    branches={branchList.map((e) => ({ id: e.id, label: branchName(e.id) }))}
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {/*
         P0 (2026-09-05) — sözleşme adımına gelen kullanıcı kayıt bilgilerinde
@@ -168,7 +312,7 @@ export default async function StudentContractsCenterPage({
         </Card>
       ) : null}
 
-      {!canManagePaymentProfile && contracts.length === 0 ? (
+      {showUnassigned ? null : !canManagePaymentProfile && contracts.length === 0 ? (
         <EmptyState title="Sözleşme bulunamadı" description="Bu öğrenci için henüz bir sözleşme kaydı oluşturulmamış." />
       ) : (
         <ContractPanel
@@ -182,8 +326,11 @@ export default async function StudentContractsCenterPage({
             teachers: data.teachers
               .filter((t) => t.active)
               .map((t) => ({ id: t.id, name: t.name })),
-            rooms: data.rooms.map((r) => ({ id: r.id, name: r.name })),
-            defaultTeacherId: student.teacherId,
+            // 10. tur iş #8 — yalnız aktif odalar (pasif/silinmiş gizlenir; sunucu da doğrular).
+            rooms: data.rooms
+              .filter((r) => r.active !== false && !r.deletedAt)
+              .map((r) => ({ id: r.id, name: r.name })),
+            defaultTeacherId: branchStudent.teacherId,
           }}
         />
       )}

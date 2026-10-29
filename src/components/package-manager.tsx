@@ -13,10 +13,16 @@ import { CriticalDeleteDialog } from "@/components/critical-delete-dialog";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { activeStudentCountForPackage, packageStatusLabel } from "@/lib/packages";
-import type { Package, Student } from "@/lib/types";
+import type { Package, StudentRef } from "@/lib/types";
 
 /** Odaklı oluşturma formu — `/panel/paketler/yeni` ve testler için paylaşılır. */
-export function PackageCreateForm({ onCreated }: { onCreated?: (packageId: string) => void }) {
+export function PackageCreateForm({
+  onCreated,
+  branches = [],
+}: {
+  onCreated?: (packageId: string) => void;
+  branches?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
@@ -95,6 +101,19 @@ export function PackageCreateForm({ onCreated }: { onCreated?: (packageId: strin
           <option value="yaz">Yaz</option>
         </Select>
       </div>
+      {branches.length > 0 ? (
+        <div>
+          <Label>Geçerli şubeler (hiçbiri seçilmezse tüm şubeler)</Label>
+          <div className="space-y-1 rounded-[var(--radius-md)] border border-[var(--color-border)] p-2.5">
+            {branches.map((b) => (
+              <label key={b.id} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-text)]">
+                <input type="checkbox" name="applicableBranchIds" value={b.id} />
+                {b.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div>
         <Label>Kapsam notu (opsiyonel)</Label>
         <Input name="notes" placeholder="Paket kapsamını açıklayan not" />
@@ -117,17 +136,24 @@ export function PackageManager({
   students,
   canWrite,
   canDeletePackages = false,
+  branches = [],
+  isSuperAdmin = false,
 }: {
   packages: Package[];
-  students: Student[];
+  students: StudentRef[];
   canWrite: boolean;
-  /** 9. tur — kalıcı silme (kritik işlem şifresi) yalnız SUPER_ADMIN/SCHOOL_ADMIN; sunucu ayrıca uygular. */
+  /** 9. tur — kalıcı silme (kritik işlem şifresi) yalnız SUPER_ADMIN; sunucu ayrıca uygular. */
   canDeletePackages?: boolean;
+  branches?: { id: string; name: string }[];
+  /** Paket & Kampanya Motoru — yazma yalnız SUPER_ADMIN (sunucu ayrıca uygular). */
+  isSuperAdmin?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const canManage = canWrite && isSuperAdmin;
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? id;
 
   function toggleStatus(pkg: Package) {
     if (pkg.status === "active") {
@@ -158,6 +184,10 @@ export function PackageManager({
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
           &quot;Tüm kurumlar&quot; görünümündesiniz — paket eklemek/düzenlemek için üstteki kurum seçiciden tek bir kurum seçin.
         </p>
+      ) : !isSuperAdmin ? (
+        <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+          Paketleri görüntülüyorsunuz — ekleme/düzenleme/arşivleme yalnız kurum sahibi (SUPER_ADMIN) tarafından yapılır.
+        </p>
       ) : null}
 
       <Card>
@@ -173,6 +203,11 @@ export function PackageManager({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
+                        {pkg.displayId ? (
+                          <span className="rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--color-text-muted)]">
+                            {pkg.displayId}
+                          </span>
+                        ) : null}
                         <p className="font-medium text-[var(--color-text)]">{pkg.title}</p>
                         <Badge status={pkg.status === "active" ? "confirmed" : "archived"}>
                           {packageStatusLabel(pkg.status)}
@@ -193,6 +228,12 @@ export function PackageManager({
                         30 dk: {formatMoney(pkg.price30Min)} · 40 dk: {formatMoney(pkg.price40Min)} · 50 dk:{" "}
                         {formatMoney(pkg.price50Min)}
                       </p>
+                      <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
+                        Şubeler:{" "}
+                        {pkg.applicableBranchIds?.length
+                          ? pkg.applicableBranchIds.map(branchName).join(", ")
+                          : "Tüm şubeler"}
+                      </p>
                       {pkg.monthlyLessonCount !== undefined || pkg.groupLessonCount !== undefined ? (
                         <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">
                           {pkg.monthlyLessonCount !== undefined ? `Aylık ${pkg.monthlyLessonCount} ders` : null}
@@ -211,10 +252,12 @@ export function PackageManager({
                         <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">Not: {pkg.notes}</p>
                       ) : null}
                       <p className="mt-0.5 text-[11px] text-[var(--color-text-muted)]">
-                        Son güncelleme: {new Date(pkg.updatedAt).toLocaleString("tr-TR")}
+                        Oluşturan: {pkg.createdByUserId ?? pkg.createdBy} ·{" "}
+                        {new Date(pkg.createdAt).toLocaleDateString("tr-TR")} · Son güncelleme:{" "}
+                        {new Date(pkg.updatedAt).toLocaleString("tr-TR")}
                       </p>
                     </div>
-                    {canWrite ? (
+                    {canManage ? (
                       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                         <button
                           type="button"
@@ -280,7 +323,9 @@ export function PackageManager({
                       </div>
                     ) : null}
                   </div>
-                  {editingId === pkg.id ? <PackageEditForm pkg={pkg} onSaved={() => router.refresh()} /> : null}
+                  {editingId === pkg.id ? (
+                    <PackageEditForm pkg={pkg} branches={branches} onSaved={() => router.refresh()} />
+                  ) : null}
                 </div>
               );
             })}
@@ -297,9 +342,18 @@ export function PackageManager({
   );
 }
 
-function PackageEditForm({ pkg, onSaved }: { pkg: Package; onSaved: () => void }) {
+function PackageEditForm({
+  pkg,
+  branches,
+  onSaved,
+}: {
+  pkg: Package;
+  branches: { id: string; name: string }[];
+  onSaved: () => void;
+}) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [branchIds, setBranchIds] = useState<string[]>([...(pkg.applicableBranchIds ?? [])]);
   const [title, setTitle] = useState(pkg.title);
   const [description, setDescription] = useState(pkg.description ?? "");
   const [price30Min, setPrice30Min] = useState(String(pkg.price30Min));
@@ -334,6 +388,7 @@ function PackageEditForm({ pkg, onSaved }: { pkg: Package; onSaved: () => void }
         groupLessonCount: groupLessonCount.trim() === "" ? undefined : Number(groupLessonCount),
         defaultDurationMinutes: defaultDurationMinutes.trim() === "" ? undefined : Number(defaultDurationMinutes),
         defaultPaymentDueDay: defaultPaymentDueDay.trim() === "" ? undefined : Number(defaultPaymentDueDay),
+        applicableBranchIds: branchIds,
         notes: notes.trim() === "" ? undefined : notes,
       });
       if (!result.ok) {
@@ -412,6 +467,25 @@ function PackageEditForm({ pkg, onSaved }: { pkg: Package; onSaved: () => void }
           />
         </div>
       </div>
+      {branches.length > 0 ? (
+        <div>
+          <Label>Geçerli şubeler (hiçbiri seçilmezse tüm şubeler)</Label>
+          <div className="space-y-1 rounded-[var(--radius-md)] border border-[var(--color-border)] p-2.5">
+            {branches.map((b) => (
+              <label key={b.id} className="flex cursor-pointer items-center gap-2 text-sm text-[var(--color-text)]">
+                <input
+                  type="checkbox"
+                  checked={branchIds.includes(b.id)}
+                  onChange={(e) =>
+                    setBranchIds((prev) => (e.target.checked ? [...prev, b.id] : prev.filter((x) => x !== b.id)))
+                  }
+                />
+                {b.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div>
         <Label>Kapsam notu</Label>
         <Input value={notes} onChange={(e) => setNotes(e.target.value)} />

@@ -4,6 +4,7 @@ import { withApiHandler } from "@/lib/api/handler";
 import { jsonFail } from "@/lib/api/http";
 import { authenticateUser, issueTokenPair, auditLog } from "@/lib/auth";
 import { applyAuthCookies } from "@/lib/auth/cookies";
+import { nowSec } from "@/lib/session-policy";
 import { clientIp } from "@/lib/http/client-ip";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { startUserSession } from "@/lib/auth/session-registry";
@@ -111,7 +112,41 @@ export const POST = withApiHandler(
 
     // NeviiOS: tekil oturum kaydı (sid) — canlı operasyon ekranından sonlandırılabilir.
     const sid = await startUserSession(user, request);
-    const tokens = await issueTokenPair({ ...user, sid });
+    // 10. tur iş #1 — veli/öğrenci JWT'si bayat bir pasif kayda kilitlenmesin:
+    // girişte varsayılan bağlam, aktif erişimi olan AKTİF öğrenciye çözülür.
+    // Çözümleme başarısız olursa eski davranış (user.studentId) korunur.
+    let loginStudentId = user.studentId;
+    if (user.role === "STUDENT") {
+      try {
+        const { resolvePortalStudent, PORTAL_STUDENT_COOKIE } = await import("@/lib/portal-context");
+        // Önceki oturumda seçilmiş öğrenci (HttpOnly cookie) varsa tercih edilir —
+        // çözümleyici erişim + aktiflik doğrulaması yapar, geçersizse yok sayar.
+        let cookiePreferred: string | null = null;
+        try {
+          const cookieHeader = request.headers.get("cookie") ?? "";
+          const match = cookieHeader
+            .split(";")
+            .map((p) => p.trim().split("="))
+            .find(([k]) => k === PORTAL_STUDENT_COOKIE);
+          const raw = match?.[1]?.trim();
+          cookiePreferred = raw ? decodeURIComponent(raw).slice(0, 128) : null;
+        } catch {
+          cookiePreferred = null;
+        }
+        const resolved = await resolvePortalStudent(
+          user.tenantId,
+          user.userId,
+          cookiePreferred || user.studentId || null
+        );
+        if (resolved.status === "ok") loginStudentId = resolved.studentId;
+      } catch {
+        loginStudentId = user.studentId;
+      }
+    }
+    // Web hareketsizlik politikası yalnız tarayıcı oturumuna: tarayıcı POST'ta Origin gönderir, mobil (React Native)
+    // göndermez. act token'a gömülür ve hangi yoldan gelirse gelsin uygulanır (çerez/Bearer ayrımı yok).
+    const browserLogin = Boolean(request.headers.get("origin"));
+    const tokens = await issueTokenPair({ ...user, studentId: loginStudentId, sid, ...(browserLogin ? { act: nowSec() } : {}) });
     auditLog({
       action: "auth.login_success",
       requestId: ctx.requestId || "unknown",
@@ -160,7 +195,7 @@ export const POST = withApiHandler(
           role: user.role,
           tenantId: user.tenantId,
           teacherId: user.teacherId,
-          studentId: user.studentId,
+          studentId: loginStudentId,
         },
         resumeTo,
         ...tokens,

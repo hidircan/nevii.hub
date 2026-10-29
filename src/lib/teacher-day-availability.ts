@@ -10,6 +10,7 @@ import { parseISO } from "date-fns";
 import { availabilityForBranch, isTeacherSchedulable, teacherServesBranch } from "./teacher-branches";
 import { DEFAULT_APP_TIMEZONE, toZonedYmd, zonedHm, zonedWallTimeToUtc, zonedWeekday } from "./timezone";
 import type { BranchId, Lesson, Teacher } from "./types";
+import { lessonOccupiesSlot } from "./lesson-occupancy";
 
 export type HmRange = { start: string; end: string };
 export type TeacherDayAvailability = { teacherId: string; windows: HmRange[]; busy: HmRange[] };
@@ -52,7 +53,7 @@ export function buildTeacherDayAvailability(
     list.push({ start: zonedHm(s, DEFAULT_APP_TIMEZONE), end: zonedHm(parseISO(endAt), DEFAULT_APP_TIMEZONE) });
     busyByTeacher.set(teacherId, list);
   };
-  for (const l of data.lessons) if (l.status !== "cancelled") push(l.teacherId, l.startAt, l.endAt);
+  for (const l of data.lessons) if (lessonOccupiesSlot(l)) push(l.teacherId, l.startAt, l.endAt);
   for (const t of trials) if (t.status !== "cancelled") push(t.teacherId, t.startAt, t.endAt);
 
   return data.teachers
@@ -113,7 +114,7 @@ export function slotAdvice(
   const e = s + durationMinutes;
   const endHm = minToHm(e);
   const suggestion = nearestFreeStart(day, startHm, durationMinutes);
-  const tail = suggestion && suggestion !== startHm ? ` En yakın boş slot: ${suggestion}.` : "";
+  const tail = suggestion && suggestion !== startHm ? ` En yakın boş saat: ${suggestion}.` : "";
   if (day.windows.length === 0) {
     return {
       tone: "warn",
@@ -125,7 +126,7 @@ export function slotAdvice(
   if (clash) {
     return {
       tone: "warn",
-      message: `${teacherName} ${clash.start}–${clash.end} arası başka bir derste.${tail || " Bu gün başka boş slot kalmadı; başka bir gün deneyin."}`,
+      message: `${teacherName} ${clash.start}–${clash.end} arası başka bir derste.${tail || " Bu gün başka boş saat kalmadı; başka bir gün deneyin."}`,
       suggestion,
     };
   }

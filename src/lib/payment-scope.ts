@@ -20,6 +20,8 @@
  *    satırlar gösterilir.
  */
 import { collectedAmountOf, isLiveObligation } from "./payment-profile";
+import { supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
+import { isPaymentOverdue } from "./payments/status";
 import type { Payment, Student } from "./types";
 
 export type PaymentScope = "aktif" | "pasif" | "tum";
@@ -63,19 +65,23 @@ export type PaymentScopeTotals = {
 };
 
 export function computePaymentScopeTotals(
-  payments: Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId">[],
+  payments: (Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId" | "dueDate"> & Partial<PlanLinkRow>)[],
   terminalContractIds: ReadonlySet<string>
 ): PaymentScopeTotals {
+  const duplicatedPlan = supersededUncollectedMonthlyPlanIds(
+    payments.filter((p): p is typeof p & PlanLinkRow => !!p.id && !!p.studentId),
+    terminalContractIds
+  );
   let collected = 0;
   let outstanding = 0;
   let overdueAmount = 0;
   let overdueCount = 0;
   for (const p of payments) {
     collected += collectedAmountOf(p);
-    if (!isLiveObligation(p, terminalContractIds)) continue;
+    if ((p.id && duplicatedPlan.has(p.id)) || !isLiveObligation(p, terminalContractIds)) continue;
     const due = Math.max(p.amount - p.paidAmount, 0);
     outstanding += due;
-    if (p.status === "overdue") {
+    if (isPaymentOverdue(p)) {
       overdueAmount += due;
       overdueCount += 1;
     }
@@ -91,7 +97,7 @@ export function computePaymentScopeTotals(
 }
 
 /** Kapsama göre satırları ve toplamları TEK geçişte ayırır — kartlar ve tablo aynı listeden beslenir. */
-export function scopePayments<P extends Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId">>(
+export function scopePayments<P extends Pick<Payment, "studentId" | "status" | "amount" | "paidAmount" | "contractId" | "dueDate">>(
   payments: P[],
   students: ScopeStudent[],
   scope: PaymentScope,

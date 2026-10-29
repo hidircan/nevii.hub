@@ -21,6 +21,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { uid } from "../utils";
+import { DEFAULT_APP_TIMEZONE, addDaysYmd, zonedWallTimeToUtc } from "../timezone";
 
 export type AuditOutcome = "success" | "denied" | "error";
 
@@ -71,6 +72,8 @@ export async function recordAuditLog(input: AuditLogInput): Promise<AuditLogResu
   const id = uid("audit");
   try {
     await prisma.auditLog.create({
+      // DB egress (2026-10-10): RETURNING yalnız id — satır (meta JSON dahil) geri okunmuyordu.
+      select: { id: true },
       data: {
         id,
         tenantId: input.tenantId,
@@ -185,4 +188,160 @@ export async function listAuditLogs(tenantId: string, opts?: AuditLogFilters): P
     debugLog("failed to read AuditLog", error);
     return [];
   }
+}
+
+/**
+ * 2026-10-15 — Denetim Kaydı filtresi: kurum saatiyle (İstanbul) girilen aralık → UTC `[gte, lt)`.
+ * "yyyy-MM-dd" (yalnız tarih): başlangıç 00:00, bitiş günü TAMAMEN dahil (ertesi gün 00:00'dan küçük).
+ * "yyyy-MM-ddTHH:mm": bitiş dakikası dahil. Geçersiz değer yok sayılır (filtre uygulanmaz).
+ * Eskiden `new Date("yyyy-MM-dd")` UTC gece yarısı, `…T23:59:59.999` sunucu yerel saati (Vercel'de UTC) idi →
+ * iki uç da İstanbul'a göre 3 saat kayıktı.
+ */
+export function auditRangeUtc(from?: string, to?: string, timeZone = DEFAULT_APP_TIMEZONE): { gte?: Date; lt?: Date } {
+  const parse = (value: string | undefined, end: boolean): Date | undefined => {
+    const m = value ? /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?$/.exec(value.trim()) : null;
+    if (!m) return undefined;
+    if (!m[2]) return zonedWallTimeToUtc(end ? addDaysYmd(m[1]!, 1) : m[1]!, "00:00", timeZone);
+    const at = zonedWallTimeToUtc(m[1]!, m[2], timeZone);
+    return end ? new Date(at.getTime() + 60_000) : at;
+  };
+  return { gte: parse(from, false), lt: parse(to, true) };
+}
+
+export type AuditLogPageFilters = {
+  actions?: string[];
+  excludeActions?: string[];
+  entityType?: string;
+  entityTypes?: string[];
+  excludeEntityTypes?: string[];
+  actorUserId?: string;
+  actorRole?: string;
+  outcome?: AuditOutcome;
+  /** Kurum saatiyle aralık (bkz. auditRangeUtc). */
+  from?: string;
+  to?: string;
+  /** Özne: kaydın kendisi VEYA meta'sındaki öğrenci/öğretmen bu kişilerden biri (en çok 50). */
+  subjectIds?: string[];
+  /** "Önceki → Sonraki" sütunu: bu alanı değiştiren kayıtlar (meta.changes[].field). */
+  changedField?: string;
+  /** "IP/Cihaz" sütunu: meta.ip içinde geçen metin. */
+  ip?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+};
+
+/**
+ * Sunucu tarafı filtre + sayfalama, TEK sorguda tüm kapsam kurumları (`tenantId IN`) — birleşik görünümde de
+ * sıralama/sayfa doğru. `take + 1` ile sonraki sayfa var mı anlaşılır; tablo tarayıcıya komple inmez.
+ * Parametrik (Prisma); json/memory modda boş döner.
+ */
+export async function listAuditLogPage(
+  tenantIds: string[],
+  f: AuditLogPageFilters
+): Promise<{ rows: AuditLogEntry[]; hasMore: boolean }> {
+  try {
+    const range = auditRangeUtc(f.from, f.to);
+    const search = f.search?.trim();
+    const and: Prisma.AuditLogWhereInput[] = [];
+    if (f.subjectIds?.length) {
+      const ids = f.subjectIds.slice(0, 50);
+      and.push({
+        OR: [
+          { entityId: { in: ids } },
+          ...ids.flatMap((id) => [
+            { meta: { path: ["studentId"], equals: id } },
+            { meta: { path: ["teacherId"], equals: id } },
+          ]),
+        ],
+      });
+    }
+    if (f.changedField) and.push({ meta: { path: ["changes"], array_contains: [{ field: f.changedField }] } });
+    if (f.ip?.trim()) and.push({ meta: { path: ["ip"], string_contains: f.ip.trim() } });
+    if (search) {
+      and.push({
+        OR: [
+          { action: { contains: search } },
+          { entityType: { contains: search } },
+          { entityId: { contains: search } },
+          { actorUserId: { contains: search } },
+        ],
+      });
+    }
+    const rows = await prisma.auditLog.findMany({
+      where: {
+        tenantId: { in: tenantIds },
+        action: f.actions?.length ? { in: f.actions } : f.excludeActions?.length ? { notIn: f.excludeActions } : undefined,
+        entityType:
+          f.entityType ||
+          (f.entityTypes?.length ? { in: f.entityTypes } : f.excludeEntityTypes?.length ? { notIn: f.excludeEntityTypes } : undefined),
+        actorUserId: f.actorUserId || undefined,
+        actorRole: f.actorRole || undefined,
+        outcome: f.outcome || undefined,
+        createdAt: range.gte || range.lt ? { gte: range.gte, lt: range.lt } : undefined,
+        ...(and.length ? { AND: and } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: Math.max(0, f.page - 1) * f.pageSize,
+      take: f.pageSize + 1,
+    });
+    return {
+      hasMore: rows.length > f.pageSize,
+      rows: rows.slice(0, f.pageSize).map((r) => ({
+        id: r.id,
+        actorUserId: r.actorUserId,
+        actorRole: r.actorRole,
+        action: r.action,
+        entityType: r.entityType,
+        entityId: r.entityId,
+        outcome: r.outcome as AuditOutcome,
+        meta: (r.meta as Record<string, unknown> | null) ?? null,
+        createdAt: r.createdAt,
+      })),
+    };
+  } catch (error) {
+    debugLog("failed to read AuditLog page", error);
+    return { rows: [], hasMore: false };
+  }
+}
+
+/** "İşlemi yapan" filtresi seçenekleri: kapsamdaki kayıtlarda geçen kullanıcılar (en çok 300; kimlik → ad sayfada çözülür). */
+export async function listAuditActorIds(tenantIds: string[]): Promise<string[]> {
+  try {
+    const rows = await prisma.auditLog.groupBy({
+      by: ["actorUserId"],
+      where: { tenantId: { in: tenantIds } },
+      orderBy: { actorUserId: "asc" },
+      take: 300,
+    });
+    return rows.map((r) => r.actorUserId);
+  } catch (error) {
+    debugLog("failed to list AuditLog actors", error);
+    return [];
+  }
+}
+
+/** Görünen sayfadaki ders/ödeme satırlarının öğrenci/şube bağı — tam kurum okuması yerine yalnız bu kimlikler. */
+export async function resolveAuditRowLinks(
+  tenantIds: string[],
+  rows: Pick<AuditLogEntry, "entityType" | "entityId">[]
+): Promise<Map<string, { studentId?: string; branchId?: string }>> {
+  const out = new Map<string, { studentId?: string; branchId?: string }>();
+  const lessonIds = rows.filter((r) => r.entityType === "Lesson").map((r) => r.entityId);
+  const paymentIds = rows.filter((r) => r.entityType === "Payment").map((r) => r.entityId);
+  try {
+    const [lessons, payments] = await Promise.all([
+      lessonIds.length
+        ? prisma.lesson.findMany({ where: { tenantId: { in: tenantIds }, id: { in: lessonIds } }, select: { id: true, studentId: true, branchId: true } })
+        : [],
+      paymentIds.length
+        ? prisma.payment.findMany({ where: { tenantId: { in: tenantIds }, id: { in: paymentIds } }, select: { id: true, studentId: true } })
+        : [],
+    ]);
+    for (const l of lessons) out.set(l.id, { studentId: l.studentId ?? undefined, branchId: l.branchId ?? undefined });
+    for (const p of payments) out.set(p.id, { studentId: p.studentId ?? undefined });
+  } catch (error) {
+    debugLog("failed to resolve AuditLog row links", error);
+  }
+  return out;
 }

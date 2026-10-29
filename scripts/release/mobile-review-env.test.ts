@@ -2,6 +2,7 @@
  * Çalıştırma: npm run test:release  (node:test + tsx; vitest include'u
  * yalnız src/lib/__tests__ olduğu için release script'leri burada test edilir).
  */
+import "./_test-env";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -9,8 +10,11 @@ import path from "node:path";
 import { formatReport, robotsPolicyForTier, validateMobileReviewEnv, type Env } from "./mobile-review-env";
 
 const SECRET = "S3cretPassw0rd";
-const TEST_DB = `postgresql://postgres.vxzewyiwfshobjizzetw:${SECRET}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres`;
-const PROD_DB = `postgresql://postgres.uqkafczrplqitzumtrqy:${SECRET}@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres`;
+const TEST_REF = process.env.TEST_SUPABASE_REF!;
+const TEST_DB = `postgresql://postgres.${TEST_REF}:${SECRET}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres`;
+const PROD_DB = `postgresql://postgres.wsbucznpujcfzhitzrbl:${SECRET}@aws-1-eu-central-1.pooler.supabase.com:6543/postgres`;
+// Geçişe kadar gerçek veriyi taşıyan, geri dönüş için saklanan eski test projesi — production gibi korunur.
+const OLD_REAL_DATA_DB = `postgresql://postgres.vxzewyiwfshobjizzetw:${SECRET}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres`;
 
 const reviewWeb: Env = {
   NEVII_DEPLOYMENT_TIER: "review",
@@ -48,6 +52,7 @@ test("review + private LAN IP mobile API URL → fail", () => {
 test("review + production DB → fail (unsafe-tier)", () => {
   assert.ok(errors({ ...reviewWeb, DATABASE_URL: PROD_DB }).some((m) => m.includes("UNSAFE-TIER")));
   assert.ok(errors({ ...reviewWeb, DIRECT_URL: PROD_DB }).some((m) => m.startsWith("DIRECT_URL")));
+  assert.ok(errors({ ...reviewWeb, DATABASE_URL: OLD_REAL_DATA_DB }).some((m) => m.includes("UNSAFE-TIER")));
 });
 
 test("review + production customer domain → fail", () => {
@@ -170,7 +175,7 @@ test("çıktı secret, ref, tam host veya query içermez", () => {
     formatReport(validateMobileReviewEnv(leaky, "mobile")).text,
     formatReport(validateMobileReviewEnv(reviewWeb, "web")).text,
   ].join("\n");
-  for (const needle of [SECRET, "uqkafczrplqitzumtrqy", "vxzewyiwfshobjizzetw", "secret-host", "review.neviihub.com", "aws-1-", "token="]) {
+  for (const needle of [SECRET, "wsbucznpujcfzhitzrbl", TEST_REF, "secret-host", "review.neviihub.com", "aws-1-", "token="]) {
     assert.ok(!text.includes(needle), `sızıntı: ${needle}`);
   }
   assert.ok(text.includes("https://*.neviihub.com"), "yalnız redacted origin yazılmalı");
@@ -181,7 +186,7 @@ test("CLI çıkış kodu: pass → 0, fail → 1; secret stdout/stderr'e gitmez"
   const tsx = path.join(process.cwd(), "node_modules", ".bin", "tsx");
   const run = (env: Env, args: string[] = []) => {
     // Üst kabuğun env'i (gerçek DATABASE_URL vb.) çocuğa GEÇİRİLMEZ.
-    const childEnv: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: process.env.PATH };
+    const childEnv: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: process.env.PATH, TEST_SUPABASE_REF: TEST_REF };
     Object.assign(childEnv, env);
     try {
       return { code: 0, out: execFileSync(tsx, [cli, ...args], { env: childEnv, encoding: "utf8", stdio: "pipe" }) };

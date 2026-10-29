@@ -32,6 +32,7 @@
  * Kullanım: npm run seed:makeup-demo (== npx tsx scripts/seed-makeup-demo.ts)
  */
 import "dotenv/config";
+import { assertSeedTarget } from "../src/lib/env/test-target-guard";
 import { readData, seedDemoRecords } from "../src/lib/store";
 import { runWithTenantAsync } from "../src/lib/tenant-context";
 import { DEFAULT_TENANT_ID } from "../src/lib/auth/config";
@@ -98,6 +99,7 @@ function isoPreviousPeriod(day: number, hour = "10:00"): string {
 }
 
 async function main() {
+  assertSeedTarget();
   if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
     console.error(
       "[HATA] Bu script PRODUCTION ortamında ÇALIŞTIRILAMAZ (NODE_ENV/VERCEL_ENV=production). " +

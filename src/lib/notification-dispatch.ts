@@ -1,5 +1,5 @@
 import type { NotificationCategory } from "./notification-categories";
-import { createNotification, listNotificationsForUser } from "./notifications";
+import { createNotification, hasRecentNotification } from "./notifications";
 import { isCategoryEnabledForUser } from "./notification-preferences";
 import { logger } from "./logger";
 
@@ -30,20 +30,24 @@ export async function notifyUserIfEnabled(input: {
    */
   dedupeKey?: string;
   windowMs?: number;
+  /**
+   * Push köprüsünü atla — yalnız push'u KENDİSİ yöneten çağıranlar
+   * (ders hatırlatma sweep'i) kullanır; çift push'u engeller.
+   */
+  skipPush?: boolean;
 }): Promise<NotifyOutcome> {
   try {
     const enabled = await isCategoryEnabledForUser(input.tenantId, input.userId, input.category);
     if (!enabled) return "skipped";
 
     if (input.dedupeKey !== undefined) {
-      const since = Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS);
-      const existing = await listNotificationsForUser({ tenantId: input.tenantId, userId: input.userId });
-      const dup = existing.some(
-        (n) =>
-          n.kind === input.category &&
-          n.body.includes(input.dedupeKey!) &&
-          new Date(n.createdAt).getTime() >= since
-      );
+      const dup = await hasRecentNotification({
+        tenantId: input.tenantId,
+        userId: input.userId,
+        kind: input.category,
+        bodyIncludes: input.dedupeKey,
+        since: new Date(Date.now() - (input.windowMs ?? DEFAULT_WINDOW_MS)),
+      });
       if (dup) return "duplicate";
     }
 
@@ -54,6 +58,7 @@ export async function notifyUserIfEnabled(input: {
       title: input.title,
       body: input.body,
       dedupeKey: input.dedupeKey,
+      skipPush: input.skipPush,
     });
     return result.status;
   } catch (error) {
@@ -82,6 +87,7 @@ export async function notifyStudentIfEnabled(input: {
   body: string;
   dedupeKey?: string;
   windowMs?: number;
+  skipPush?: boolean;
 }): Promise<NotifyOutcome[]> {
   try {
     const { getUserIdByStudentId, getParentUserIdsByStudentId } = await import("./auth/users");

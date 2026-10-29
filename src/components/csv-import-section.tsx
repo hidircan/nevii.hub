@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { ArrowRight, Download, FileText, Loader2, Upload, UploadCloud, X } from "lucide-react";
 import { Button, Card } from "@/components/ui";

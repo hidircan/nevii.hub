@@ -1,6 +1,9 @@
 import { collectedAmountOf } from "./payment-profile";
+import { todayYmdInstitution } from "./payments/status";
+import { zonedWallTimeToUtc } from "./timezone";
 import {
   applyLessonRevision,
+  revisionConflictWindow,
   planLessonDeletion,
   planForcedLessonDeletion,
   type ForcedLessonDeletionPlan,
@@ -18,10 +21,26 @@ import {
 import { applyLessonOpsFlag, switchLessonOpsFlag, type LessonOpsFlag, type ApplyLessonOpsResult } from "./lesson-ops";
 import { allocateSequenceValueDb, formatDisplayId } from "./entity-sequence";
 import { toDateOnlyDbValue } from "./date-input";
-import { markTeacherAttendance, type TeacherAttendanceStatus } from "./teacher-attendance";
-import { reassignLessonTeacherOrBranch, type ReassignLessonInput, type ReassignLessonResult } from "./lesson-reassignment";
+import {
+  applyEnrollmentChange,
+  AUTO_LINK_PAYMENT_SOURCES,
+  mergeStudentPatches,
+  type ChangeStudentEnrollmentsInput,
+  type ChangeStudentEnrollmentsResult,
+  type RegisterStudentInput,
+  type RegisterStudentResult,
+  type RegistrationFirstPaymentRecord,
+} from "./student-enrollments";
+import { registrationFirstPaymentDescription, REGISTRATION_FIRST_PAYMENT_SOURCE } from "./registration-payment";
+import {
+  reassignConflictWindow,
+  reassignLessonTeacherOrBranch,
+  type ReassignLessonInput,
+  type ReassignLessonResult,
+} from "./lesson-reassignment";
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
+import type { MebStudentListResult, MebStudentQuery } from "./meb-list";
 import {
   MAKEUP_QUOTA_COUNTING_STATUSES,
   MakeupQuotaExceededError,
@@ -29,12 +48,14 @@ import {
   formatEducationPeriodLabel,
 } from "./makeup-quota";
 import { logger } from "./logger";
+import { egressLabel } from "./egress-label";
 import {
   parseTermCalendarJson,
   mergeTermCalendarJson,
   type AcademicTermDates,
 } from "./academic-term-dates";
 import { createSeedData, createEmptyTemplateData } from "./seed";
+import { REFERENCE_STUDENT_OMIT } from "./types";
 import type {
   AppData,
   AttendanceStatus,
@@ -45,12 +66,15 @@ import type {
   ContractInstallmentView,
   FeeRoundingMode,
   Instrument,
+  Lesson,
   LessonSeriesStatus,
   MakeupSlot,
   Room,
   Student,
+  StudentClearableField,
   StudentProfilePatch,
   StudentDeletionState,
+  TeacherDeletionState,
   StudentPaymentPauseState,
   StudentType,
   Teacher,
@@ -66,12 +90,54 @@ import {
   LessonSlotValidationError,
   type MakeupDecision,
 } from "./makeup-engine";
+import { findSlotConflict, type SlotResource } from "./lesson-occupancy";
+import {
+  MAKEUP_PLANNING_EXPIRED_REASON,
+  makeupExpiresAtFromSource,
+  type MakeupChangeEntry,
+} from "./makeup-deadline";
+import {
+  applyMakeupLifecycle as applyMakeupLifecyclePure,
+  MakeupLifecycleError,
+  normalizeAttendanceNote,
+  isLegacyMakeupExpiry,
+  isPastMakeupPlanningDeadline,
+  type MakeupLifecycleOp,
+  type MakeupLifecycleResult,
+} from "./makeup-lifecycle";
 import {
   applyLessonScheduleUpdate,
   applyLessonCancel,
   type LessonScheduleUpdateOutcome,
 } from "./lesson-update";
-import { lessonScopeDays } from "./lesson-scope";
+import { lessonScopeDays, type ConflictWindow, type SlotScopeTarget } from "./lesson-scope";
+import {
+  narrowToDashboard,
+  narrowToLessonWindow,
+  type ClubOnlyOptions,
+  narrowToMakeupCenter,
+  makeupLinkedLessonIds,
+  makeupPlanningWindow,
+  type MakeupCenterOptions,
+  type MakeupCenterData,
+  narrowToPaymentsPage,
+  narrowToPaymentsList,
+  toPaymentListRow,
+  PAYMENT_LIST_FIELDS,
+  narrowToPayoutWindow,
+  narrowToStudentScope,
+  toPaymentStatusRows,
+  toReferenceData,
+  type DashboardData,
+  type LessonWindowData,
+  type PaymentsPageData,
+  type PaymentsListData,
+  type PayoutWindowData,
+  type ReferenceData,
+  type StudentListData,
+  type StudentScopeData,
+} from "./reference-data";
+import { subtractSupersededRemainders, supersededUncollectedMonthlyPlanIds, type PlanLinkRow } from "./superseded-monthly-plan";
 import {
   applyStartLesson,
   applyEndLesson,
@@ -81,6 +147,7 @@ import {
 } from "./lesson-live-status";
 import {
   createLessonSeriesData,
+  seriesScopeDays,
   cancelSeriesFromLesson,
   cancelEntireSeries,
   type SeriesParams,
@@ -119,8 +186,11 @@ import type { TeacherImportRow } from "./import/teachers";
 import type { RoomImportRow } from "./import/rooms";
 import type { StudentImportRow } from "./import/students";
 import type { ImportCommitResult } from "./import/commit-result";
+import type { TeacherAttendanceRow } from "./insights/teacher-performance";
+import { OPEN_MAKEUP_STATUSES, isOpenMakeupInView, type MobileDashboardCounts } from "./dashboard/mobile-counts";
 import { addDays, endOfDay, startOfDay, subDays } from "date-fns";
 import { requireTenantId, tryTenantId } from "./tenant-context";
+import { listClosedDays } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
 import { getBootstrapUsersForSeed } from "./auth/users";
 import { uid, isOutstandingPaymentStatus } from "./utils";
@@ -129,7 +199,7 @@ function tenantId(): string {
   return tryTenantId() ?? DEFAULT_TENANT_ID;
 }
 
-type PrismaSchoolWithRelations = Prisma.SchoolGetPayload<{
+type PrismaSchoolWithAllRelations = Prisma.SchoolGetPayload<{
   include: {
     branches: true;
     teachers: true;
@@ -144,6 +214,26 @@ type PrismaSchoolWithRelations = Prisma.SchoolGetPayload<{
     teacherPayouts: true;
   };
 }>;
+/**
+ * DB egress (2026-10-19) — sıcak okuma dilimleri ders/ödeme/yoklama/telafi satırında kurum kolonlarını
+ * (`tenantId`, `schoolId`) taşımaz: eşlemeler bunları okumaz, sorgu zaten kuruma süzülü (~54 B/satır,
+ * ders satırının ~%12'si). Tam okuma ve yazım yolları satırı olduğu gibi okur.
+ */
+const HOT_ROW_OMIT = { tenantId: true, schoolId: true } as const;
+type HotRow<T> = Omit<T, keyof typeof HOT_ROW_OMIT>;
+type AllRel<K extends keyof PrismaSchoolWithAllRelations> = PrismaSchoolWithAllRelations[K] extends (infer R)[] ? R : never;
+
+/** Çok-öğrencili dilimler öğrenci satırını `referenceStudentOmit` kolonları olmadan okur (eşleme eksikleri `undefined` yapar). */
+type PrismaSchoolWithRelations = Omit<
+  PrismaSchoolWithAllRelations,
+  "students" | "lessons" | "payments" | "attendances" | "makeupRequests"
+> & {
+  students: Partial<AllRel<"students">>[];
+  lessons: HotRow<AllRel<"lessons">>[];
+  payments: HotRow<AllRel<"payments">>[];
+  attendances: HotRow<AllRel<"attendances">>[];
+  makeupRequests: HotRow<AllRel<"makeupRequests">>[];
+};
 
 function sleepMs(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
@@ -165,6 +255,9 @@ function isRetryablePrismaError(err: unknown): boolean {
   );
 }
 
+/** Telafi kotası/politika notu için gereken School alanları — satırın geri kalanı (ör. ~79 KB logo) okunmaz. */
+const MAKEUP_POLICY_SCHOOL_FIELDS = { monthlyMakeupAllowance: true, makeupWindowDays: true } as const;
+
 /** Serialize per tenant+student, then count counting-status makeups in the current education term. */
 /**
  * P0 ürün kararı — hak TAKVİM AYI değil, aktif eğitim dönemi (`term` +
@@ -184,16 +277,26 @@ async function assertStudentMakeupQuotaTx(
 ) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${studentId}))`;
   const { resolveLessonAcademicPeriod } = await import("./attendance-calendar");
-  const student = await tx.student.findFirst({ where: { id: studentId, tenantId }, select: { termType: true } });
-  const termFallback = (student?.termType as "guz" | "yaz" | null) ?? "guz";
+  const studentRow = await tx.student.findFirst({ where: { id: studentId, tenantId } });
+  const termFallback = (studentRow?.termType as "guz" | "yaz" | null) ?? "guz";
   const sourceLesson = await tx.lesson.findFirst({
     where: { id: sourceLessonId, tenantId },
-    select: { startAt: true, term: true, academicYearStart: true, disruptionSource: true },
+    select: { startAt: true, term: true, academicYearStart: true, disruptionSource: true, enrollmentId: true, instrument: true, teacherId: true },
   });
+  // 2026-10-10 — telafi hakkı BRANŞ başınadır (json/memory `makeupEnrollmentKey` ile AYNI kural): kaynak dersin branşı açık
+  // bağdan (yoksa tek branştan / enstrümandan) çözülür; yalnız aynı branşın talepleri sayılır. Tek branşlı öğrencide tüm
+  // dersler aynı anahtara düşer (eski davranışla birebir aynı).
+  const { lessonEnrollmentId } = await import("./student-enrollments");
+  const studentModel = studentRow ? mapDbStudent(studentRow) : undefined;
+  const enrollmentKeyOf = (l: { enrollmentId: string | null; instrument: string; teacherId: string }): string =>
+    (studentModel
+      ? lessonEnrollmentId(studentModel, { enrollmentId: l.enrollmentId ?? undefined, instrument: l.instrument as never, teacherId: l.teacherId })
+      : undefined) ?? "__unassigned__";
+  const sourceKey = sourceLesson ? enrollmentKeyOf(sourceLesson) : undefined;
   const { isQuotaExemptSource } = await import("./lesson-disruption");
   // 9. tur — öğretmen/kurum kaynaklı telafi kişisel hakka tabi değil (saf katmanla aynı kural).
   if (isQuotaExemptSource(sourceLesson?.disruptionSource)) {
-    const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+    const school = await tx.school.findFirst({ where: { id: schoolId, tenantId }, select: MAKEUP_POLICY_SCHOOL_FIELDS });
     if (!school) throw new Error("Kurum bulunamadı");
     return school;
   }
@@ -214,13 +317,14 @@ async function assertStudentMakeupQuotaTx(
   const candidateLessons = candidateLessonIds.length
     ? await tx.lesson.findMany({
         where: { id: { in: candidateLessonIds }, tenantId },
-        select: { id: true, startAt: true, term: true, academicYearStart: true, disruptionSource: true },
+        select: { id: true, startAt: true, term: true, academicYearStart: true, disruptionSource: true, enrollmentId: true, instrument: true, teacherId: true },
       })
     : [];
   const lessonById = new Map(candidateLessons.map((l) => [l.id, l]));
   const used = candidates.filter((c) => {
     const l = lessonById.get(c.sourceLessonId);
     if (!l || isQuotaExemptSource(l.disruptionSource)) return false;
+    if (sourceKey !== undefined && enrollmentKeyOf(l) !== sourceKey) return false;
     const p = resolveLessonAcademicPeriod(
       { startAt: l.startAt.toISOString(), term: (l.term as "guz" | "yaz" | null) ?? undefined, academicYearStart: l.academicYearStart ?? undefined },
       termFallback
@@ -228,7 +332,7 @@ async function assertStudentMakeupQuotaTx(
     return p.academicYearStart === period.academicYearStart && p.term === period.term;
   }).length;
 
-  const school = await tx.school.findFirst({ where: { id: schoolId, tenantId } });
+  const school = await tx.school.findFirst({ where: { id: schoolId, tenantId }, select: MAKEUP_POLICY_SCHOOL_FIELDS });
   if (!school) throw new Error("Kurum bulunamadı");
   const allowance = resolveMonthlyMakeupAllowance(school);
   const periodLabel = formatEducationPeriodLabel(period.term, period.academicYearStart);
@@ -239,6 +343,260 @@ async function assertStudentMakeupQuotaTx(
     throw new MakeupQuotaExceededError(`Bu öğrenci ${periodLabel} içinde ${allowance} telafi hakkını kullanmıştır.`);
   }
   return school;
+}
+
+/**
+ * Prisma `Student` satırı → `AppData.students` öğesi. `readData()` ile dar okumalar
+ * (ör. `readStudentById`) AYNI eşlemeyi kullanır — alan kaybı/parity farkı olmasın.
+ */
+export function mapDbStudent(student: Prisma.StudentGetPayload<object>): Student {
+  return {
+    id: student.id,
+    displayId: (student as { displayId?: string | null }).displayId ?? undefined,
+    name: student.name,
+    email: student.email,
+    phone: student.phone,
+    parentName: student.parentName ?? "",
+    parentPhone: student.parentPhone ?? "",
+    accountResponsibility:
+      ((student as { accountResponsibility?: string | null }).accountResponsibility as
+        | "PARENT_MANAGED"
+        | "SELF_MANAGED"
+        | undefined) ?? "PARENT_MANAGED",
+    motherName: (student as { motherName?: string | null }).motherName ?? undefined,
+    fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
+    // P1 revizyonu — "Bizi nereden buldunuz?" (kolonlar migration ile
+    // gelir; migration uygulanmamış DB'de undefined — davranış değişmez).
+    referralSource: (student as { referralSource?: string | null }).referralSource as
+      | import("./types").ReferralSource
+      | undefined
+      ?? undefined,
+    referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
+    branchId: student.branchId as BranchId,
+    instruments: student.instruments as Instrument[],
+    enrollments: ((student as { enrollments?: unknown }).enrollments as import("./types").StudentEnrollment[] | null) ?? undefined,
+    teacherId: student.teacherId,
+    packageName: student.packageName,
+    weeklyLessonCount: student.weeklyLessonCount,
+    monthlyFee: student.monthlyFee,
+    active: student.active,
+    notes: student.notes,
+    createdAt: student.createdAt.toISOString(),
+    createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
+    convertedFromTrialId: student.convertedFromTrialId ?? undefined,
+    convertedByUserId: student.convertedByUserId ?? undefined,
+    studentType: (student.studentType as StudentType) ?? undefined,
+    studentTypes:
+      ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
+    enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
+    lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
+    intendedDurationMonths: student.intendedDurationMonths ?? undefined,
+    lessonScheduleText: student.lessonScheduleText ?? undefined,
+    enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
+    level: student.level ?? undefined,
+    targetExam: student.targetExam ?? undefined,
+    // MEB Paneli — okunmazsa detay/panel "Eklenmemiş" yerine BOŞ dönerdi
+    // (önceki termType parity açığıyla AYNI sınıf). Tarihler ISO (UTC gün).
+    mebLevelStartDate:
+      (student as { mebLevelStartDate?: Date | null }).mebLevelStartDate?.toISOString() ?? undefined,
+    mebLevelEndDate: (student as { mebLevelEndDate?: Date | null }).mebLevelEndDate?.toISOString() ?? undefined,
+    mebExamDate: (student as { mebExamDate?: Date | null }).mebExamDate?.toISOString() ?? undefined,
+    mebExamAttended: (student as { mebExamAttended?: boolean | null }).mebExamAttended ?? undefined,
+    specialNotes: student.specialNotes ?? undefined,
+    communicationOptOut: student.communicationOptOut,
+    // ÖNCELİK 4 (devam) — bu satır eksikti: db modunda termType hiç
+    // okunmuyordu (yalnızca yazılıyordu), bu yüzden dönem seçici her zaman
+    // "guz" fallback'ine düşerdi. Bu turda fark edilip düzeltildi.
+    termType: (student as { termType?: string | null }).termType as
+      | import("./types").StudentTermType
+      | undefined
+      ?? undefined,
+    // ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları.
+    packageId: (student as { packageId?: string | null }).packageId ?? undefined,
+    birthPlace: (student as { birthPlace?: string | null }).birthPlace ?? undefined,
+    schoolOrOccupation: (student as { schoolOrOccupation?: string | null }).schoolOrOccupation ?? undefined,
+    // Nilüfer Acar politikası §1E — pause durumu (bkz. setStudentPaymentPause).
+    paymentPauseStatus:
+      ((student as { paymentPauseStatus?: string | null }).paymentPauseStatus ?? undefined) as "paused" | undefined,
+    paymentPausedAt: (student as { paymentPausedAt?: Date | null }).paymentPausedAt?.toISOString() ?? undefined,
+    paymentPauseReason: (student as { paymentPauseReason?: string | null }).paymentPauseReason ?? undefined,
+    paymentPausedBy: (student as { paymentPausedBy?: string | null }).paymentPausedBy ?? undefined,
+    // Bu turda fark edildi: nationalIdCipher/nationalIdLast2/birthDate/
+    // address/educationMethod/firstLessonAt/archivedAt Prisma şemasında
+    // ZATEN vardı ama db-mode SELECT mapping'inde hiç okunmuyordu —
+    // Student.monthlyFee gibi başka alanlar için daha önce düzeltilen
+    // aynı sınıf parity açığı, burada da kapatıldı.
+    nationalIdCipher: (student as { nationalIdCipher?: string | null }).nationalIdCipher ?? undefined,
+    nationalIdLast2: (student as { nationalIdLast2?: string | null }).nationalIdLast2 ?? undefined,
+    birthDate: (student as { birthDate?: Date | null }).birthDate?.toISOString() ?? undefined,
+    address: (student as { address?: string | null }).address ?? undefined,
+    educationMethod:
+      ((student as { educationMethod?: string | null }).educationMethod as
+        | import("./types").EducationMethod
+        | undefined) ?? undefined,
+    firstLessonAt: (student as { firstLessonAt?: Date | null }).firstLessonAt?.toISOString() ?? undefined,
+    archivedAt: (student as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+    deletedAt: student.deletedAt?.toISOString() ?? undefined,
+    deletedByUserId: student.deletedByUserId ?? undefined,
+    deletionReason: student.deletionReason ?? undefined,
+    purgedAt: (student as { purgedAt?: Date | null }).purgedAt?.toISOString() ?? undefined,
+    // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
+    // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
+    // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
+    // dönmüyordu) — parity için burada eklendi.
+    lessonDurationMinutes:
+      (student as { lessonDurationMinutes?: number | null }).lessonDurationMinutes as
+        | import("./types").LessonDurationPreference
+        | undefined ?? undefined,
+    paymentMethod: (student as { paymentMethod?: string | null }).paymentMethod as
+      | import("./types").StudentPaymentMethod
+      | undefined ?? undefined,
+    paymentAmount: (student as { paymentAmount?: number | null }).paymentAmount ?? undefined,
+    paymentDueDay: (student as { paymentDueDay?: number | null }).paymentDueDay ?? undefined,
+    paymentDueRanges:
+      ((student as { paymentDueRanges?: unknown }).paymentDueRanges as
+        | import("./types").PaymentDueRange[]
+        | undefined) ?? undefined,
+    packageBaseMonthlyFee:
+      (student as { packageBaseMonthlyFee?: number | null }).packageBaseMonthlyFee ?? undefined,
+    discountType: (student as { discountType?: string | null }).discountType as
+      | import("./types").DiscountType
+      | undefined ?? undefined,
+    discountValue: (student as { discountValue?: number | null }).discountValue ?? undefined,
+    monthlyFeeManualOverride:
+      (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
+    monthlyFeeOverrideReason:
+      (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
+    appliedCampaignIds:
+      ((student as { appliedCampaignIds?: unknown }).appliedCampaignIds as string[] | undefined) ?? undefined,
+    derivedPerLessonAmount:
+      (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
+  };
+}
+
+/** Prisma `LessonSeries` satırı → `AppData.lessonSeries` öğesi (tam okuma ve hedefli okuma AYNI eşleme). */
+function mapDbLessonSeries(series: Prisma.LessonSeriesGetPayload<object>): import("./types").LessonSeries {
+  return {
+    id: series.id,
+    enrollmentId: (series as { enrollmentId?: string | null }).enrollmentId ?? undefined,
+    studentId: series.studentId,
+    teacherId: series.teacherId,
+    roomId: series.roomId,
+    branchId: series.branchId as BranchId,
+    instrument: series.instrument as Instrument,
+    weekday: series.weekday,
+    startTime: series.startTime,
+    durationMinutes: series.durationMinutes,
+    startsOn: series.startsOn.toISOString(),
+    endsOn: series.endsOn.toISOString(),
+    status: series.status as LessonSeriesStatus,
+    createdAt: series.createdAt.toISOString(),
+    updatedAt: series.updatedAt.toISOString(),
+    term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
+    academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+    demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
+    contractId: (series as { contractId?: string | null }).contractId ?? undefined,
+  };
+}
+
+/** Prisma `Lesson` satırı → `AppData.lessons` öğesi (tam okuma ve hedefli okumalar AYNI eşlemeyi kullanır). */
+function mapDbLesson(lesson: HotRow<Prisma.LessonGetPayload<object>>): import("./types").Lesson {
+  return {
+    id: lesson.id,
+    studentId: lesson.studentId,
+    teacherId: lesson.teacherId,
+    roomId: lesson.roomId,
+    branchId: lesson.branchId as BranchId,
+    instrument: lesson.instrument as Instrument,
+    startAt: lesson.startAt.toISOString(),
+    endAt: lesson.endAt.toISOString(),
+    type: lesson.type as import("./types").LessonType,
+    status: lesson.status as "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show",
+    makeupRequestId: lesson.makeupRequestId ?? undefined,
+    seriesId: lesson.seriesId ?? undefined,
+    enrollmentId: (lesson as { enrollmentId?: string | null }).enrollmentId ?? undefined,
+    clubId: (lesson as { clubId?: string | null }).clubId ?? undefined,
+    clubSessionId: (lesson as { clubSessionId?: string | null }).clubSessionId ?? undefined,
+    groupLessonId: (lesson as { groupLessonId?: string | null }).groupLessonId ?? undefined,
+    groupSessionId: (lesson as { groupSessionId?: string | null }).groupSessionId ?? undefined,
+    notes: lesson.notes ?? undefined,
+    studentAttendanceNote: lesson.studentAttendanceNote ?? null,
+    createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
+    studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
+    studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
+    studentAttendedBy: (lesson as { studentAttendedBy?: string | null }).studentAttendedBy ?? undefined,
+    lessonProcessed: (lesson as { lessonProcessed?: boolean }).lessonProcessed ?? undefined,
+    lessonProcessedAt: (lesson as { lessonProcessedAt?: Date | null }).lessonProcessedAt?.toISOString?.() ?? undefined,
+    lessonProcessedBy: (lesson as { lessonProcessedBy?: string | null }).lessonProcessedBy ?? undefined,
+    lessonProcessedReason:
+      (lesson as { lessonProcessedReason?: string | null }).lessonProcessedReason ?? undefined,
+    opsMakeupFlag: (lesson as { opsMakeupFlag?: boolean }).opsMakeupFlag ?? undefined,
+    opsMakeupFlagAt: (lesson as { opsMakeupFlagAt?: Date | null }).opsMakeupFlagAt?.toISOString?.() ?? undefined,
+    opsMakeupFlagBy: (lesson as { opsMakeupFlagBy?: string | null }).opsMakeupFlagBy ?? undefined,
+    studentAbsent: (lesson as { studentAbsent?: boolean }).studentAbsent ?? undefined,
+    studentAbsentAt: (lesson as { studentAbsentAt?: Date | null }).studentAbsentAt?.toISOString?.() ?? undefined,
+    studentAbsentBy: (lesson as { studentAbsentBy?: string | null }).studentAbsentBy ?? undefined,
+    studentExcused: (lesson as { studentExcused?: boolean }).studentExcused ?? undefined,
+    studentExcusedAt: (lesson as { studentExcusedAt?: Date | null }).studentExcusedAt?.toISOString?.() ?? undefined,
+    studentExcusedBy: (lesson as { studentExcusedBy?: string | null }).studentExcusedBy ?? undefined,
+    // ÖNCELİK 4 — bu satırlar eksikti (db modunda hiç map edilmiyordu); bu
+    // turda term/academicYearStart eklerken fark edildi, aynı satırda düzeltildi.
+    opsClosedFlag: (lesson as { opsClosedFlag?: boolean }).opsClosedFlag ?? undefined,
+    opsClosedFlagAt: (lesson as { opsClosedFlagAt?: Date | null }).opsClosedFlagAt?.toISOString?.() ?? undefined,
+    opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
+    term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
+    academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
+    disruptionSource: (() => {
+      const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
+      return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
+    })(),
+    disruptionNote: (lesson as { disruptionNote?: string | null }).disruptionNote ?? undefined,
+    disruptionAt: (lesson as { disruptionAt?: Date | null }).disruptionAt?.toISOString?.() ?? undefined,
+    disruptionBy: (lesson as { disruptionBy?: string | null }).disruptionBy ?? undefined,
+    availabilityOverride: (() => {
+      const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
+      const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
+      return by && at ? { by, at: at.toISOString() } : undefined;
+    })(),
+    actualStartAt: lesson.actualStartAt?.toISOString() ?? undefined,
+    actualEndAt: lesson.actualEndAt?.toISOString() ?? undefined,
+    startCorrectedBy: lesson.startCorrectedBy ?? undefined,
+    startCorrectionNote: lesson.startCorrectionNote ?? undefined,
+    endCorrectedBy: lesson.endCorrectedBy ?? undefined,
+    endCorrectionNote: lesson.endCorrectionNote ?? undefined,
+  };
+}
+
+/** Prisma `TeacherPayout` satırı → `AppData.teacherPayouts` öğesi (tam okuma ve hedefli okumalar AYNI eşleme). */
+function mapDbTeacherPayout(payout: Prisma.TeacherPayoutGetPayload<object>): TeacherPayout {
+  return {
+    id: payout.id,
+    teacherId: payout.teacherId,
+    periodStart: payout.periodStart.toISOString().slice(0, 10),
+    periodEnd: payout.periodEnd.toISOString().slice(0, 10),
+    totalMinutes: payout.totalMinutes,
+    totalAmount: payout.totalAmount,
+    status: payout.status as TeacherPayout["status"],
+    paidAt: payout.paidAt?.toISOString() ?? undefined,
+    method: payout.method ?? undefined,
+    generatedAt: payout.generatedAt.toISOString(),
+    originalTotalMinutes: payout.originalTotalMinutes ?? undefined,
+    originalTotalAmount: payout.originalTotalAmount ?? undefined,
+    lineOverrides: (payout.lineOverrides as TeacherPayout["lineOverrides"] | null) ?? undefined,
+    revisionCount: payout.revisionCount ?? 0,
+    revisedAt: payout.revisedAt?.toISOString() ?? undefined,
+    revisedByUserId: payout.revisedByUserId ?? undefined,
+    revisionReason: payout.revisionReason ?? undefined,
+    pricingPolicy: (payout.pricingPolicy as TeacherPayout["pricingPolicy"] | null) ?? undefined,
+    pricingSnapshot: (payout.pricingSnapshot as TeacherPayout["pricingSnapshot"] | null) ?? undefined,
+    cancelledAt: payout.cancelledAt?.toISOString() ?? undefined,
+    cancelledByUserId: payout.cancelledByUserId ?? undefined,
+    cancelReason: payout.cancelReason ?? undefined,
+    lineSnapshot: (payout.lineSnapshot as TeacherPayout["lineSnapshot"] | null) ?? undefined,
+    payments: (payout.payments as TeacherPayout["payments"] | null) ?? undefined,
+    adjustments: (payout.adjustments as TeacherPayout["adjustments"] | null) ?? undefined,
+    version: payout.version,
+  };
 }
 
 function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
@@ -294,6 +652,10 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       createdByUserId: (teacher as { createdByUserId?: string | null }).createdByUserId ?? undefined,
       active: teacher.active,
       archivedAt: (teacher as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
+      deletedAt: (teacher as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
+      deletedByUserId: (teacher as { deletedByUserId?: string | null }).deletedByUserId ?? undefined,
+      deletionReason: (teacher as { deletionReason?: string | null }).deletionReason ?? undefined,
+      purgedAt: (teacher as { purgedAt?: Date | null }).purgedAt?.toISOString() ?? undefined,
       color: teacher.color,
       // ÖNCELİK 4 (devam) — öğretmen CSV çoklu enstrüman revizyonu: bu 5 alan
       // db modunda daha önce hiç okunmuyordu (Prisma şemasında yoktu).
@@ -322,117 +684,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
         (teacher as { emergencyContactPhone?: string | null }).emergencyContactPhone ?? undefined,
       personnelNotes: (teacher as { personnelNotes?: string | null }).personnelNotes ?? undefined,
     })),
-    students: school.students.map((student) => ({
-      id: student.id,
-      displayId: (student as { displayId?: string | null }).displayId ?? undefined,
-      name: student.name,
-      email: student.email,
-      phone: student.phone,
-      parentName: student.parentName ?? "",
-      parentPhone: student.parentPhone ?? "",
-      accountResponsibility:
-        ((student as { accountResponsibility?: string | null }).accountResponsibility as
-          | "PARENT_MANAGED"
-          | "SELF_MANAGED"
-          | undefined) ?? "PARENT_MANAGED",
-      motherName: (student as { motherName?: string | null }).motherName ?? undefined,
-      fatherName: (student as { fatherName?: string | null }).fatherName ?? undefined,
-      // P1 revizyonu — "Bizi nereden buldunuz?" (kolonlar migration ile
-      // gelir; migration uygulanmamış DB'de undefined — davranış değişmez).
-      referralSource: (student as { referralSource?: string | null }).referralSource as
-        | import("./types").ReferralSource
-        | undefined
-        ?? undefined,
-      referralSourceDetail: (student as { referralSourceDetail?: string | null }).referralSourceDetail ?? undefined,
-      branchId: student.branchId as BranchId,
-      instruments: student.instruments as Instrument[],
-      teacherId: student.teacherId,
-      packageName: student.packageName,
-      weeklyLessonCount: student.weeklyLessonCount,
-      monthlyFee: student.monthlyFee,
-      active: student.active,
-      notes: student.notes,
-      createdAt: student.createdAt.toISOString(),
-      createdByUserId: (student as { createdByUserId?: string | null }).createdByUserId ?? undefined,
-      convertedFromTrialId: student.convertedFromTrialId ?? undefined,
-      convertedByUserId: student.convertedByUserId ?? undefined,
-      studentType: (student.studentType as StudentType) ?? undefined,
-      studentTypes:
-        ((student as { studentTypes?: unknown }).studentTypes as StudentType[] | undefined) ?? undefined,
-      enrollmentStartDate: student.enrollmentStartDate?.toISOString() ?? undefined,
-      lessonStartDate: student.lessonStartDate?.toISOString() ?? undefined,
-      intendedDurationMonths: student.intendedDurationMonths ?? undefined,
-      lessonScheduleText: student.lessonScheduleText ?? undefined,
-      enrollmentEndDate: student.enrollmentEndDate?.toISOString() ?? undefined,
-      level: student.level ?? undefined,
-      targetExam: student.targetExam ?? undefined,
-      specialNotes: student.specialNotes ?? undefined,
-      communicationOptOut: student.communicationOptOut,
-      // ÖNCELİK 4 (devam) — bu satır eksikti: db modunda termType hiç
-      // okunmuyordu (yalnızca yazılıyordu), bu yüzden dönem seçici her zaman
-      // "guz" fallback'ine düşerdi. Bu turda fark edilip düzeltildi.
-      termType: (student as { termType?: string | null }).termType as
-        | import("./types").StudentTermType
-        | undefined
-        ?? undefined,
-      // ÖNCELİK 4 (devam) — Paket Yönetimi + ek profil alanları.
-      packageId: (student as { packageId?: string | null }).packageId ?? undefined,
-      birthPlace: (student as { birthPlace?: string | null }).birthPlace ?? undefined,
-      schoolOrOccupation: (student as { schoolOrOccupation?: string | null }).schoolOrOccupation ?? undefined,
-      // Nilüfer Acar politikası §1E — pause durumu (bkz. setStudentPaymentPause).
-      paymentPauseStatus:
-        ((student as { paymentPauseStatus?: string | null }).paymentPauseStatus ?? undefined) as "paused" | undefined,
-      paymentPausedAt: (student as { paymentPausedAt?: Date | null }).paymentPausedAt?.toISOString() ?? undefined,
-      paymentPauseReason: (student as { paymentPauseReason?: string | null }).paymentPauseReason ?? undefined,
-      paymentPausedBy: (student as { paymentPausedBy?: string | null }).paymentPausedBy ?? undefined,
-      // Bu turda fark edildi: nationalIdCipher/nationalIdLast2/birthDate/
-      // address/educationMethod/firstLessonAt/archivedAt Prisma şemasında
-      // ZATEN vardı ama db-mode SELECT mapping'inde hiç okunmuyordu —
-      // Student.monthlyFee gibi başka alanlar için daha önce düzeltilen
-      // aynı sınıf parity açığı, burada da kapatıldı.
-      nationalIdCipher: (student as { nationalIdCipher?: string | null }).nationalIdCipher ?? undefined,
-      nationalIdLast2: (student as { nationalIdLast2?: string | null }).nationalIdLast2 ?? undefined,
-      birthDate: (student as { birthDate?: Date | null }).birthDate?.toISOString() ?? undefined,
-      address: (student as { address?: string | null }).address ?? undefined,
-      educationMethod:
-        ((student as { educationMethod?: string | null }).educationMethod as
-          | import("./types").EducationMethod
-          | undefined) ?? undefined,
-      firstLessonAt: (student as { firstLessonAt?: Date | null }).firstLessonAt?.toISOString() ?? undefined,
-      archivedAt: (student as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
-      deletedAt: student.deletedAt?.toISOString() ?? undefined,
-      deletedByUserId: student.deletedByUserId ?? undefined,
-      deletionReason: student.deletionReason ?? undefined,
-      // Package C — ödeme profili + paket fiyatlandırma. Bu alanlar
-      // öncesinde db modunda hiç OKUNMUYORDU (yalnızca updateStudentProfile
-      // parametresi olarak kabul ediliyordu, satıra hiç yazılmıyordu/geri
-      // dönmüyordu) — parity için burada eklendi.
-      lessonDurationMinutes:
-        (student as { lessonDurationMinutes?: number | null }).lessonDurationMinutes as
-          | import("./types").LessonDurationPreference
-          | undefined ?? undefined,
-      paymentMethod: (student as { paymentMethod?: string | null }).paymentMethod as
-        | import("./types").StudentPaymentMethod
-        | undefined ?? undefined,
-      paymentAmount: (student as { paymentAmount?: number | null }).paymentAmount ?? undefined,
-      paymentDueDay: (student as { paymentDueDay?: number | null }).paymentDueDay ?? undefined,
-      paymentDueRanges:
-        ((student as { paymentDueRanges?: unknown }).paymentDueRanges as
-          | import("./types").PaymentDueRange[]
-          | undefined) ?? undefined,
-      packageBaseMonthlyFee:
-        (student as { packageBaseMonthlyFee?: number | null }).packageBaseMonthlyFee ?? undefined,
-      discountType: (student as { discountType?: string | null }).discountType as
-        | import("./types").DiscountType
-        | undefined ?? undefined,
-      discountValue: (student as { discountValue?: number | null }).discountValue ?? undefined,
-      monthlyFeeManualOverride:
-        (student as { monthlyFeeManualOverride?: boolean | null }).monthlyFeeManualOverride ?? undefined,
-      monthlyFeeOverrideReason:
-        (student as { monthlyFeeOverrideReason?: string | null }).monthlyFeeOverrideReason ?? undefined,
-      derivedPerLessonAmount:
-        (student as { derivedPerLessonAmount?: number | null }).derivedPerLessonAmount ?? undefined,
-    })),
+    students: school.students.map((st) => mapDbStudent(st as Prisma.StudentGetPayload<object>)),
     rooms: school.rooms.map((room) => ({
       id: room.id,
       name: room.name,
@@ -443,92 +695,8 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       archivedAt: (room as { archivedAt?: Date | null }).archivedAt?.toISOString() ?? undefined,
       deletedAt: (room as { deletedAt?: Date | null }).deletedAt?.toISOString() ?? undefined,
     })),
-    lessons: school.lessons.map((lesson) => ({
-      id: lesson.id,
-      studentId: lesson.studentId,
-      teacherId: lesson.teacherId,
-      roomId: lesson.roomId,
-      branchId: lesson.branchId as BranchId,
-      instrument: lesson.instrument as Instrument,
-      startAt: lesson.startAt.toISOString(),
-      endAt: lesson.endAt.toISOString(),
-      type: lesson.type as import("./types").LessonType,
-      status: lesson.status as "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show",
-      makeupRequestId: lesson.makeupRequestId ?? undefined,
-      seriesId: lesson.seriesId ?? undefined,
-      notes: lesson.notes ?? undefined,
-      createdByUserId: (lesson as { createdByUserId?: string | null }).createdByUserId ?? undefined,
-      studentAttended: (lesson as { studentAttended?: boolean }).studentAttended ?? undefined,
-      studentAttendedAt: (lesson as { studentAttendedAt?: Date | null }).studentAttendedAt?.toISOString?.() ?? undefined,
-      studentAttendedBy: (lesson as { studentAttendedBy?: string | null }).studentAttendedBy ?? undefined,
-      lessonProcessed: (lesson as { lessonProcessed?: boolean }).lessonProcessed ?? undefined,
-      lessonProcessedAt: (lesson as { lessonProcessedAt?: Date | null }).lessonProcessedAt?.toISOString?.() ?? undefined,
-      lessonProcessedBy: (lesson as { lessonProcessedBy?: string | null }).lessonProcessedBy ?? undefined,
-      lessonProcessedReason:
-        (lesson as { lessonProcessedReason?: string | null }).lessonProcessedReason ?? undefined,
-      opsMakeupFlag: (lesson as { opsMakeupFlag?: boolean }).opsMakeupFlag ?? undefined,
-      opsMakeupFlagAt: (lesson as { opsMakeupFlagAt?: Date | null }).opsMakeupFlagAt?.toISOString?.() ?? undefined,
-      opsMakeupFlagBy: (lesson as { opsMakeupFlagBy?: string | null }).opsMakeupFlagBy ?? undefined,
-      studentAbsent: (lesson as { studentAbsent?: boolean }).studentAbsent ?? undefined,
-      studentAbsentAt: (lesson as { studentAbsentAt?: Date | null }).studentAbsentAt?.toISOString?.() ?? undefined,
-      studentAbsentBy: (lesson as { studentAbsentBy?: string | null }).studentAbsentBy ?? undefined,
-      studentExcused: (lesson as { studentExcused?: boolean }).studentExcused ?? undefined,
-      studentExcusedAt: (lesson as { studentExcusedAt?: Date | null }).studentExcusedAt?.toISOString?.() ?? undefined,
-      studentExcusedBy: (lesson as { studentExcusedBy?: string | null }).studentExcusedBy ?? undefined,
-      // ÖNCELİK 4 — bu satırlar eksikti (db modunda hiç map edilmiyordu); bu
-      // turda term/academicYearStart eklerken fark edildi, aynı satırda düzeltildi.
-      opsClosedFlag: (lesson as { opsClosedFlag?: boolean }).opsClosedFlag ?? undefined,
-      opsClosedFlagAt: (lesson as { opsClosedFlagAt?: Date | null }).opsClosedFlagAt?.toISOString?.() ?? undefined,
-      opsClosedFlagBy: (lesson as { opsClosedFlagBy?: string | null }).opsClosedFlagBy ?? undefined,
-      term: (lesson as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
-      academicYearStart: (lesson as { academicYearStart?: number | null }).academicYearStart ?? undefined,
-      teacherAttendanceStatus:
-        ((lesson as { teacherAttendanceStatus?: string | null }).teacherAttendanceStatus as
-          | import("./teacher-attendance").TeacherAttendanceStatus
-          | undefined) ?? undefined,
-      teacherAttendanceAt:
-        (lesson as { teacherAttendanceAt?: Date | null }).teacherAttendanceAt?.toISOString?.() ?? undefined,
-      teacherAttendanceBy: (lesson as { teacherAttendanceBy?: string | null }).teacherAttendanceBy ?? undefined,
-      teacherAttendanceNote: (lesson as { teacherAttendanceNote?: string | null }).teacherAttendanceNote ?? undefined,
-      disruptionSource: (() => {
-        const v = (lesson as { disruptionSource?: string | null }).disruptionSource;
-        return v === "teacher" || v === "institution" || v === "student" || v === "other" ? v : undefined;
-      })(),
-      disruptionNote: (lesson as { disruptionNote?: string | null }).disruptionNote ?? undefined,
-      disruptionAt: (lesson as { disruptionAt?: Date | null }).disruptionAt?.toISOString?.() ?? undefined,
-      disruptionBy: (lesson as { disruptionBy?: string | null }).disruptionBy ?? undefined,
-      availabilityOverride: (() => {
-        const by = (lesson as { availabilityOverrideBy?: string | null }).availabilityOverrideBy;
-        const at = (lesson as { availabilityOverrideAt?: Date | null }).availabilityOverrideAt;
-        return by && at ? { by, at: at.toISOString() } : undefined;
-      })(),
-      actualStartAt: lesson.actualStartAt?.toISOString() ?? undefined,
-      actualEndAt: lesson.actualEndAt?.toISOString() ?? undefined,
-      startCorrectedBy: lesson.startCorrectedBy ?? undefined,
-      startCorrectionNote: lesson.startCorrectionNote ?? undefined,
-      endCorrectedBy: lesson.endCorrectedBy ?? undefined,
-      endCorrectionNote: lesson.endCorrectionNote ?? undefined,
-    })),
-    lessonSeries: school.lessonSeries.map((series) => ({
-      id: series.id,
-      studentId: series.studentId,
-      teacherId: series.teacherId,
-      roomId: series.roomId,
-      branchId: series.branchId as BranchId,
-      instrument: series.instrument as Instrument,
-      weekday: series.weekday,
-      startTime: series.startTime,
-      durationMinutes: series.durationMinutes,
-      startsOn: series.startsOn.toISOString(),
-      endsOn: series.endsOn.toISOString(),
-      status: series.status as LessonSeriesStatus,
-      createdAt: series.createdAt.toISOString(),
-      updatedAt: series.updatedAt.toISOString(),
-      term: (series as { term?: string | null }).term as import("./types").StudentTermType | undefined ?? undefined,
-      academicYearStart: (series as { academicYearStart?: number | null }).academicYearStart ?? undefined,
-      demoTag: (series as { demoTag?: string | null }).demoTag ?? undefined,
-      contractId: (series as { contractId?: string | null }).contractId ?? undefined,
-    })),
+    lessons: school.lessons.map(mapDbLesson),
+    lessonSeries: school.lessonSeries.map(mapDbLessonSeries),
     attendances: school.attendances.map((attendance) => ({
       id: attendance.id,
       lessonId: attendance.lessonId,
@@ -558,6 +726,7 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       decidedAt: request.decidedAt?.toISOString() ?? undefined,
       slaDeadline: request.slaDeadline?.toISOString() ?? undefined,
       slaEscalationLevel: request.slaEscalationLevel,
+      changeLog: Array.isArray(request.changeLog) ? (request.changeLog as unknown as MakeupChangeEntry[]) : [],
     })),
     payments: school.payments.map(mapDbPayment),
     teacherFeeRules: school.teacherFeeRules.map((rule) => ({
@@ -569,26 +738,11 @@ function mapSchoolToAppData(school: PrismaSchoolWithRelations): AppData {
       effectiveFrom: rule.effectiveFrom.toISOString(),
       effectiveTo: rule.effectiveTo?.toISOString() ?? undefined,
       createdAt: rule.createdAt.toISOString(),
+      deactivatedAt: rule.deactivatedAt?.toISOString() ?? undefined,
+      deactivatedByUserId: rule.deactivatedByUserId ?? undefined,
+      deactivationReason: rule.deactivationReason ?? undefined,
     })),
-    teacherPayouts: school.teacherPayouts.map((payout) => ({
-      id: payout.id,
-      teacherId: payout.teacherId,
-      periodStart: payout.periodStart.toISOString().slice(0, 10),
-      periodEnd: payout.periodEnd.toISOString().slice(0, 10),
-      totalMinutes: payout.totalMinutes,
-      totalAmount: payout.totalAmount,
-      status: payout.status as "pending" | "paid",
-      paidAt: payout.paidAt?.toISOString() ?? undefined,
-      method: payout.method ?? undefined,
-      generatedAt: payout.generatedAt.toISOString(),
-      originalTotalMinutes: payout.originalTotalMinutes ?? undefined,
-      originalTotalAmount: payout.originalTotalAmount ?? undefined,
-      lineOverrides: (payout.lineOverrides as TeacherPayout["lineOverrides"] | null) ?? undefined,
-      revisionCount: payout.revisionCount ?? 0,
-      revisedAt: payout.revisedAt?.toISOString() ?? undefined,
-      revisedByUserId: payout.revisedByUserId ?? undefined,
-      revisionReason: payout.revisionReason ?? undefined,
-    })),
+    teacherPayouts: school.teacherPayouts.map(mapDbTeacherPayout),
   };
 }
 
@@ -625,6 +779,8 @@ export async function seedDatabase(seed: AppData) {
   await prisma.$transaction([
     prisma.user.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherPayout.deleteMany({ where: { tenantId: tid } }),
+    prisma.teacherPayoutPolicyPeriod.deleteMany({ where: { tenantId: tid } }),
+    prisma.teacherPayoutExclusion.deleteMany({ where: { tenantId: tid } }),
     prisma.teacherFeeRule.deleteMany({ where: { tenantId: tid } }),
     // KÖK NEDEN (2026-09-07, "Demo verisini sıfırla" -> React #441): bu iki
     // satır TERS SIRADAYDI. `MakeupRequest.attendanceId` ZORUNLU bir FK'dir
@@ -946,12 +1102,29 @@ const schoolInclude = {
  * bağlı, `ClosedDay`/`SocialMediaConsent` ile aynı desen), bu yüzden
  * `schoolInclude`'a değil ayrı bir sorguya girer.
  */
+/** 2026-09-29 — ay bazlı hakediş politikası (tenant geneli, Package ile aynı desen). */
+async function readTeacherPayoutPolicies(tid: string): Promise<NonNullable<AppData["teacherPayoutPolicies"]>> {
+  const rows = await prisma.teacherPayoutPolicyPeriod.findMany({ where: { tenantId: tid }, orderBy: { month: "asc" } });
+  return rows.map((r) => ({
+    id: r.id,
+    month: r.month,
+    policy: r.policy as import("./types").TeacherPayoutPricingPolicy,
+    rate30: r.rate30 ?? undefined,
+    rate40: r.rate40 ?? undefined,
+    rate50: r.rate50 ?? undefined,
+    setByUserId: r.setByUserId,
+    setAt: r.setAt.toISOString(),
+  }));
+}
+
 async function readPackages(tid: string): Promise<AppData["packages"]> {
   const rows = await prisma.package.findMany({ where: { tenantId: tid }, orderBy: { createdAt: "asc" } });
   return rows.map((p) => ({
     id: p.id,
+    displayId: p.displayId ?? undefined,
     title: p.title,
     description: p.description ?? undefined,
+    applicableBranchIds: (p.applicableBranchIds as import("./types").BranchId[] | null) ?? undefined,
     status: p.status as import("./types").PackageStatus,
     price30Min: p.price30Min,
     price40Min: p.price40Min,
@@ -963,6 +1136,7 @@ async function readPackages(tid: string): Promise<AppData["packages"]> {
     defaultPaymentDueDay: p.defaultPaymentDueDay ?? undefined,
     notes: p.notes ?? undefined,
     createdBy: p.createdBy,
+    createdByUserId: p.createdByUserId ?? undefined,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   }));
@@ -973,16 +1147,28 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
   const rows = await prisma.discountCampaign.findMany({ where: { tenantId: tid }, orderBy: { createdAt: "asc" } });
   return rows.map((c) => ({
     id: c.id,
+    displayId: c.displayId ?? undefined,
     name: c.name,
+    description: c.description ?? undefined,
     kind: c.kind as import("./types").DiscountCampaignKind,
     discountPercent: c.discountPercent,
     active: c.active,
     validFrom: c.validFrom?.toISOString() ?? undefined,
     validTo: c.validTo?.toISOString() ?? undefined,
     branchId: (c.branchId as import("./types").BranchId | null) ?? undefined,
+    applicableBranchIds: (c.applicableBranchIds as import("./types").BranchId[] | null) ?? undefined,
+    stackingRule: (c.stackingRule as import("./types").CampaignStackingRule | null) ?? "none",
+    priority: c.priority ?? 0,
+    maxUsageCount: c.maxUsageCount ?? undefined,
+    usageCount: c.usageCount ?? 0,
+    conditions: (c.conditions as Record<string, unknown> | null) ?? undefined,
     createdBy: c.createdBy,
+    createdByUserId: c.createdByUserId ?? undefined,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
+    deletedAt: c.deletedAt?.toISOString() ?? undefined,
+    deletedByUserId: c.deletedByUserId ?? undefined,
+    deletionReason: c.deletionReason ?? undefined,
   }));
 }
 
@@ -998,7 +1184,7 @@ async function readDiscountCampaigns(tid: string): Promise<AppData["discountCamp
  * Prisma `Payment` satırı → `AppData.payments` öğesi. JSON/memory store'ların taşıdığı TÜM alanlar
  * burada da olmalı (mode parity) — bkz. `payment-db-mapping.test.ts`.
  */
-export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import("./types").Payment {
+export function mapDbPayment(payment: HotRow<Prisma.PaymentGetPayload<object>>): import("./types").Payment {
   return {
     id: payment.id,
     studentId: payment.studentId,
@@ -1017,6 +1203,8 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
     // UAT 2026-09-25 — bu iki alan eksikti: db modunda hiçbir ödeme sözleşmeye bağlı görünmüyor,
     // yoklama takvimi her ay "aktif ödeme planı yok" diyor, takvim tahsilatı ayrı satır açıyordu.
     contractId: payment.contractId ?? undefined,
+    clubMembershipId: payment.clubMembershipId ?? undefined,
+    enrollmentId: (payment as { enrollmentId?: string | null }).enrollmentId ?? undefined,
     installmentSequence: payment.installmentSequence ?? undefined,
     autoSuggestedAmount: payment.autoSuggestedAmount ?? undefined,
     firstCollectionIncludesNextMonth: payment.firstCollectionIncludesNextMonth ?? undefined,
@@ -1033,14 +1221,33 @@ export function mapDbPayment(payment: Prisma.PaymentGetPayload<object>): import(
 }
 
 export async function readData(): Promise<AppData> {
+  // Kota ölçümü (2026-10-13): tenant'ın TÜM verisini okuyan her çağrı tek sabit satır yazar (PII yok). Vercel runtime
+  // log'larında `requestPath`'e göre sayılarak hangi ekranın tam okuma yaptığı bulunur (docs/performance/QUOTA_AUDIT_2026_10_12.md).
+  // Server Action içindeyse eylem adı da yazılır (ör. `egress:readData:full actionCreateLessonSeries`).
+  logger.info("egress:readData:full", egressLabel());
   const tid = tenantId();
-  const [school, packages, discountCampaigns] = await Promise.all([
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] = await Promise.all([
     prisma.school.findFirst({ where: { tenantId: tid }, include: schoolInclude }),
     readPackages(tid),
     readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    prisma.teacherPayoutExclusion
+      .findMany({ where: { tenantId: tid } })
+      .then((rows) => rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), tenantId: undefined }))),
+    // Store içi doğrulama da zorla açık/kapalı günleri görsün (bkz. withClosedDayOverrides).
+    listClosedDays(tid).catch(() => []),
   ]);
 
   if (!school) {
+    // 2026-10-10: gece monthly-accrual cron'u okulsuz tenant'ta buraya düşüp sabit demo id'leriyle seed
+    // ediyordu (P2002; seedDatabase'in silme transaction'ı create'ten ÖNCE commit olur). Canlıda asla seed yok.
+    // Bütün dilim okuyucular okul yoksa buraya düştüğü için tek kapı burası.
+    if (process.env.VERCEL_ENV === "production" || process.env.NEVII_DEPLOYMENT_TIER === "production") {
+      throw new Error(
+        `Kurum (${tid}) için okul kaydı bulunamadı. Canlı ortamda demo veri otomatik yazılmaz; ` +
+          "kurumun okul kaydını Platform → Kurumlar ekranından oluşturun."
+      );
+    }
     logger.info("readData", "no school for tenant, seeding", tid);
     const seed = createSeedData();
     seed.settings.tenantId = tid;
@@ -1055,22 +1262,785 @@ export async function readData(): Promise<AppData> {
       ...mapSchoolToAppData(seededSchool),
       packages: seededPackages,
       discountCampaigns: seededCampaigns,
+      closedDayOverrides,
     };
   }
 
-  return { ...mapSchoolToAppData(school), packages, discountCampaigns };
+  return { ...mapSchoolToAppData(school), packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides };
 }
 
-export async function resetData(): Promise<AppData> {
+/**
+ * DB egress (2026-09-30) — tek öğrenci satırı. `readData().students.find(id)` ile AYNI sonuç
+ * (okulun öğrencisi; arşivli/silinmiş dahil, aynı eşleme) ama tenant'ın tüm verisini okumaz.
+ * Yalnız erişim kontrolü (`assertStudentAccess`) için tam okuma yapan tool'lar içindir.
+ */
+export async function readStudentById(studentId: string): Promise<Student | undefined> {
+  // Boş id Prisma'da "filtre yok" demektir (ilk öğrenciyi döndürürdü) — `find` gibi undefined dön.
+  if (!studentId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbStudent(row) : undefined;
+}
+
+/** DB egress (2026-10-18) — TC araması: son iki hanesi eşleşen, şifreli TC'si olan öğrenciler (yalnız id + şifreli değer). */
+export async function readNationalIdCandidates(last2: string): Promise<{ id: string; nationalIdCipher: string }[]> {
+  const tid = tenantId();
+  const rows = await prisma.student.findMany({
+    where: { tenantId: tid, school: { tenantId: tid }, nationalIdLast2: last2, nationalIdCipher: { not: null } },
+    select: { id: true, nationalIdCipher: true },
+  });
+  return rows.flatMap((r) => (r.nationalIdCipher ? [{ id: r.id, nationalIdCipher: r.nationalIdCipher }] : []));
+}
+
+/** DB egress (2026-10-18) — yalnız şube satırları; eşleme `mapSchoolToAppData` ile aynı. */
+export async function readBranches(): Promise<AppData["settings"]["branches"]> {
+  const tid = tenantId();
+  const rows = await prisma.branch.findMany({ where: { tenantId: tid, school: { tenantId: tid } } });
+  return rows.map((branch) => ({
+    id: branch.id as BranchId,
+    name: branch.name,
+    shortName: branch.shortName,
+    address: branch.address,
+    phone: branch.phone,
+    city: branch.city,
+  }));
+}
+
+/** Portal daveti için tenant-scope'lu öğretmen/kurum alanları; ağır koleksiyonlar okunmaz. */
+export async function readTeacherPortalDetails(teacherId: string) {
+  if (!teacherId) return null;
+  const tid = tenantId();
+  const row = await prisma.teacher.findFirst({
+    where: { id: teacherId, tenantId: tid, school: { tenantId: tid } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      school: { select: { name: true, phone: true, website: true, logoUrl: true } },
+    },
+  });
+  if (!row) return null;
+  return {
+    teacherId: row.id,
+    teacherName: row.name,
+    contactEmail: row.email,
+    institutionName: row.school.name,
+    schoolPhone: row.school.phone,
+    schoolWebsite: row.school.website,
+    logoUrl: row.school.logoUrl,
+  };
+}
+
+/** DB egress (2026-10-18) — e-posta şablonları için kurum adı/iletişim/logo; tek `School` satırı (eskiden tam okuma). */
+export async function readSchoolBranding() {
+  const tid = tenantId();
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { name: true, phone: true, website: true, logoUrl: true } });
+  if (school) return school;
+  const { settings } = await readData();
+  return { name: settings.name, phone: settings.phone, website: settings.website, logoUrl: settings.logoUrl };
+}
+
+/**
+ * DB egress (2026-10-10) — tek ders satırı. `readData().lessons.find(id)` ile AYNI sonuç (aynı eşleme,
+ * okulun dersi) ama tenant'ın tüm ders/ödeme/öğrenci verisi okunmaz. Varlık/şube kontrolü ve bildirim
+ * metni için tam okuma yapan tool'lar içindir.
+ */
+export async function readLessonById(lessonId: string): Promise<import("./types").Lesson | undefined> {
+  // Boş id Prisma'da "filtre yok" demektir (ilk dersi döndürürdü) — `find` gibi undefined dön.
+  if (!lessonId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbLesson(row) : undefined;
+}
+
+/**
+ * DB egress (2026-10-16) — yalnız `startAt`'i [from, to] aralığındaki ders satırları (referans veri YOK).
+ * Bildirim tick'i her 10 dakikada bunu okur; eşleşen ders yoksa başka hiçbir şey okunmaz.
+ */
+export async function readLessonsStartingBetween(fromIso: string, toIso: string): Promise<import("./types").Lesson[]> {
+  const tid = tenantId();
+  const rows = await prisma.lesson.findMany({
+    where: { tenantId: tid, school: { tenantId: tid }, startAt: { gte: new Date(fromIso), lte: new Date(toIso) } },
+    omit: HOT_ROW_OMIT,
+  });
+  return rows.map(mapDbLesson);
+}
+
+/** DB egress (2026-10-17) — bir öğretmenin TÜM dersleri (`readData().lessons` öğretmen süzgeciyle aynı satırlar/eşleme). */
+export async function readLessonsForTeacher(teacherId: string): Promise<import("./types").Lesson[]> {
+  if (!teacherId) return [];
+  const tid = tenantId();
+  const rows = await prisma.lesson.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } }, omit: HOT_ROW_OMIT });
+  return rows.map(mapDbLesson);
+}
+
+/** DB egress (2026-10-18) — öğretmen puanı için yalnız (dersin öğretmeni, yoklama statüsü); eskiden tam okuma. */
+export async function readTeacherAttendanceRows(): Promise<TeacherAttendanceRow[]> {
+  const tid = tenantId();
+  const rows = await prisma.attendance.findMany({
+    where: { tenantId: tid, school: { tenantId: tid } },
+    select: { status: true, lesson: { select: { teacherId: true } } },
+  });
+  return rows.map((r) => ({ teacherId: r.lesson.teacherId, status: r.status }));
+}
+
+/** DB egress (2026-10-18) — mobil ana sayfa sayaçları; `mobileDashboardCounts` ile aynı kural, count sorguları. */
+export async function readMobileDashboardCounts(now: Date): Promise<MobileDashboardCounts> {
+  const tid = tenantId();
+  const own = { tenantId: tid, school: { tenantId: tid } };
+  // 2026-10-20 — canonical gecikmiş (payments/status.ts): kurum saatinde bugünün başı, kalanı olan canlı satır.
+  const todayStart = zonedWallTimeToUtc(todayYmdInstitution(now), "00:00");
+  const [pendingAttendanceCount, overduePaymentCount, openMakeups] = await Promise.all([
+    prisma.lesson.count({
+      where: {
+        ...own,
+        status: { not: "cancelled" },
+        endAt: { lt: now },
+        studentAttended: false,
+        lessonProcessed: false,
+        studentAbsent: false,
+        studentExcused: false,
+        opsMakeupFlag: false,
+      },
+    }),
+    prisma.payment.count({
+      where: { ...own, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount }, dueDate: { lt: todayStart } },
+    }),
+    prisma.makeupRequest.findMany({
+      where: { ...own, status: { in: OPEN_MAKEUP_STATUSES } },
+      select: { status: true, confirmedLessonId: true, expiresAt: true },
+    }),
+  ]);
+  const openMakeupCount = openMakeups.filter((m) =>
+    isOpenMakeupInView({ status: m.status as import("./types").MakeupRequest["status"], confirmedLessonId: m.confirmedLessonId ?? undefined, expiresAt: m.expiresAt.toISOString() }, now)
+  ).length;
+  return { pendingAttendanceCount, overduePaymentCount, openMakeupCount };
+}
+
+/** DB egress (2026-10-10) — tek ödeme satırı: `readData().payments.find(id)` ile aynı (makbuz). */
+export async function readPaymentById(paymentId: string): Promise<import("./types").Payment | undefined> {
+  if (!paymentId) return undefined;
+  const tid = tenantId();
+  const row = await prisma.payment.findFirst({ where: { id: paymentId, tenantId: tid, school: { tenantId: tid } } });
+  return row ? mapDbPayment(row) : undefined;
+}
+
+/**
+ * DB egress (2026-10-10) — bir öğretmenin TÜM kayıtlı hakedişleri (iptal dahil, readData ile aynı satırlar
+ * ve eşleme). Yoklama değişikliğinin hakedişe etkisi önce yalnız bunlarla kontrol edilir.
+ */
+export async function readTeacherPayoutsForTeacher(teacherId: string): Promise<TeacherPayout[]> {
+  if (!teacherId) return [];
+  const tid = tenantId();
+  const rows = await prisma.teacherPayout.findMany({ where: { tenantId: tid, teacherId, school: { tenantId: tid } } });
+  return rows.map(mapDbTeacherPayout);
+}
+
+/**
+ * DB egress (2026-10-18) — çok-öğrencili dilimlerin öğrenci kolonları: `REFERENCE_STUDENT_OMIT` (tek-öğrenci
+ * ekranlarının alanları) + eşlemenin kullanmadığı `tenantId`/`schoolId` okunmaz (prod'da öğrenci satırının ~%40'ı).
+ * Eşleme eksik kolonları `undefined` üretir; `toReferenceData` onları siler, tip `StudentRef`'tir.
+ */
+const referenceStudentOmit = {
+  ...(Object.fromEntries(REFERENCE_STUDENT_OMIT.map((k: string) => [k, true])) as Record<(typeof REFERENCE_STUDENT_OMIT)[number], true>),
+  tenantId: true,
+  schoolId: true,
+} as const;
+
+/** Referans dilimi için School ilişkileri — ders/seri/yoklama/telafi/ödeme/hakediş satırları YOK. */
+const referenceSchoolInclude = {
+  branches: true,
+  teachers: true,
+  students: { omit: referenceStudentOmit },
+  rooms: true,
+  teacherFeeRules: true,
+} as const;
+
+/**
+ * DB egress (2026-10-18, owner onaylı) — çok-öğrencili dilimlerin öğrenci/öğretmen/oda satırları örnek (instance)
+ * belleğinde tutulur; her istekte DB yalnız bu üç tablonun satır özetini (md5, ~100 B) döndürür. Özet değiştiyse
+ * satırlar özetle AYNI anlık görüntüde (REPEATABLE READ) yeniden okunur: eski veri sunulmaz, örnekler arası fark
+ * olmaz. Her isabette derin kopya verilir (tüketici mutasyonu önbelleği bozamaz). Kapatma: NEVII_REF_CACHE=0.
+ * Yalnız include değeri referans varsayılanıyla AYNI olan ilişkiler değiştirilir (ör. readStudentScope'un tek
+ * öğrenci okuması dokunulmaz).
+ */
+type RefRows = {
+  hash: string;
+  students: Prisma.StudentGetPayload<{ omit: typeof referenceStudentOmit }>[];
+  teachers: Prisma.TeacherGetPayload<object>[];
+  rooms: Prisma.RoomGetPayload<object>[];
+};
+const refRowsCache = new Map<string, RefRows>();
+
+function refRowsHash(tid: string) {
+  return prisma.$queryRaw<{ id: string; h: string }[]>`
+    select sc.id, md5(
+      coalesce((select string_agg(s::text, '|' order by s.id) from "Student" s where s."schoolId" = sc.id), '') || '#' ||
+      coalesce((select string_agg(t::text, '|' order by t.id) from "Teacher" t where t."schoolId" = sc.id), '') || '#' ||
+      coalesce((select string_agg(r::text, '|' order by r.id) from "Room" r where r."schoolId" = sc.id), '')
+    ) as h
+    from "School" sc where sc."tenantId" = ${tid} limit 1`;
+}
+
+async function readRefRows(tid: string): Promise<(RefRows & { schoolId: string }) | null> {
+  const [current] = await refRowsHash(tid);
+  if (!current) return null;
+  const key = `${tid}:${current.id}`;
+  let entry = refRowsCache.get(key);
+  if (entry?.hash !== current.h) {
+    const schoolId = current.id;
+    const [[snap], students, teachers, rooms] = await prisma.$transaction(
+      [
+        refRowsHash(tid),
+        prisma.student.findMany({ where: { schoolId }, omit: referenceStudentOmit }),
+        prisma.teacher.findMany({ where: { schoolId } }),
+        prisma.room.findMany({ where: { schoolId } }),
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead }
+    );
+    entry = { hash: snap?.h ?? "", students, teachers, rooms };
+    if (snap?.id === schoolId) {
+      if (refRowsCache.size > 50) refRowsCache.clear(); // ponytail: kaba sınır; çok kiracıda LRU gerekirse eklenir.
+      refRowsCache.set(key, entry);
+    }
+  }
+  return { schoolId: current.id, ...structuredClone(entry) };
+}
+
+/** `prisma.school.findFirst` ile aynı sonuç; referans öğrenci/öğretmen/oda ilişkileri doğrulanmış önbellekten. */
+async function findSchoolWithCachedRefs<T extends Prisma.SchoolFindFirstArgs & { include: Prisma.SchoolInclude }>(
+  tid: string,
+  args: T
+): Promise<Prisma.SchoolGetPayload<T> | null> {
+  const inc = args.include;
+  const swap = {
+    students: inc.students === referenceSchoolInclude.students,
+    teachers: inc.teachers === true,
+    rooms: inc.rooms === true,
+  };
+  if (process.env.NEVII_REF_CACHE === "0" || !(swap.students || swap.teachers || swap.rooms)) {
+    return (await prisma.school.findFirst(args)) as Prisma.SchoolGetPayload<T> | null;
+  }
+  const stripped = { ...inc };
+  for (const k of ["students", "teachers", "rooms"] as const) if (swap[k]) delete stripped[k];
+  const [school, refs] = await Promise.all([
+    prisma.school.findFirst({ ...args, include: stripped }),
+    readRefRows(tid).catch(() => null), // önbellek yolu hata verirse eski tek sorguya düşer
+  ]);
+  if (!school) return null;
+  if (!refs || refs.schoolId !== school.id) {
+    return (await prisma.school.findFirst(args)) as Prisma.SchoolGetPayload<T> | null;
+  }
+  return {
+    ...school,
+    ...(swap.students ? { students: refs.students } : {}),
+    ...(swap.teachers ? { teachers: refs.teachers } : {}),
+    ...(swap.rooms ? { rooms: refs.rooms } : {}),
+  } as unknown as Prisma.SchoolGetPayload<T>;
+}
+
+/**
+ * DB egress (2026-09-30) — bkz. src/lib/reference-data.ts. `readData()` ile aynı eşleme, ama
+ * ağır koleksiyonlar ve ~79 KB logo okunmaz. Okul yoksa `readData()`'nın seed davranışı korunur.
+ */
+export async function readReferenceData(): Promise<ReferenceData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return toReferenceData(await readData());
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessons: [],
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  return toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
+}
+
+/**
+ * DB egress (2026-09-30) — tek öğrenci dilimi (bkz. src/lib/reference-data.ts
+ * `narrowToStudentScope`): referans veri + yalnız bu öğrencinin ders/seri/yoklama/telafi/ödeme
+ * satırları. Her ilişki filtresine `tenantId` de yazılır (savunma derinliği, readLessonScope gibi).
+ */
+export async function readStudentScope(studentId: string): Promise<StudentScopeData> {
+  const tid = tenantId();
+  const own = { tenantId: tid, studentId };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        students: { where: { tenantId: tid, id: studentId } },
+        lessons: { where: own, omit: HOT_ROW_OMIT },
+        lessonSeries: { where: own },
+        attendances: { where: own, omit: HOT_ROW_OMIT },
+        makeupRequests: { where: own, omit: HOT_ROW_OMIT },
+        payments: { where: own, omit: HOT_ROW_OMIT },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToStudentScope(await readData(), studentId);
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", teacherPayouts: [] });
+  return narrowToStudentScope({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, studentId);
+}
+
+/** DB egress (2026-09-30) — Ders Programı haftası: referans veri + penceredeki dersler (bkz. reference-data.ts). */
+export async function readLessonWindow(fromIso: string, toIso: string, opts?: ClubOnlyOptions): Promise<LessonWindowData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: {
+          where: {
+            tenantId: tid,
+            startAt: { gte: from, lte: to },
+            ...(opts?.clubOnly ? { OR: [{ clubId: { not: null } }, { clubSessionId: { not: null } }] } : {}),
+            ...(opts?.groupLessonId ? { groupLessonId: opts.groupLessonId === "*" ? { not: null } : opts.groupLessonId } : {}),
+          },
+          omit: HOT_ROW_OMIT,
+        },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToLessonWindow(await readData(), from, to, opts);
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  return narrowToLessonWindow({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, from, to, opts);
+}
+
+/** DB egress (2026-10-16) — Telafi Merkezi: referans veri + tüm dersler + tüm telafi talepleri (bkz. reference-data.ts). */
+export async function readMakeupCenterData(opts?: MakeupCenterOptions): Promise<MakeupCenterData> {
+  const tid = tenantId();
+  const mode = opts?.lessons ?? "all";
+  const refs =
+    mode === "all"
+      ? null
+      : await prisma.makeupRequest.findMany({
+          where: { tenantId: tid },
+          select: { sourceLessonId: true, confirmedLessonId: true, ...(mode === "planning" ? { status: true, suggestedSlots: true } : {}) },
+        });
+  // Kural reference-data.ts `narrowToMakeupCenter` ile aynı (json/memory parity).
+  const window =
+    mode === "planning" && refs
+      ? makeupPlanningWindow(
+          refs.map((r) => ({
+            status: String((r as { status?: unknown }).status ?? ""),
+            suggestedSlots: (r as { suggestedSlots?: unknown }).suggestedSlots as { startAt: string }[] | null,
+          }))
+        )
+      : null;
+  const lessonsWhere: Prisma.LessonWhereInput = !refs
+    ? {}
+    : mode === "planning"
+      ? {
+          OR: [
+            { id: { in: makeupLinkedLessonIds(refs) } },
+            { makeupRequestId: { not: null } },
+            ...(window ? [{ startAt: { gte: window.from, lte: window.to } }] : []),
+          ],
+        }
+      : { id: { in: makeupLinkedLessonIds(refs) } };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: { where: { tenantId: tid, ...lessonsWhere }, omit: HOT_ROW_OMIT },
+        makeupRequests: { where: { tenantId: tid }, omit: HOT_ROW_OMIT },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToMakeupCenter(await readData(), opts);
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] });
+  return narrowToMakeupCenter({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides });
+}
+
+/** readData ile aynı hariç tutma eşlemesi (hakediş penceresi / panel özeti dilimleri). */
+async function readPayoutExclusions(tid: string): Promise<NonNullable<AppData["teacherPayoutExclusions"]>> {
+  const rows = await prisma.teacherPayoutExclusion.findMany({ where: { tenantId: tid } });
+  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString(), tenantId: undefined }));
+}
+
+/**
+ * DB egress (2026-09-30) — Hakedişler / ay hakediş özeti: referans veri + [from, to] penceresindeki
+ * TÜM dersler + TÜM kayıtlı hakedişler + hariç tutmalar (bkz. reference-data.ts `PayoutWindowData`).
+ */
+export async function readPayoutWindow(fromIso: string, toIso: string): Promise<PayoutWindowData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides] =
+    await Promise.all([
+      findSchoolWithCachedRefs(tid, {
+        where: { tenantId: tid },
+        omit: { logoUrl: true },
+        include: {
+          ...referenceSchoolInclude,
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } }, omit: HOT_ROW_OMIT },
+          teacherPayouts: true,
+        },
+      }),
+      readPackages(tid),
+      readDiscountCampaigns(tid),
+      readTeacherPayoutPolicies(tid),
+      readPayoutExclusions(tid),
+      listClosedDays(tid).catch(() => []),
+    ]);
+  if (!school) return narrowToPayoutWindow(await readData(), from, to);
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+  });
+  return narrowToPayoutWindow(
+    { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides },
+    from,
+    to
+  );
+}
+
+/**
+ * DB egress (2026-09-30) — Panel özeti: hakediş penceresi + tüm ödemelerin özet alanları + telafi
+ * talepleri + gelecekte planlı ders var mı (bkz. reference-data.ts `DashboardData`).
+ */
+export async function readDashboardData(fromIso: string, toIso: string, nowIso: string): Promise<DashboardData> {
+  const tid = tenantId();
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  const now = new Date(nowIso);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides, futureLesson] =
+    await Promise.all([
+      findSchoolWithCachedRefs(tid, {
+        where: { tenantId: tid },
+        omit: { logoUrl: true },
+        include: {
+          ...referenceSchoolInclude,
+          lessons: { where: { tenantId: tid, startAt: { gte: from, lte: to } }, omit: HOT_ROW_OMIT },
+          teacherPayouts: true,
+          makeupRequests: { omit: HOT_ROW_OMIT },
+          payments: {
+            select: {
+              id: true,
+              studentId: true,
+              amount: true,
+              paidAmount: true,
+              status: true,
+              dueDate: true,
+              paidAt: true,
+              contractId: true,
+              source: true,
+              enrollmentId: true,
+              description: true,
+              installmentPeriodLabel: true,
+              firstCollectionIncludesNextMonth: true,
+            },
+          },
+        },
+      }),
+      readPackages(tid),
+      readDiscountCampaigns(tid),
+      readTeacherPayoutPolicies(tid),
+      readPayoutExclusions(tid),
+      listClosedDays(tid).catch(() => []),
+      prisma.lesson.findFirst({
+        where: { tenantId: tid, school: { tenantId: tid }, status: "scheduled", startAt: { gt: now } },
+        select: { id: true },
+      }),
+    ]);
+  if (!school) return narrowToDashboard(await readData(), from, to, now);
+  const { payments, ...rest } = school;
+  const mapped = mapSchoolToAppData({ ...rest, logoUrl: "", lessonSeries: [], attendances: [], payments: [] });
+  return {
+    ...narrowToPayoutWindow(
+      { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, teacherPayoutExclusions, closedDayOverrides },
+      from,
+      to
+    ),
+    makeupRequests: mapped.makeupRequests,
+    // mapDbPayment ile aynı dönüşümler (ISO tarih, null → undefined).
+    payments: payments.map((p) => ({
+      id: p.id,
+      studentId: p.studentId,
+      amount: p.amount,
+      paidAmount: p.paidAmount,
+      status: p.status as import("./types").PaymentStatus,
+      dueDate: p.dueDate.toISOString(),
+      paidAt: p.paidAt?.toISOString() ?? undefined,
+      contractId: p.contractId ?? undefined,
+      source: (p.source ?? undefined) as import("./types").PaymentSource | undefined,
+      enrollmentId: p.enrollmentId ?? undefined,
+      description: p.description ?? undefined,
+      installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+      firstCollectionIncludesNextMonth: p.firstCollectionIncludesNextMonth ?? undefined,
+    })),
+    hasFutureScheduledLesson: Boolean(futureLesson),
+  };
+}
+
+/** DB egress (2026-09-30) — Ödemeler: referans veri + tüm ödemeler + yalnız ödemelere bağlı dersler. */
+export async function readPaymentsPageData(opts?: ClubOnlyOptions): Promise<PaymentsPageData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: { ...referenceSchoolInclude, payments: { ...(opts?.clubOnly ? { where: { source: "club" } } : {}), omit: HOT_ROW_OMIT } },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToPaymentsPage(await readData(), opts);
+  const lessonIds = [...new Set(school.payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
+  const lessons = lessonIds.length
+    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } }, omit: HOT_ROW_OMIT })
+    : [];
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessons,
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    teacherPayouts: [],
+  });
+  return narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }, opts);
+}
+
+const PAYMENT_LIST_SELECT = Object.fromEntries(PAYMENT_LIST_FIELDS.map((key) => [key, true])) as Record<
+  (typeof PAYMENT_LIST_FIELDS)[number],
+  true
+>;
+
+/** DB egress (2026-10-19) — Ödemeler listesi / Tahsilat: ödemelerin yalnız liste kolonları (bkz. `PAYMENT_LIST_FIELDS`). */
+export async function readPaymentsListData(): Promise<PaymentsListData> {
+  const tid = tenantId();
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: { ...referenceSchoolInclude, payments: { select: PAYMENT_LIST_SELECT } },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return narrowToPaymentsList(await readData());
+  const { payments, ...rest } = school;
+  const lessonIds = [...new Set(payments.map((p) => p.lessonId).filter((id): id is string => Boolean(id)))];
+  const lessons = lessonIds.length
+    ? await prisma.lesson.findMany({ where: { tenantId: tid, schoolId: school.id, id: { in: lessonIds } }, omit: HOT_ROW_OMIT })
+    : [];
+  const mapped = mapSchoolToAppData({
+    ...rest,
+    logoUrl: "",
+    lessons,
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    teacherPayouts: [],
+    payments: [],
+  });
+  return {
+    ...narrowToPaymentsPage({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
+    // Seçilmeyen kolonlar eşlemede `undefined` olur; `toPaymentListRow` yalnız liste kolonlarını bırakır.
+    payments: payments.map((p) => toPaymentListRow(mapDbPayment(p as Parameters<typeof mapDbPayment>[0]))),
+    lessons: mapped.lessons,
+  };
+}
+
+function breakdownShares(raw: unknown): { periodLabel: string; amount: number }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const rows = raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const periodLabel = (item as { periodLabel?: unknown }).periodLabel;
+    const amount = (item as { amount?: unknown }).amount;
+    if (typeof periodLabel !== "string" || typeof amount !== "number") return [];
+    return [{ periodLabel, amount }];
+  });
+  return rows.length > 0 ? rows : undefined;
+}
+
+/** Liste grubundan düşülecek ikinci borç kanıtı. Sözleşme taksidi (ödenmiş dahil) ayı kapatır. */
+function planLinkFromDb(p: {
+  id: string;
+  studentId: string;
+  source: string;
+  contractId: string | null;
+  status: string;
+  amount: number;
+  paidAmount: number;
+  dueDate: Date;
+  description: string;
+  installmentPeriodLabel: string | null;
+  installmentBreakdown: unknown;
+  firstCollectionIncludesNextMonth: boolean | null;
+  enrollmentId: string | null;
+}): PlanLinkRow {
+  return {
+    id: p.id,
+    studentId: p.studentId,
+    source: p.source,
+    contractId: p.contractId ?? undefined,
+    status: p.status,
+    amount: p.amount,
+    paidAmount: p.paidAmount,
+    dueDate: p.dueDate.toISOString(),
+    description: p.description,
+    installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+    installmentBreakdown: breakdownShares(p.installmentBreakdown),
+    firstCollectionIncludesNextMonth: p.firstCollectionIncludesNextMonth ?? undefined,
+    enrollmentId: p.enrollmentId ?? undefined,
+  };
+}
+
+/** DB egress (2026-09-30) — Öğrenciler listesi: referans veri + tüm ödemelerin yalnız durum alanları. */
+export async function readStudentListData(): Promise<StudentListData> {
+  const tid = tenantId();
+  const tenantPayments = { tenantId: tid, school: { tenantId: tid } };
+  // 2026-10-20 — canonical "gecikmiş" (payments/status.ts): vade günü kurum saatinde geçmiş canlı borç. Saklanan
+  // statü bayat olabileceği için grup vadeye göre ikiye ayrılır; geçmiş vadeli grup "overdue" sayılır.
+  const todayStart = zonedWallTimeToUtc(todayYmdInstitution(), "00:00");
+  const openWhere = { ...tenantPayments, status: { notIn: ["paid", "voided"] }, amount: { gt: prisma.payment.fields.paidAmount } };
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides, pastDueGroups, currentGroups, paidStudents, planEvidence, terminalContracts] = await Promise.all([
+    findSchoolWithCachedRefs(tid, { where: { tenantId: tid }, omit: { logoUrl: true }, include: referenceSchoolInclude }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+    // DB egress (2026-10-18) — `toPaymentStatusRows` ile aynı gruplama SQL'de: kalanı olan canlı satırlar grup başına tek satır.
+    prisma.payment.groupBy({
+      by: ["studentId", "contractId"],
+      where: { ...openWhere, dueDate: { lt: todayStart } },
+      _sum: { amount: true, paidAmount: true },
+    }),
+    prisma.payment.groupBy({
+      by: ["studentId", "status", "contractId"],
+      where: { ...openWhere, dueDate: { gte: todayStart } },
+      _sum: { amount: true, paidAmount: true },
+    }),
+    prisma.payment.groupBy({ by: ["studentId"], where: { ...tenantPayments, status: "paid" } }),
+    // İkinci borç kanıtı: tahsilatsız monthly_plan + void olmayan sözleşme taksitleri. Gruplamada source yok.
+    prisma.payment.findMany({
+      where: {
+        ...tenantPayments,
+        status: { not: "voided" },
+        OR: [
+          { source: "monthly_plan", contractId: null, paidAmount: 0, status: { notIn: ["paid", "voided"] } },
+          { contractId: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        studentId: true,
+        source: true,
+        contractId: true,
+        status: true,
+        amount: true,
+        paidAmount: true,
+        dueDate: true,
+        description: true,
+        installmentPeriodLabel: true,
+        installmentBreakdown: true,
+        firstCollectionIncludesNextMonth: true,
+        enrollmentId: true,
+      },
+    }),
+    prisma.studentContract.findMany({
+      where: { tenantId: tid, status: { in: ["cancelled", "superseded"] } },
+      select: { id: true },
+    }),
+  ]);
+  const terminal = new Set(terminalContracts.map((c) => c.id));
+  if (!school) {
+    const full = await readData();
+    const drop = supersededUncollectedMonthlyPlanIds(full.payments, terminal);
+    const payments = drop.size === 0 ? full.payments : full.payments.filter((p) => !drop.has(p.id));
+    return { ...toReferenceData(full), payments: toPaymentStatusRows(payments) };
+  }
+  const mapped = mapSchoolToAppData({
+    ...school,
+    logoUrl: "",
+    lessons: [],
+    lessonSeries: [],
+    attendances: [],
+    makeupRequests: [],
+    payments: [],
+    teacherPayouts: [],
+  });
+  const grouped = [
+    ...paidStudents.map((p) => ({ studentId: p.studentId, status: "paid" as const, contractId: undefined, amount: 0, paidAmount: 0 })),
+    ...pastDueGroups.map((g) => ({
+      studentId: g.studentId,
+      status: "overdue" as const,
+      contractId: g.contractId ?? undefined,
+      amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+      paidAmount: 0,
+    })),
+    ...currentGroups.map((g) => ({
+      studentId: g.studentId,
+      status: g.status as import("./types").PaymentStatus,
+      contractId: g.contractId ?? undefined,
+      amount: (g._sum.amount ?? 0) - (g._sum.paidAmount ?? 0),
+      paidAmount: 0,
+    })),
+  ];
+  return {
+    ...toReferenceData({ ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides }),
+    payments: toPaymentStatusRows(subtractSupersededRemainders(grouped, planEvidence.map(planLinkFromDb), terminal)),
+  };
+}
+
+export async function resetData(): Promise<void> {
   logger.info("resetData", "resetting tenant demo data");
   const seed = createSeedData();
   seed.settings.tenantId = tenantId();
   await seedDatabase(seed);
-  return readData();
+  return;
 }
 
 /** Kurulum Merkezi — boş şablona sıfırla (bkz. store.ts resetToCleanTemplate). */
-export async function resetToCleanTemplate(): Promise<AppData> {
+export async function resetToCleanTemplate(): Promise<void> {
   logger.info("resetToCleanTemplate", "resetting tenant to clean template");
   const tid = tenantId();
   const current = await readData();
@@ -1079,14 +2049,15 @@ export async function resetToCleanTemplate(): Promise<AppData> {
   template.settings.name = current.settings.name;
   template.settings.shortName = current.settings.shortName;
   await seedDatabase(template);
-  return readData();
+  return;
 }
 
 /** Platform genelindeki tüm aktif kurumları (tenant) listeler — yalnız db modunda gerçek çokluluk vardır. */
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
+  // Yalnız ad: `include: { schools: true }` her panel isteğinde (kurum seçici) ~79 KB logo taşıyordu.
   const tenants = await prisma.tenant.findMany({
     where: { active: true },
-    include: { schools: true },
+    select: { id: true, name: true, schools: { select: { name: true } } },
     orderBy: { name: "asc" },
   });
   return tenants.map((t) => ({ tenantId: t.id, name: t.schools[0]?.name ?? t.name }));
@@ -1096,7 +2067,7 @@ export async function markAttendance(input: {
   lessonId: string;
   status: AttendanceStatus;
   reason?: string;
-}): Promise<AppData> {
+}): Promise<void> {
   logger.info("markAttendance", input.lessonId, input.status);
 
   const tid = requireTenantId();
@@ -1156,7 +2127,7 @@ export async function markAttendance(input: {
                 status: "pending",
                 reason: input.reason || (input.status === "cancelled_by_school" ? "Okul iptali" : "Devamsızlık"),
                 // §3.4 — 30 günlük telafi süresi ORİJİNAL kayıp ders tarihinden başlar, admin onay anından DEĞİL.
-                expiresAt: addDays(lesson.startAt, school?.makeupWindowDays ?? 0),
+                expiresAt: new Date(makeupExpiresAtFromSource(lesson.startAt, school?.makeupWindowDays ?? 0)),
                 suggestedSlots: [],
                 createdAt: new Date(),
                 policyNote,
@@ -1166,7 +2137,7 @@ export async function markAttendance(input: {
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
       );
-      return await readData();
+      return;
     } catch (err: unknown) {
       if (isRetryablePrismaError(err) && attempt < maxRetries) {
         logger.warn("markAttendance: transient DB error, retrying", attempt, (err as Error).message);
@@ -1182,12 +2153,20 @@ export async function markAttendance(input: {
 export async function generateSuggestions(
   requestId: string,
   options?: { maxSlots?: number }
-): Promise<AppData> {
+): Promise<Pick<AppData, "makeupRequests">> {
   logger.info("generateSuggestions", requestId);
   const tid = requireTenantId();
-  const data = await readData();
-  const request = data.makeupRequests.find((m) => m.id === requestId);
-  if (!request) throw new Error("Telafi talebi bulunamadı");
+  // DB egress (2026-10-18, 8. dalga): eskiden tüm dersler (prod 5.606 satır ≈ 2,4 MB/çağrı). Öneri döngüsü yarından
+  // talebin son gününe kadar slot dener (`suggestMakeupSlots`, expiresAt'te durur); doğrulayıcı slotun ±8 gününe
+  // bakar (onay dilimiyle aynı kural) → [şimdi − 8 gün, expiresAt + 9 gün] + kaynak ders + bağlı dersler yeter.
+  // Çağıran yalnız bu talebin suggestedSlots'unu okur.
+  const now = Date.now();
+  const data = await readMakeupRequestWindowData(requestId, (r) => ({
+    from: new Date(now - 8 * 86_400_000),
+    to: new Date(r.expiresAt.getTime() + 9 * 86_400_000),
+  }));
+  const request = data?.makeupRequests.find((m) => m.id === requestId);
+  if (!data || !request) throw new Error("Telafi talebi bulunamadı");
 
   const slots = suggestMakeupSlots(data, request, options);
   const slotsJson = JSON.parse(JSON.stringify(slots)) as Prisma.JsonArray;
@@ -1199,17 +2178,69 @@ export async function generateSuggestions(
     where: { id: existing.id },
     data: { status: "suggested", suggestedSlots: slotsJson },
   });
-  return readData();
+  return { makeupRequests: [{ ...request, status: "suggested" as const, suggestedSlots: slots }] };
+}
+
+/**
+ * DB egress (2026-10-16) — telafi slot onayı için dar veri (eskiden tam `readData()`, günde ~100+ çağrı).
+ * Doğrulayıcının (`confirmMakeupSlot` → `validateLessonSlot`, `activeMakeupLessonForRequest`,
+ * `makeupDurationMinutes`) baktığı her şey: referans veri + slot gününün ±8 günündeki TÜM dersler (öğretmen/oda/
+ * öğrenci çakışması, günlük sınır, yönlendirici mesaj) + kaynak ders + bu talebe bağlı dersler + talebin kendisi.
+ * Çakışma için son söz yine kilit altındaki `assertSlotFreeLockedTx`'tedir.
+ */
+async function readMakeupConfirmData(requestId: string, slotStartAt: string): Promise<import("./types").WithStudentRefs<AppData> | null> {
+  const at = new Date(slotStartAt).getTime();
+  if (Number.isNaN(at)) return null;
+  return readMakeupRequestWindowData(requestId, () => ({ from: new Date(at - 8 * 86_400_000), to: new Date(at + 8 * 86_400_000) }));
+}
+
+/** Referans veri + `range` içindeki TÜM dersler + kaynak ders + talebe bağlı dersler + yalnız bu talep. */
+async function readMakeupRequestWindowData(
+  requestId: string,
+  range: (request: { expiresAt: Date }) => { from: Date; to: Date }
+): Promise<import("./types").WithStudentRefs<AppData> | null> {
+  const tid = tenantId();
+  const request = await prisma.makeupRequest.findFirst({
+    where: { id: requestId, tenantId: tid },
+    select: { sourceLessonId: true, expiresAt: true },
+  });
+  if (!request) return null;
+  const { from, to } = range(request);
+  const [school, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides] = await Promise.all([
+    findSchoolWithCachedRefs(tid, {
+      where: { tenantId: tid },
+      omit: { logoUrl: true },
+      include: {
+        ...referenceSchoolInclude,
+        lessons: {
+          where: {
+            tenantId: tid,
+            OR: [{ startAt: { gte: from, lte: to } }, { id: request.sourceLessonId }, { makeupRequestId: requestId }],
+          },
+          omit: HOT_ROW_OMIT,
+        },
+        makeupRequests: { where: { tenantId: tid, id: requestId }, omit: HOT_ROW_OMIT },
+      },
+    }),
+    readPackages(tid),
+    readDiscountCampaigns(tid),
+    readTeacherPayoutPolicies(tid),
+    listClosedDays(tid).catch(() => []),
+  ]);
+  if (!school) return null;
+  const mapped = mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], attendances: [], payments: [], teacherPayouts: [] });
+  return { ...mapped, packages, discountCampaigns, teacherPayoutPolicies, closedDayOverrides };
 }
 
 export async function confirmSlot(
   requestId: string,
   slot: MakeupSlot,
   decision: MakeupDecision
-): Promise<AppData> {
+): Promise<void> {
   logger.info("confirmSlot", requestId, slot.startAt, slot.teacherId, slot.roomId);
   const tid = requireTenantId();
-  const data = await readData();
+  // Dar veri bulunamazsa (talep/okul yok) eski tam okuma aynı hata mesajını üretir.
+  const data = (await readMakeupConfirmData(requestId, slot.startAt)) ?? (await readData());
   const request = data.makeupRequests.find((m) => m.id === requestId);
   if (!request) throw new Error("Telafi talebi bulunamadı");
 
@@ -1220,45 +2251,58 @@ export async function confirmSlot(
   });
   if (!branch) throw new Error("Şube bulunamadı");
 
-  await prisma.lesson.create({
-    data: {
-      id: lessonId,
-      tenantId: tid,
-      studentId: request.studentId,
-      teacherId: validatedSlot.teacherId,
-      roomId: validatedSlot.roomId,
-      branchId: validatedSlot.branchId,
-      schoolId: branch.schoolId,
-      instrument: request.instrument,
-      startAt: new Date(validatedSlot.startAt),
-      endAt: new Date(validatedSlot.endAt),
-      type: "makeup",
-      status: "scheduled",
-      makeupRequestId: requestId,
-      notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
-    },
-  });
-
   const decidedAt = new Date();
   const slaDeadline = computeSlaDeadline(decidedAt.toISOString());
-
-  await prisma.makeupRequest.updateMany({
-    where: { id: requestId, tenantId: tid },
-    data: {
-      status: "confirmed",
-      confirmedLessonId: lessonId,
-      decisionNote: decision.decisionNote,
-      decidedBy: decision.decidedBy,
-      decidedAt,
-      slaDeadline: new Date(slaDeadline),
-      slaEscalationLevel: 0,
-    },
+  await prisma.$transaction(async (tx) => {
+    await assertSlotFreeLockedTx(tx, tid, { teacherId: validatedSlot.teacherId, roomId: validatedSlot.roomId, studentId: request.studentId, startAt: validatedSlot.startAt, endAt: validatedSlot.endAt });
+    await tx.lesson.create({
+      data: {
+        id: lessonId,
+        tenantId: tid,
+        studentId: request.studentId,
+        teacherId: validatedSlot.teacherId,
+        roomId: validatedSlot.roomId,
+        branchId: validatedSlot.branchId,
+        schoolId: branch.schoolId,
+        instrument: request.instrument,
+        startAt: new Date(validatedSlot.startAt),
+        endAt: new Date(validatedSlot.endAt),
+        type: "makeup",
+        status: "scheduled",
+        makeupRequestId: requestId,
+        notes: `Telafi · kaynak ders ${request.sourceLessonId}`,
+        enrollmentId: data.lessons.find((l) => l.id === request.sourceLessonId)?.enrollmentId,
+        // 2026-10-04 — müsaitlik dışı onaylı telafi: normal dersle aynı iz (kim, ne zaman).
+        availabilityOverrideBy: validatedSlot.availabilityOverridden ? decision.decidedBy : undefined,
+        availabilityOverrideAt: validatedSlot.availabilityOverridden ? decidedAt : undefined,
+      },
+    });
+    // 2026-10-04 — koşullu: talep hâlâ açıksa onaylanır. Aynı talep iki kez (çift tıklama / iki sekme, farklı
+    // saatlerle) gönderilirse ikincisi burada durur ve işlem (yazılan ders dahil) geri alınır — mükerrer ders olmaz.
+    const claimed = await tx.makeupRequest.updateMany({
+      where: { id: requestId, tenantId: tid, status: { in: ["pending", "suggested"] } },
+      data: {
+        status: "confirmed",
+        confirmedLessonId: lessonId,
+        decisionNote: decision.decisionNote,
+        decidedBy: decision.decidedBy,
+        decidedAt,
+        slaDeadline: new Date(slaDeadline),
+        slaEscalationLevel: 0,
+      },
+    });
+    if (claimed.count === 0) {
+      throw new LessonSlotValidationError(
+        "REQUEST_NOT_OPEN",
+        "Bu telafi talebi az önce başka bir işlemle planlandı veya kapatıldı; ikinci ders yazılmadı. Sayfayı yenileyin."
+      );
+    }
   });
 
-  return readData();
+  return;
 }
 
-export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<AppData> {
+export async function cancelMakeup(requestId: string, decision: MakeupDecision): Promise<void> {
   logger.info("cancelMakeup", requestId);
   const tid = requireTenantId();
   const updated = await prisma.makeupRequest.updateMany({
@@ -1271,23 +2315,68 @@ export async function cancelMakeup(requestId: string, decision: MakeupDecision):
     },
   });
   if (updated.count === 0) throw new Error("Telafi talebi bulunamadı");
-  return readData();
+  return;
 }
 
-export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<AppData> {
+export async function updateMakeupSlaEscalation(requestId: string, level: number): Promise<void> {
   const tid = requireTenantId();
   const updated = await prisma.makeupRequest.updateMany({
     where: { id: requestId, tenantId: tid },
     data: { slaEscalationLevel: level },
   });
   if (updated.count === 0) throw new Error("Telafi talebi bulunamadı");
-  return readData();
+  return;
+}
+
+/**
+ * `addStudent` ve `registerStudent` AYNI satır verisini yazar (tek tanım → alan kaybı/parity farkı olmasın).
+ * `student` içindeki girdi-dışı alanlar (ör. `enrollments` dizisi) burada JSON'a güvenle çevrilir.
+ */
+function studentCreateData(
+  student: Omit<Student, "id" | "createdAt" | "active">,
+  ids: { tenantId: string; schoolId: string; id: string; displayId: string }
+) {
+  return {
+    ...student,
+    enrollments: student.enrollments === undefined ? undefined : (student.enrollments as unknown as Prisma.InputJsonValue),
+    // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: salt
+    // `Date.now()` tabanlı id, gerçek eşzamanlı isteklerde (ör. Promise.all
+    // ile 10 öğrenci) AYNI milisaniyede çakışıp `id` primary key ihlaliyle
+    // isteği tamamen reddedebiliyordu — `uid()` (json/memory modda zaten
+    // kullanılan, rastgelelik içeren) ile aynı çarpışma-güvenli desene
+    // getirildi.
+    id: ids.id,
+    tenantId: ids.tenantId,
+    schoolId: ids.schoolId,
+    active: true,
+    createdAt: new Date(),
+    displayId: ids.displayId,
+    instruments: student.instruments,
+    // Kök neden düzeltmesi: `...student` spread'i birthDate'i ham
+    // "YYYY-MM-DD" olarak geçiriyordu; Prisma DateTime bunu reddettiği için
+    // doğum tarihi girilen HER öğrenci kaydı db modunda başarısız oluyordu.
+    // (369606b'deki `${v}T00:00:00.000Z` kalıbı tam ISO girdide Invalid Date
+    // üretiyordu — geri alındı; burada date-input.ts'in UTC-öğlen kuralı.)
+    birthDate: toDateOnlyDbValue(student.birthDate),
+    enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
+    lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
+    // MEB Paneli — date-only UTC-öğlen kuralı (birthDate ile AYNI desen;
+    // ham "YYYY-MM-DD" Prisma DateTime'ı kırardı). Genel kayıt/ders
+    // tarihlerine DOKUNULMAZ.
+    mebLevelStartDate: toDateOnlyDbValue(student.mebLevelStartDate),
+    mebLevelEndDate: toDateOnlyDbValue(student.mebLevelEndDate),
+    mebExamDate: toDateOnlyDbValue(student.mebExamDate),
+    intendedDurationMonths: student.intendedDurationMonths,
+    lessonScheduleText: student.lessonScheduleText,
+    enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
+  };
 }
 
 export async function addStudent(
   student: Omit<Student, "id" | "createdAt" | "active">
-): Promise<AppData> {
-  logger.info("addStudent", student.name);
+): Promise<void> {
+  // Kişisel veri (ad) Vercel loglarına yazılmaz — yalnız şube bağlamı.
+  logger.info("addStudent", student.branchId);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
     where: { id: student.branchId, tenantId: tid },
@@ -1295,39 +2384,134 @@ export async function addStudent(
   if (!branch) throw new Error("Şube bulunamadı");
   const displayId = formatDisplayId("student", await allocateSequenceValueDb(tid, "student"));
   await prisma.student.create({
-    data: {
-      ...student,
-      // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: salt
-      // `Date.now()` tabanlı id, gerçek eşzamanlı isteklerde (ör. Promise.all
-      // ile 10 öğrenci) AYNI milisaniyede çakışıp `id` primary key ihlaliyle
-      // isteği tamamen reddedebiliyordu — `uid()` (json/memory modda zaten
-      // kullanılan, rastgelelik içeren) ile aynı çarpışma-güvenli desene
-      // getirildi.
-      id: uid("stu"),
-      tenantId: tid,
-      schoolId: branch.schoolId,
-      active: true,
-      createdAt: new Date(),
-      displayId,
-      instruments: student.instruments,
-      // Kök neden düzeltmesi: `...student` spread'i birthDate'i ham
-      // "YYYY-MM-DD" olarak geçiriyordu; Prisma DateTime bunu reddettiği için
-      // doğum tarihi girilen HER öğrenci kaydı db modunda başarısız oluyordu.
-      // (369606b'deki `${v}T00:00:00.000Z` kalıbı tam ISO girdide Invalid Date
-      // üretiyordu — geri alındı; burada date-input.ts'in UTC-öğlen kuralı.)
-      birthDate: toDateOnlyDbValue(student.birthDate),
-      enrollmentStartDate: student.enrollmentStartDate ? new Date(student.enrollmentStartDate) : undefined,
-      lessonStartDate: student.lessonStartDate ? new Date(student.lessonStartDate) : undefined,
-      intendedDurationMonths: student.intendedDurationMonths,
-      lessonScheduleText: student.lessonScheduleText,
-      enrollmentEndDate: student.enrollmentEndDate ? new Date(student.enrollmentEndDate) : undefined,
-    },
+    data: studentCreateData(student, { tenantId: tid, schoolId: branch.schoolId, id: uid("stu"), displayId }),
   });
-  return readData();
+  return;
+}
+
+type RegistrationDbClient = { student: Prisma.TransactionClient["student"]; payment: Prisma.TransactionClient["payment"] };
+
+/** Aynı gönderimin (registrationId) daha önce oluşturduğu öğrenci — branş kaydındaki JSON içerme araması. */
+async function studentIdByRegistration(client: RegistrationDbClient, tenantId: string, registrationId: string): Promise<string | undefined> {
+  const row = await client.student.findFirst({
+    where: { tenantId, enrollments: { array_contains: [{ registrationId }] as unknown as Prisma.InputJsonValue } },
+    select: { id: true },
+  });
+  return row?.id;
+}
+
+async function registrationPaymentIdMap(client: RegistrationDbClient, tenantId: string, studentId: string): Promise<Record<string, string>> {
+  const rows = await client.payment.findMany({
+    where: { tenantId, studentId, source: REGISTRATION_FIRST_PAYMENT_SOURCE, enrollmentId: { not: null } },
+    select: { id: true, enrollmentId: true },
+  });
+  const out: Record<string, string> = {};
+  for (const r of rows) if (r.enrollmentId) out[r.enrollmentId] = r.id;
+  return out;
+}
+
+function registrationPaymentCreateData(id: string, tenantId: string, studentId: string, schoolId: string, fp: RegistrationFirstPaymentRecord) {
+  return {
+    id,
+    tenantId,
+    studentId,
+    schoolId,
+    amount: fp.amount,
+    paidAmount: fp.amount,
+    status: "paid",
+    dueDate: new Date(fp.collectedAt),
+    paidAt: new Date(fp.collectedAt),
+    description: registrationFirstPaymentDescription(fp),
+    method: fp.method,
+    source: REGISTRATION_FIRST_PAYMENT_SOURCE,
+    receivedByUserId: fp.receivedByUserId,
+    paymentNote: fp.note,
+    autoSuggestedAmount: fp.autoSuggestedAmount,
+    firstCollectionIncludesNextMonth: fp.firstCollectionIncludesNextMonth,
+    adjustmentReason: fp.adjustmentReason,
+    adjustedBy: fp.adjustedBy,
+    adjustedAt: fp.adjustedAt ? new Date(fp.adjustedAt) : undefined,
+    enrollmentId: fp.enrollmentId,
+    installmentPeriodLabel: fp.installmentPeriodLabel,
+    installmentBreakdown: fp.installmentBreakdown as unknown as Prisma.InputJsonValue | undefined,
+  };
+}
+
+/**
+ * 2026-10-10 — YENİ ÖĞRENCİ KAYDI TEK TRANSACTION'DA: öğrenci + tüm branş kayıtları + her branşın ilk tahsilatı.
+ * Yarım kayıt/yetim ödeme bırakmaz; aynı `registrationId` (çift tık/yeniden deneme) advisory kilit altında ikinci
+ * öğrenci/ödeme yaratmaz. Transaction içinde iş hatası `throw` ile geri alınır (dönen değer COMMIT eder).
+ */
+export async function registerStudent(input: RegisterStudentInput): Promise<RegisterStudentResult> {
+  logger.info("registerStudent", input.student.branchId);
+  const tid = requireTenantId();
+  const branch = await prisma.branch.findFirst({ where: { id: input.student.branchId, tenantId: tid } });
+  if (!branch) throw new Error("Şube bulunamadı");
+  if (input.registrationId) {
+    const existingId = await studentIdByRegistration(prisma, tid, input.registrationId);
+    if (existingId) {
+      return { studentId: existingId, duplicate: true, paymentIds: await registrationPaymentIdMap(prisma, tid, existingId) };
+    }
+  }
+  const displayId = formatDisplayId("student", await allocateSequenceValueDb(tid, "student"));
+  const studentId = uid("stu");
+  return prisma.$transaction(async (tx): Promise<RegisterStudentResult> => {
+    if (input.registrationId) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext(${`reg:${input.registrationId}`}))`;
+      const again = await studentIdByRegistration(tx, tid, input.registrationId);
+      if (again) return { studentId: again, duplicate: true, paymentIds: await registrationPaymentIdMap(tx, tid, again) };
+    }
+    await tx.student.create({ data: studentCreateData(input.student, { tenantId: tid, schoolId: branch.schoolId, id: studentId, displayId }) });
+    const paymentIds: Record<string, string> = {};
+    for (const fp of input.firstPayments) {
+      const id = uid("pay");
+      await tx.payment.create({ data: registrationPaymentCreateData(id, tid, studentId, branch.schoolId, fp) });
+      paymentIds[fp.enrollmentId] = id;
+    }
+    return { studentId, duplicate: false, paymentIds };
+  });
+}
+
+/**
+ * 2026-10-10 — branş listesinde ATOMİK değişiklik. Öğrenci başına advisory kilit altında TAZE okuma → saf çekirdek
+ * (`applyEnrollmentChange`) → yazım: eşzamanlı iki ekleme/düzenleme birbirinin değişikliğini (JSON dizisi) ezmez.
+ * Branş koşulu, öğrenci satırı aynası ve (eklemede) ilk tahsilat TEK transaction'dadır. İş reddi yazımdan ÖNCE döner
+ * (commit zararsız); yazım başladıktan sonraki her hata fırlatır ve geri alınır.
+ */
+export async function changeStudentEnrollments(input: ChangeStudentEnrollmentsInput): Promise<ChangeStudentEnrollmentsResult> {
+  const tid = requireTenantId();
+  return prisma.$transaction(async (tx): Promise<ChangeStudentEnrollmentsResult> => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext(${`enr:${input.studentId}`}))`;
+    const row = await tx.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
+    if (!row) return { ok: false, code: "NOT_FOUND", message: "Öğrenci bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+    const applied = applyEnrollmentChange(mapDbStudent(row), input.change, input.teachers);
+    if (!applied.ok) return applied;
+    const patch = mergeStudentPatches(input.person, applied.mirror);
+    const updated = await tx.student.updateMany({
+      where: { id: input.studentId, tenantId: tid },
+      data: { ...studentProfileUpdateData(patch), enrollments: applied.enrollments as unknown as Prisma.InputJsonValue },
+    });
+    if (updated.count === 0) throw new Error("Öğrenci bulunamadı");
+    let paymentId: string | undefined;
+    const fp = input.firstPayment;
+    if (fp && input.change.kind === "add") {
+      const existing = await tx.payment.findFirst({
+        where: { tenantId: tid, studentId: input.studentId, source: REGISTRATION_FIRST_PAYMENT_SOURCE, enrollmentId: fp.enrollmentId },
+        select: { id: true },
+      });
+      if (existing) {
+        paymentId = existing.id;
+      } else {
+        paymentId = uid("pay");
+        await tx.payment.create({ data: registrationPaymentCreateData(paymentId, tid, input.studentId, row.schoolId, fp) });
+      }
+    }
+    return { ok: true, enrollments: applied.enrollments, changed: applied.changed, ...(paymentId ? { paymentId } : {}) };
+  });
 }
 
 /** Geri alınabilir öğrenci silme — bkz. store-json.ts aynı adlı fonksiyon. */
-export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<AppData> {
+export async function setStudentDeletion(studentId: string, state: StudentDeletionState): Promise<void> {
   const tid = requireTenantId();
   const existing = await prisma.student.findFirst({ where: { id: studentId, tenantId: tid }, select: { archivedAt: true } });
   if (!existing) throw new Error("Öğrenci bulunamadı");
@@ -1343,33 +2527,20 @@ export async function setStudentDeletion(studentId: string, state: StudentDeleti
         }
       : { deletedAt: null, deletedByUserId: null, deletionReason: null },
   });
-  return readData();
+  return;
 }
 
-/** Kalıcı silme — yalnız bağlı kaydı olmayan öğrenci (FK ilişkileri boş olmalı). */
-export async function hardDeleteStudent(studentId: string): Promise<AppData> {
-  const tid = requireTenantId();
-  const counts = await prisma.student.findFirst({
-    where: { id: studentId, tenantId: tid },
-    select: {
-      _count: { select: { payments: true, lessons: true, lessonSeries: true, attendances: true, makeupRequests: true, contracts: true } },
-    },
-  });
-  if (!counts) throw new Error("Öğrenci bulunamadı");
-  if (Object.values(counts._count).some((n) => n > 0)) throw new Error("STUDENT_HAS_LINKED_RECORDS");
-  await prisma.student.deleteMany({ where: { id: studentId, tenantId: tid } });
-  return readData();
+
+const JSON_COLUMNS_TO_CLEAR = new Set<string>(["paymentDueRanges", "appliedCampaignIds", "studentTypes"]);
+
+/** `clearFields` → Prisma verisi: Json kolonları `Prisma.DbNull` ister (düz `null` reddedilir), diğerleri `null`. */
+function studentClearData(fields: StudentClearableField[] | undefined): Record<string, null | typeof Prisma.DbNull> {
+  return Object.fromEntries((fields ?? []).map((k) => [k, JSON_COLUMNS_TO_CLEAR.has(k) ? Prisma.DbNull : null]));
 }
 
-export async function updateStudentProfile(
-  studentId: string,
-  patch: StudentProfilePatch
-): Promise<AppData> {
-  logger.info("updateStudentProfile", studentId);
-  const tid = requireTenantId();
-  const result = await prisma.student.updateMany({
-    where: { id: studentId, tenantId: tid },
-    data: {
+/** `updateStudentProfile` ve `changeStudentEnrollments` AYNI yazım eşlemesini kullanır (tek tanım → parity). */
+function studentProfileUpdateData(patch: StudentProfilePatch) {
+  return {
       // Bu turda eklendi — kayıt kimliği/eğitim profili alanları (öğretmen/
       // enstrüman MT-003 kararı gereği bilinçli olarak burada YOK).
       name: patch.name,
@@ -1388,6 +2559,12 @@ export async function updateStudentProfile(
       enrollmentEndDate: patch.enrollmentEndDate ? new Date(patch.enrollmentEndDate) : undefined,
       level: patch.level,
       targetExam: patch.targetExam,
+      // MEB Paneli — allowlist'e eklenmezse bu alanlar db modunda sessizce
+      // kaybolurdu (önceki parity açıklarıyla AYNI sınıf). Tarihler UTC-öğlen.
+      mebLevelStartDate: toDateOnlyDbValue(patch.mebLevelStartDate),
+      mebLevelEndDate: toDateOnlyDbValue(patch.mebLevelEndDate),
+      mebExamDate: toDateOnlyDbValue(patch.mebExamDate),
+      mebExamAttended: patch.mebExamAttended,
       specialNotes: patch.specialNotes,
       communicationOptOut: patch.communicationOptOut,
       termType: patch.termType,
@@ -1414,6 +2591,7 @@ export async function updateStudentProfile(
       // değildi (JSON/memory store generic spread ile zaten destekliyordu)
       // — burada eklenerek parity kapatıldı.
       lessonDurationMinutes: patch.lessonDurationMinutes,
+      enrollments: patch.enrollments === undefined ? undefined : (patch.enrollments as unknown as Prisma.InputJsonValue),
       paymentMethod: patch.paymentMethod,
       paymentAmount: patch.paymentAmount,
       paymentDueDay: patch.paymentDueDay,
@@ -1425,6 +2603,12 @@ export async function updateStudentProfile(
       monthlyFeeManualOverride: patch.monthlyFeeManualOverride,
       monthlyFeeOverrideReason: patch.monthlyFeeOverrideReason,
       accountResponsibility: patch.accountResponsibility,
+      // 2026-10-09 — branş formu (ilk branşın koşulları öğrenci satırında).
+      packageName: patch.packageName,
+      weeklyLessonCount: patch.weeklyLessonCount,
+      derivedPerLessonAmount: patch.derivedPerLessonAmount,
+      appliedCampaignIds: patch.appliedCampaignIds === undefined ? undefined : (patch.appliedCampaignIds as unknown as Prisma.InputJsonValue),
+      ...studentClearData(patch.clearFields),
       // 2026-09-17 — archiveStudentTool/setNationalIdTool bu alanları
       // gönderiyordu ama db modunda hiç yazılmıyordu: "Pasife Al" başarılı
       // dönüp öğrenci aktif kalıyordu (sessiz no-op). Aktifleştirmede
@@ -1439,14 +2623,56 @@ export async function updateStudentProfile(
       firstLessonAt: patch.firstLessonAt ? new Date(patch.firstLessonAt) : undefined,
       nationalIdCipher: patch.nationalIdCipher,
       nationalIdLast2: patch.nationalIdLast2,
-    },
+  };
+}
+
+export async function updateStudentProfile(
+  studentId: string,
+  patch: StudentProfilePatch
+): Promise<void> {
+  logger.info("updateStudentProfile", studentId);
+  const tid = requireTenantId();
+  const result = await prisma.student.updateMany({
+    where: { id: studentId, tenantId: tid },
+    data: studentProfileUpdateData(patch),
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
-  return readData();
+  return;
+}
+
+/**
+ * MEB Paneli listesi (db yolu) — GERÇEK sunucu-taraflı sayfalama
+ * (`where` + `count` + `skip/take`; istemciye yalnız sayfa gider).
+ * MEB'lik `effectiveStudentTypes` ile BİREBİR aynı semantik: tür LİSTESİ
+ * doluysa liste, boş/null ise legacy tekil alan (bkz. student-types.ts).
+ * Silinmiş kayıtlar dışlanır; bilinmeyen tarihler HER YÖNDE sona atılır
+ * (`nulls: "last"` — memory yoluyla AYNI kural).
+ */
+export async function listMebStudents(query: MebStudentQuery): Promise<MebStudentListResult> {
+  const { applyMebRowQuery, mebRowsForStudent } = await import("./meb-list");
+  const tid = requireTenantId();
+
+  // 2026-10-10 — MEB bilgisi branş kaydına aittir: ADAY öğrenciler (mirror türü ya da aktif MEB branşı olanlar) çekilir;
+  // satırlara açma + branş düzeyi filtre/sıralama/sayfalama json/memory ile AYNI saf fonksiyondan geçer (mod paritesi).
+  // Aday kümesi yalnız MEB'li öğrencilerdir (küçük); sonlandırılmış MEB branşı olan ama şu an hiç MEB'siz öğrenci pasif
+  // geçmiş sayılır ve bu listede aranmaz (önceki davranışla aynı).
+  const where: Prisma.StudentWhereInput = {
+    tenantId: tid,
+    deletedAt: null,
+    OR: [
+      { studentTypes: { array_contains: "MEB" } },
+      { studentType: "MEB", studentTypes: { equals: Prisma.DbNull } },
+      { studentType: "MEB", studentTypes: { equals: [] as unknown as Prisma.InputJsonValue } },
+      { enrollments: { array_contains: [{ studentTypes: ["MEB"] }] as unknown as Prisma.InputJsonValue } },
+    ],
+  };
+  const found = await prisma.student.findMany({ where });
+  const students = found.map(mapDbStudent);
+  return applyMebRowQuery(students.flatMap((s) => mebRowsForStudent(s)), query);
 }
 
 /** Nilüfer Acar politikası §1E — bkz. store-json.ts aynı adlı fonksiyon; `state=null` reaktivasyonda alanları null'lar. */
-export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<AppData> {
+export async function setStudentPaymentPause(studentId: string, state: StudentPaymentPauseState): Promise<void> {
   logger.info("setStudentPaymentPause", studentId);
   const tid = requireTenantId();
   const result = await prisma.student.updateMany({
@@ -1459,13 +2685,13 @@ export async function setStudentPaymentPause(studentId: string, state: StudentPa
     },
   });
   if (result.count === 0) throw new Error("Öğrenci bulunamadı");
-  return readData();
+  return;
 }
 
 export async function addTeacher(
   teacher: Omit<Teacher, "id" | "active" | "color">
-): Promise<AppData> {
-  logger.info("addTeacher", teacher.name);
+): Promise<void> {
+  logger.info("addTeacher", teacher.branchId);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
     where: { id: teacher.branchId, tenantId: tid },
@@ -1496,7 +2722,7 @@ export async function addTeacher(
       hireDate: teacher.hireDate ? new Date(teacher.hireDate) : undefined,
     },
   });
-  return readData();
+  return;
 }
 
 /**
@@ -1515,7 +2741,7 @@ export async function updateTeacherAvailability(
     data: { availability: availability === undefined ? undefined : (availability as unknown as Prisma.InputJsonValue) },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -1540,7 +2766,7 @@ export async function updateTeacherInstruments(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -1586,7 +2812,7 @@ export async function updateTeacherProfile(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
 }
 
@@ -1605,8 +2831,28 @@ export async function markPaymentPaid(paymentId: string, opts?: string | MarkPay
   logger.info("markPaymentPaid", paymentId);
   const normalized: MarkPaymentPaidOptions = typeof opts === "string" ? { method: opts } : opts ?? {};
   const { collectPayment } = await import("./payments/collect");
-  const { data } = await collectPayment(paymentId, normalized);
-  return data;
+  await collectPayment(paymentId, normalized);
+  return readData();
+}
+
+/**
+ * 2026-10-03 — yanlışlıkla oluşturulmuş BAĞIMSIZ ödeme satırını kaldırır (sözleşme taksidi asla). Tahsilat takip
+ * kaydı veya online ödeme denemesi olan satır silinmez (iptal edilir) — FK cascade ile takip geçmişi gitmesin.
+ */
+export async function deletePaymentRow(paymentId: string): Promise<AppData> {
+  const tid = requireTenantId();
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.findFirst({
+      where: { id: paymentId, tenantId: tid },
+      select: { contractId: true, _count: { select: { followUps: true } } },
+    });
+    if (!row) throw new Error("Ödeme bulunamadı");
+    if (row.contractId) throw new Error("PAYMENT_IS_CONTRACT_INSTALLMENT");
+    const attempts = await tx.paymentCheckoutAttempt.count({ where: { tenantId: tid, paymentId } });
+    if (row._count.followUps > 0 || attempts > 0) throw new Error("PAYMENT_HAS_HISTORY");
+    await tx.payment.deleteMany({ where: { id: paymentId, tenantId: tid } });
+  });
+  return readData();
 }
 
 export type UpdatePaymentPatch = {
@@ -1641,10 +2887,10 @@ export async function addBranch(branch: {
   address: string;
   phone: string;
   city: string;
-}): Promise<AppData> {
+}): Promise<void> {
   logger.info("addBranch", branch.name);
   const tid = requireTenantId();
-  const school = await prisma.school.findFirst({ where: { tenantId: tid } });
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
   if (!school) throw new Error("Okul bulunamadı");
   await prisma.branch.create({
     data: {
@@ -1658,13 +2904,13 @@ export async function addBranch(branch: {
       city: branch.city,
     },
   });
-  return readData();
+  return;
 }
 
 export async function updateBranch(
   branchId: string,
   patch: Partial<{ name: string; shortName: string; address: string; phone: string; city: string }>
-): Promise<AppData> {
+): Promise<void> {
   logger.info("updateBranch", branchId);
   const tid = requireTenantId();
   const result = await prisma.branch.updateMany({
@@ -1672,7 +2918,7 @@ export async function updateBranch(
     data: patch,
   });
   if (result.count === 0) throw new Error("Şube bulunamadı");
-  return readData();
+  return;
 }
 
 /**
@@ -1687,7 +2933,7 @@ export async function updateBranch(
 export async function importBranches(rows: BranchImportRow[]): Promise<ImportCommitResult> {
   logger.info("importBranches", rows.length);
   const tid = requireTenantId();
-  const school = await prisma.school.findFirst({ where: { tenantId: tid } });
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
   if (!school) throw new Error("Okul bulunamadı");
 
   let created = 0;
@@ -1866,6 +3112,9 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
         where: { tenantId: tid, phone: row.phone.trim() },
       });
       if (existing) {
+        // 2026-10-10 — kalıcı BRANŞ KAYDI olan öğrencide branşa özgü koşullar kayıtlarda durur; CSV satırı onları ezmez
+        // (bkz. import/student-merge.ts — json/memory ile aynı kural).
+        const hasPersistedEnrollments = Array.isArray(existing.enrollments) && (existing.enrollments as unknown[]).length > 0;
         await tx.student.update({
           where: { id: existing.id },
           data: {
@@ -1874,23 +3123,27 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
             parentName: row.parentName,
             parentPhone: row.parentPhone,
             branchId: row.branchId,
-            instruments: [row.instrument],
-            teacherId: row.teacherId,
-            packageName: row.packageName,
-            weeklyLessonCount: row.weeklyLessonCount,
-            monthlyFee: row.monthlyFee,
             notes: row.notes || existing.notes,
-            lessonDurationMinutes: row.lessonDurationMinutes ?? existing.lessonDurationMinutes,
             birthDate: toDateOnlyDbValue(row.birthDate) ?? existing.birthDate,
             birthPlace: row.birthPlace ?? existing.birthPlace,
             schoolOrOccupation: row.schoolOrOccupation ?? existing.schoolOrOccupation,
             address: row.address ?? existing.address,
             nationalIdCipher: row.nationalIdCipher ?? existing.nationalIdCipher,
             nationalIdLast2: row.nationalIdLast2 ?? existing.nationalIdLast2,
-            enrollmentStartDate: row.enrollmentStartDate ? new Date(row.enrollmentStartDate) : existing.enrollmentStartDate,
-            derivedPerLessonAmount: row.derivedPerLessonAmount ?? existing.derivedPerLessonAmount,
             accountResponsibility: existing.accountResponsibility ?? row.accountResponsibility,
             displayId: existing.displayId ?? formatDisplayId("student", await allocateSequenceValueDb(tid, "student")),
+            ...(hasPersistedEnrollments
+              ? {}
+              : {
+                  instruments: [row.instrument],
+                  teacherId: row.teacherId,
+                  packageName: row.packageName,
+                  weeklyLessonCount: row.weeklyLessonCount,
+                  monthlyFee: row.monthlyFee,
+                  lessonDurationMinutes: row.lessonDurationMinutes ?? existing.lessonDurationMinutes,
+                  enrollmentStartDate: row.enrollmentStartDate ? new Date(row.enrollmentStartDate) : existing.enrollmentStartDate,
+                  derivedPerLessonAmount: row.derivedPerLessonAmount ?? existing.derivedPerLessonAmount,
+                }),
           },
         });
         updated++;
@@ -1938,7 +3191,7 @@ export async function importStudents(rows: StudentImportRow[]): Promise<ImportCo
   return { data: await readData(), created, updated };
 }
 
-export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
+export async function addRoom(room: Omit<Room, "id">): Promise<void> {
   logger.info("addRoom", room.name);
   const tid = requireTenantId();
   const branch = await prisma.branch.findFirst({
@@ -1956,7 +3209,7 @@ export async function addRoom(room: Omit<Room, "id">): Promise<AppData> {
       instruments: room.instruments,
     },
   });
-  return readData();
+  return;
 }
 
 /** ÖNCELİK 4 (devam) — oda düzenleme (ad/kapasite/şube/enstrüman/aktiflik). */
@@ -1984,7 +3237,7 @@ export async function updateRoom(
     },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.rooms.find((r) => r.id === roomId) ?? null;
 }
 
@@ -1997,8 +3250,218 @@ export async function archiveTeacher(teacherId: string, archived: boolean): Prom
     data: { active: !archived, archivedAt: archived ? new Date() : null },
   });
   if (result.count === 0) return null;
-  const data = await readData();
+  const data = await readReferenceData();
   return data.teachers.find((t) => t.id === teacherId) ?? null;
+}
+
+/** 2026-10-03 — öğretmeni listeden kaldırma (geri alınabilir); kaldırmada pasife alınır. `null` = geri al. */
+export async function setTeacherDeletion(teacherId: string, state: TeacherDeletionState): Promise<void> {
+  const tid = requireTenantId();
+  const existing = await prisma.teacher.findFirst({ where: { id: teacherId, tenantId: tid }, select: { archivedAt: true } });
+  if (!existing) throw new Error("Öğretmen bulunamadı");
+  await prisma.teacher.updateMany({
+    where: { id: teacherId, tenantId: tid },
+    data: state
+      ? {
+          deletedAt: new Date(state.deletedAt),
+          deletedByUserId: state.deletedByUserId,
+          deletionReason: state.deletionReason,
+          active: false,
+          archivedAt: existing.archivedAt ?? new Date(state.deletedAt),
+        }
+      : { deletedAt: null, deletedByUserId: null, deletionReason: null },
+  });
+}
+
+
+const SLOT_CONFLICT_CODE: Record<SlotResource, "TEACHER_CONFLICT" | "ROOM_CONFLICT" | "STUDENT_CONFLICT"> = {
+  teacher: "TEACHER_CONFLICT",
+  room: "ROOM_CONFLICT",
+  student: "STUDENT_CONFLICT",
+};
+
+/**
+ * 2026-10-03 — eşzamanlı iki yazım (iki sekme/iki yönetici) aynı boş saati anlık görüntüde "boş" görüp
+ * ikisi de ders yazabiliyordu (çift rezervasyon). Kurum içi ders-saati yazımları advisory kilitle
+ * sıralanır; kilit altında DB'deki güncel derslerle merkezi kural (`findSlotConflict`) yeniden uygulanır.
+ * ponytail: kurum geneli tek kilit — yoğunluk artarsa öğretmen/oda anahtarlı kilide geçin.
+ */
+async function assertSlotFreeLockedTx(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  candidate: { teacherId: string; roomId: string; studentId: string; startAt: string; endAt: string }
+) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext('lesson-slot'))`;
+  const rows = await tx.lesson.findMany({
+    where: {
+      tenantId,
+      status: { not: "cancelled" },
+      startAt: { lt: new Date(candidate.endAt) },
+      endAt: { gt: new Date(candidate.startAt) },
+      OR: [{ teacherId: candidate.teacherId }, { roomId: candidate.roomId }, { studentId: candidate.studentId }],
+    },
+    select: {
+      id: true,
+      teacherId: true,
+      roomId: true,
+      studentId: true,
+      startAt: true,
+      endAt: true,
+      status: true,
+      opsMakeupFlag: true,
+      lessonProcessed: true,
+      lessonProcessedReason: true,
+      studentAttended: true,
+      actualStartAt: true,
+    },
+  });
+  const conflict = findSlotConflict(
+    rows.map((r) => ({
+      ...r,
+      startAt: r.startAt.toISOString(),
+      endAt: r.endAt.toISOString(),
+      status: r.status as Lesson["status"],
+      lessonProcessedReason: r.lessonProcessedReason ?? undefined,
+      actualStartAt: r.actualStartAt?.toISOString(),
+    })),
+    candidate
+  );
+  if (conflict) {
+    throw new LessonSlotValidationError(
+      SLOT_CONFLICT_CODE[conflict.resource],
+      "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Ders oluşturulmadı; sayfayı yenileyip başka bir saat seçin."
+    );
+  }
+}
+
+/**
+ * 2026-10-06 — kulüp oturumu satırlarını TOPLU yazar (üye başına bir satır). Çakışma kontrolü çağıranda
+ * (clubs.ts, merkezi `findSlotConflict`) yapılmıştır; burada yalnız tek işlemde yazım.
+ */
+export async function addClubSessionLessons(rows: import("./types").Lesson[]): Promise<void> {
+  const tid = requireTenantId();
+  if (rows.length === 0) return;
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
+  if (!school) throw new Error("Okul kaydı bulunamadı");
+  await prisma.lesson.createMany({ data: batchLessonCreateData(tid, school.id, rows) });
+}
+
+/**
+ * 2026-10-23 — grup dersi katılımcı satırlarını TOPLU yazar. Çağıran (group-lessons.ts) çakışmayı önceden doğrular;
+ * burada ders yuvası kilidi (`assertSlotFreeLockedTx` ile aynı advisory lock) altında aynı kural TEK sorguyla yeniden
+ * denetlenir — eşzamanlı bireysel ders planlaması aynı saati alamaz. Çakışma varsa hiçbir satır yazılmaz.
+ */
+export async function addGroupLessonRows(rows: import("./types").Lesson[]): Promise<void> {
+  const tid = requireTenantId();
+  if (rows.length === 0) return;
+  const school = await prisma.school.findFirst({ where: { tenantId: tid }, select: { id: true } });
+  if (!school) throw new Error("Okul kaydı bulunamadı");
+  const uniq = (xs: string[]) => Array.from(new Set(xs));
+  const lo = new Date(Math.min(...rows.map((r) => Date.parse(r.startAt))));
+  const hi = new Date(Math.max(...rows.map((r) => Date.parse(r.endAt))));
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext('lesson-slot'))`;
+      const existing = await tx.lesson.findMany({
+        where: {
+          tenantId: tid,
+          status: { not: "cancelled" },
+          startAt: { lt: hi },
+          endAt: { gt: lo },
+          OR: [
+            { teacherId: { in: uniq(rows.map((r) => r.teacherId)) } },
+            { roomId: { in: uniq(rows.map((r) => r.roomId)) } },
+            { studentId: { in: uniq(rows.map((r) => r.studentId)) } },
+          ],
+        },
+        select: {
+          id: true, teacherId: true, roomId: true, studentId: true, startAt: true, endAt: true, status: true,
+          opsMakeupFlag: true, lessonProcessed: true, lessonProcessedReason: true, studentAttended: true, actualStartAt: true,
+          clubSessionId: true, groupSessionId: true,
+        },
+      });
+      const mapped = existing.map((r) => ({
+        ...r,
+        startAt: r.startAt.toISOString(),
+        endAt: r.endAt.toISOString(),
+        status: r.status as Lesson["status"],
+        lessonProcessedReason: r.lessonProcessedReason ?? undefined,
+        actualStartAt: r.actualStartAt?.toISOString(),
+        clubSessionId: r.clubSessionId ?? undefined,
+        groupSessionId: r.groupSessionId ?? undefined,
+      }));
+      for (const r of rows) {
+        const conflict = findSlotConflict(mapped, r);
+        if (conflict) {
+          throw new LessonSlotValidationError(
+            SLOT_CONFLICT_CODE[conflict.resource],
+            "Bu saat az önce başka bir derse verildi (aynı anda iki kayıt yapıldı). Grup dersi satırları yazılmadı; sayfayı yenileyip tekrar deneyin."
+          );
+        }
+      }
+      await tx.lesson.createMany({ data: batchLessonCreateData(tid, school.id, rows) });
+    },
+    { maxWait: 10_000, timeout: 20_000 }
+  );
+}
+
+function batchLessonCreateData(tid: string, schoolId: string, rows: import("./types").Lesson[]) {
+  return rows.map((l) => ({
+      id: l.id,
+      tenantId: tid,
+      schoolId,
+      studentId: l.studentId,
+      teacherId: l.teacherId,
+      roomId: l.roomId,
+      branchId: l.branchId,
+      instrument: l.instrument,
+      startAt: new Date(l.startAt),
+      endAt: new Date(l.endAt),
+      type: l.type,
+      status: l.status,
+      clubId: l.clubId ?? null,
+      clubSessionId: l.clubSessionId ?? null,
+      groupLessonId: l.groupLessonId ?? null,
+      groupSessionId: l.groupSessionId ?? null,
+      enrollmentId: l.enrollmentId ?? null,
+      notes: l.notes ?? null,
+      createdByUserId: l.createdByUserId ?? null,
+      term: l.term ?? null,
+      academicYearStart: l.academicYearStart ?? null,
+  }));
+}
+
+/** 2026-10-06 — kulüp satırlarına (yalnız `type: "group"`) sınırlı yama: durum, telafi bayrağı, not. */
+export async function patchClubLessons(ids: string[], patch: import("./clubs").ClubLessonPatch): Promise<number> {
+  const tid = requireTenantId();
+  if (ids.length === 0) return 0;
+  const toDate = (v: string | undefined) => (v ? new Date(v) : undefined);
+  const res = await prisma.lesson.updateMany({
+    // Kulüp satırları (`type: "group"`) veya grup dersi katılımcı satırları — başka ders bu yoldan değişmez.
+    where: { tenantId: tid, id: { in: ids }, OR: [{ type: "group" }, { groupSessionId: { not: null } }] },
+    data: {
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.opsMakeupFlag !== undefined
+        ? { opsMakeupFlag: patch.opsMakeupFlag, opsMakeupFlagAt: toDate(patch.opsMakeupFlagAt) ?? null, opsMakeupFlagBy: patch.opsMakeupFlagBy ?? null }
+        : {}),
+      ...(patch.disruptionSource !== undefined
+        ? {
+            disruptionSource: patch.disruptionSource,
+            disruptionNote: patch.disruptionNote ?? null,
+            disruptionAt: toDate(patch.disruptionAt) ?? null,
+            disruptionBy: patch.disruptionBy ?? null,
+          }
+        : {}),
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      // 2026-10-07 — yoklamasız oturumun tarih/oda/öğretmen düzeltmesi (rescheduleClubSessionTool).
+      ...(patch.startAt ? { startAt: new Date(patch.startAt) } : {}),
+      ...(patch.endAt ? { endAt: new Date(patch.endAt) } : {}),
+      ...(patch.roomId ? { roomId: patch.roomId } : {}),
+      ...(patch.branchId ? { branchId: patch.branchId } : {}),
+      ...(patch.teacherId ? { teacherId: patch.teacherId } : {}),
+    },
+  });
+  return res.count;
 }
 
 export async function addLesson(input: {
@@ -2015,9 +3478,14 @@ export async function addLesson(input: {
   /** Override uygulanırsa Lesson.availabilityOverride.by'a yazılan aktör. */
   overriddenByUserId?: string;
   createdByUserId?: string;
-}): Promise<AppData> {
-  const data = await readData();
+  /** 2026-10-04 — dersin ait olduğu eğitim. */
+  enrollmentId?: string;
+}): Promise<string> {
   const tid = requireTenantId();
+  // DB egress (2026-10-10): doğrulama yalnız bu öğretmen/oda/öğrenci ve gün penceresine bakar — tam okuma yok.
+  const data =
+    (await readSlotScope(tid, { studentId: input.studentId, teacherId: input.teacherId, roomId: input.roomId, startAt: input.startAt })) ??
+    (await readData());
   const validation = validateLessonSlot(
     data,
     // `term` verilmişse haftalık kapalı gün kuralı DERSİN dönemine göre
@@ -2035,28 +3503,113 @@ export async function addLesson(input: {
   if (!branch) throw new Error("Şube bulunamadı");
 
   const override = slot.availabilityOverridden && input.overriddenByUserId;
-  await prisma.lesson.create({
-    data: {
-      id: `les_${Date.now().toString(36)}`,
-      tenantId: tid,
-      studentId: input.studentId,
-      teacherId: slot.teacherId,
-      roomId: slot.roomId,
-      branchId: slot.branchId,
-      schoolId: branch.schoolId,
-      instrument: input.instrument,
-      startAt: new Date(slot.startAt),
-      endAt: new Date(slot.endAt),
-      type: "regular",
-      status: "scheduled",
-      createdByUserId: input.createdByUserId,
-      term: input.term,
-      academicYearStart: input.academicYearStart,
-      availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
-      availabilityOverrideAt: override ? new Date() : undefined,
+  const lessonId = `les_${Date.now().toString(36)}`;
+  await prisma.$transaction(async (tx) => {
+    await assertSlotFreeLockedTx(tx, tid, { teacherId: slot.teacherId, roomId: slot.roomId, studentId: input.studentId, startAt: slot.startAt, endAt: slot.endAt });
+    await tx.lesson.create({
+      select: { id: true },
+      data: {
+        enrollmentId: input.enrollmentId,
+        id: lessonId,
+        tenantId: tid,
+        studentId: input.studentId,
+        teacherId: slot.teacherId,
+        roomId: slot.roomId,
+        branchId: slot.branchId,
+        schoolId: branch.schoolId,
+        instrument: input.instrument,
+        startAt: new Date(slot.startAt),
+        endAt: new Date(slot.endAt),
+        type: "regular",
+        status: "scheduled",
+        createdByUserId: input.createdByUserId,
+        term: input.term,
+        academicYearStart: input.academicYearStart,
+        availabilityOverrideBy: override ? input.overriddenByUserId : undefined,
+        availabilityOverrideAt: override ? new Date() : undefined,
+      },
+    });
+  });
+  return lessonId;
+}
+
+/** Dilimin ders kapsamı (bkz. lesson-scope.ts `isLessonInScope`): ders ∪ öğrencinin tüm dersleri ∪ öğretmen/oda gün penceresi. */
+function scopeLessonsWhere(
+  tid: string,
+  anchor: { id?: string; studentId: string; teacherId: string; roomId: string },
+  days: Date[]
+): Prisma.LessonWhereInput {
+  const windows = days.map((d) => ({
+    startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) },
+  }));
+  return {
+    tenantId: tid,
+    OR: [
+      ...(anchor.id ? [{ id: anchor.id }] : []),
+      { studentId: anchor.studentId },
+      ...windows.map((w) => ({ teacherId: anchor.teacherId, ...w })),
+      ...windows.map((w) => ({ roomId: anchor.roomId, ...w })),
+    ],
+  };
+}
+
+/**
+ * DB egress (2026-10-10) — YENİ ders doğrulaması için dar dilim (bkz. lesson-scope.ts `narrowSlotScope`;
+ * json/memory aynı dilimi tam veriden türetir). Okul yoksa null (çağıran tam okumaya düşer).
+ */
+export async function readSlotScope(
+  tid: string,
+  target: SlotScopeTarget,
+  days: Date[] = lessonScopeDays(target)
+): Promise<AppData | null> {
+  const school = await prisma.school.findFirst({
+    where: { tenantId: tid },
+    omit: { logoUrl: true },
+    include: {
+      branches: true,
+      teachers: { where: { tenantId: tid, id: target.teacherId } },
+      students: { where: { tenantId: tid, id: target.studentId } },
+      rooms: { where: { tenantId: tid, id: target.roomId } },
+      lessons: { where: scopeLessonsWhere(tid, target, days), omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: target.studentId }, omit: HOT_ROW_OMIT },
     },
   });
-  return readData();
+  if (!school) return null;
+  return {
+    ...mapSchoolToAppData({
+      ...school,
+      logoUrl: "",
+      lessonSeries: [],
+      attendances: [],
+      payments: [],
+      teacherFeeRules: [],
+      teacherPayouts: [],
+    }),
+    packages: [],
+    discountCampaigns: [],
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
+  };
+}
+
+/** DB egress (2026-10-17) — bir öğrencinin TÜM ders serileri (`readData().lessonSeries` süzgeciyle aynı satırlar). */
+export async function readLessonSeriesForStudent(studentId: string): Promise<import("./types").LessonSeries[]> {
+  if (!studentId) return [];
+  const tid = requireTenantId();
+  const rows = await prisma.lessonSeries.findMany({ where: { tenantId: tid, studentId, school: { tenantId: tid } } });
+  return rows.map(mapDbLessonSeries);
+}
+
+/** DB egress (2026-10-18) — verilen kimliklerin ders serileri (hakediş kalemi demo etiketi). */
+export async function readLessonSeriesByIds(seriesIds: string[]): Promise<import("./types").LessonSeries[]> {
+  if (seriesIds.length === 0) return [];
+  const tid = requireTenantId();
+  const rows = await prisma.lessonSeries.findMany({ where: { tenantId: tid, id: { in: seriesIds }, school: { tenantId: tid } } });
+  return rows.map(mapDbLessonSeries);
+}
+
+/** Bkz. StoreApi.readSlotScopeData — okul yoksa tam okumaya düşer (seed davranışı readData'da). */
+export async function readSlotScopeData(target: SlotScopeTarget, days?: Date[]): Promise<AppData> {
+  return (await readSlotScope(requireTenantId(), target, days)) ?? readData();
 }
 
 /**
@@ -2083,39 +3636,31 @@ export async function readLessonScope(
   if (!lessonRow) return null;
 
   const days = lessonScopeDays({ startAt: lessonRow.startAt.toISOString() }, targetStartAt);
-  const windows = days.map((d) => ({
-    startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) },
-  }));
 
   const school = await prisma.school.findFirst({
     where: { tenantId: tid },
+    // Dilim tüketicileri (ders doğrulama/statü kuralları) logoyu okumaz — ~79 KB data-URI her
+    // yoklama/taşıma işleminde taşınmasın (json/memory de `narrowLessonScope`'ta boşaltır).
+    omit: { logoUrl: true },
     include: {
       branches: true,
       teachers: { where: { tenantId: tid, id: lessonRow.teacherId } },
       students: { where: { tenantId: tid, id: lessonRow.studentId } },
       rooms: { where: { tenantId: tid, id: lessonRow.roomId } },
-      lessons: {
-        where: {
-          tenantId: tid,
-          OR: [
-            { id: lessonRow.id },
-            { studentId: lessonRow.studentId },
-            ...windows.map((w) => ({ teacherId: lessonRow.teacherId, ...w })),
-            ...windows.map((w) => ({ roomId: lessonRow.roomId, ...w })),
-          ],
-        },
-      },
-      attendances: { where: { tenantId: tid, lessonId: lessonRow.id } },
-      makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId } },
-      payments: { where: { tenantId: tid, lessonId: lessonRow.id } },
+      lessons: { where: scopeLessonsWhere(tid, lessonRow, days), omit: HOT_ROW_OMIT },
+      attendances: { where: { tenantId: tid, lessonId: lessonRow.id }, omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: lessonRow.studentId }, omit: HOT_ROW_OMIT },
+      payments: { where: { tenantId: tid, lessonId: lessonRow.id }, omit: HOT_ROW_OMIT },
     },
   });
   if (!school) return null;
 
   return {
-    ...mapSchoolToAppData({ ...school, lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
+    ...mapSchoolToAppData({ ...school, logoUrl: "", lessonSeries: [], teacherFeeRules: [], teacherPayouts: [] }),
     packages: [],
     discountCampaigns: [],
+    // Taşıma doğrulaması da zorla açık/kapalı günleri görsün.
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
   };
 }
 
@@ -2162,10 +3707,12 @@ export async function updateLessonSchedule(input: {
   return { ok: true, lesson: result.lesson, previousStartAt: original.startAt };
 }
 
-export async function cancelLesson(lessonId: string): Promise<AppData> {
+export async function cancelLesson(lessonId: string): Promise<void> {
   logger.info("cancelLesson", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) throw new Error("Ders bulunamadı.");
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyLessonCancel(data, lessonId);
   if (!result.ok) throw new Error(result.message);
@@ -2182,11 +3729,13 @@ export async function cancelLesson(lessonId: string): Promise<AppData> {
     data: { status: "voided" },
   });
 
-  return readData();
+  return;
 }
 
 async function reloadLessonLiveResult(lessonId: string): Promise<LessonLiveUpdateResult> {
-  const next = await readData();
+  // Çağıranlar (start/end/correct tool'ları) yalnız `lesson`'ı kullanır — tam veri yeniden okunmaz.
+  const next = await readLessonScope(lessonId);
+  if (!next) return { ok: false, message: "Ders bulunamadı." };
   const nextLesson = next.lessons.find((l) => l.id === lessonId);
   if (!nextLesson) return { ok: false, message: "Ders bulunamadı." };
   return { ok: true, data: next, lesson: nextLesson };
@@ -2195,7 +3744,9 @@ async function reloadLessonLiveResult(lessonId: string): Promise<LessonLiveUpdat
 export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   logger.info("startLessonLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyStartLesson(data, lessonId);
   if (!result.ok) return result;
@@ -2211,7 +3762,9 @@ export async function startLessonLive(lessonId: string): Promise<LessonLiveUpdat
 export async function endLessonLive(lessonId: string): Promise<LessonLiveUpdateResult> {
   logger.info("endLessonLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const original = data.lessons.find((l) => l.id === lessonId);
   const result = applyEndLesson(data, lessonId);
   if (!result.ok) return result;
@@ -2254,6 +3807,7 @@ async function persistLessonOpsResult(
     studentExcusedBy: L.studentExcusedBy ?? null,
     status: L.status,
     actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : undefined,
+    studentAttendanceNote: L.studentAttendanceNote ?? null,
     // 9. tur — Telafi ile birlikte gelen kaynak AYNI transaction'da yazılır; kota
     // kontrolü (assertStudentMakeupQuotaTx) bu satırdan sonra okur.
     ...(L.disruptionSource
@@ -2267,7 +3821,11 @@ async function persistLessonOpsResult(
   };
 
   if (flag === "makeup") {
-    const mk = result.data.makeupRequests.find((m) => m.sourceLessonId === lessonId);
+    // Açık (veya bu istekte yeniden açılan) talep — eskiden ilk eşleşen alınıyordu; kapanmış eski talep seçilip
+    // "zaten var" diye hiçbir şey yazılmıyordu (ders Telafi, Telafi Merkezi'nde talep yok).
+    const mk = result.data.makeupRequests.find(
+      (m) => m.sourceLessonId === lessonId && m.status !== "cancelled" && m.status !== "expired"
+    );
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -2277,11 +3835,38 @@ async function persistLessonOpsResult(
             if (!mk) return;
             const exists = await tx.makeupRequest.findFirst({
               where: { sourceLessonId: lessonId, tenantId: tid },
+              orderBy: { createdAt: "desc" },
+              select: { id: true, status: true, changeLog: true },
             });
-            if (exists) return;
+            if (exists && exists.status !== "cancelled" && exists.status !== "expired") return; // zaten açık — idempotent
             const les = await tx.lesson.findFirst({ where: { id: lessonId, tenantId: tid } });
             if (!les) throw new Error("Ders bulunamadı");
             await assertStudentMakeupQuotaTx(tx, tid, mk.studentId, les.schoolId, lessonId);
+            if (exists) {
+              // Ders başına tek yoklama + yoklama başına tek talep (@unique): kapanmış talep yeniden açılır.
+              // Koşullu güncelleme — eşzamanlı ikinci istek 0 satır günceller, çift açma olmaz.
+              const changeLog = [
+                ...((exists.changeLog as unknown as MakeupChangeEntry[] | null) ?? []),
+                { action: "reopened", at: new Date().toISOString(), by: L.opsMakeupFlagBy ?? "system", from: exists.status, to: "pending" },
+              ];
+              await tx.makeupRequest.updateMany({
+                where: { id: exists.id, tenantId: tid, status: { in: ["cancelled", "expired"] } },
+                data: {
+                  status: "pending",
+                  reason: mk.reason,
+                  expiresAt: new Date(mk.expiresAt),
+                  suggestedSlots: [],
+                  confirmedLessonId: null,
+                  decisionNote: null,
+                  decidedBy: null,
+                  decidedAt: null,
+                  slaDeadline: null,
+                  slaEscalationLevel: 0,
+                  changeLog: changeLog as object,
+                },
+              });
+              return;
+            }
             // `MakeupRequest.attendanceId` zorunlu bir FK — saf fonksiyon
             // (lesson-ops.ts) yoklama kaydı yoksa onu da üretir, burada AYNI
             // transaction içinde yazılmazsa `MakeupRequest_attendanceId_fkey`
@@ -2359,7 +3944,7 @@ async function persistLessonOpsResult(
           createsMakeupCredit: att.createsMakeupCredit,
           // Tenant kapsamı: bu sorgu daha önce tenantId taşımıyordu (bkz. CLAUDE.md
           // "Multi-tenancy — the security boundary"); eklendi.
-          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid } }))!.schoolId,
+          schoolId: (await prisma.lesson.findFirst({ where: { id: lessonId, tenantId: tid }, select: { schoolId: true } }))!.schoolId,
         },
       });
     }
@@ -2425,40 +4010,126 @@ export async function switchLessonOpsFlagLive(
   flag: LessonOpsFlag,
   actorUserId: string,
   reason?: string,
-  disruption?: import("./lesson-disruption").LessonDisruptionInput
+  disruption?: import("./lesson-disruption").LessonDisruptionInput,
+  attendanceNote?: string | null
 ): Promise<ApplyLessonOpsResult> {
   logger.info("switchLessonOpsFlagLive", lessonId, flag);
   // Tam tenant okuması yerine DAR dilim (bkz. readLessonScope / lesson-scope.ts).
   const data = await readLessonScope(lessonId);
   if (!data) return { ok: false, message: "Ders bulunamadı." };
-  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason, disruption);
+  const result = switchLessonOpsFlag(data, lessonId, flag, actorUserId, undefined, reason, disruption, attendanceNote);
   return persistLessonOpsResult(lessonId, flag, result);
 }
 
-/** Faz 2 — öğretmen yoklaması, öğrenci ops bayraklarından tamamen ayrı bir yol/tablo alanı. */
-export async function markTeacherAttendanceLive(
+/**
+ * 2026-09-29 — yoklama statüsünü geri alma. Saf kural dar dilimde çalışır; yazma TEK transaction'da ve
+ * ders satırı "beklenen statü hâlâ bu mu" koşuluyla güncellenir (eşzamanlı ikinci istek/başka kullanıcı
+ * arada değiştirdiyse 0 satır → STALE, telafi/yoklama yazımı da geri alınır).
+ */
+export async function clearLessonOpsFlagLive(
   lessonId: string,
-  status: TeacherAttendanceStatus,
-  actorUserId: string,
-  note: string | undefined
-): Promise<ReturnType<typeof markTeacherAttendance>> {
-  logger.info("markTeacherAttendanceLive", lessonId, status);
+  expected: LessonOpsFlag,
+  actorUserId: string
+): Promise<import("./lesson-ops").ClearLessonOpsResult> {
+  const { clearLessonOpsFlag } = await import("./lesson-ops");
   const tid = requireTenantId();
-  const data = await readData();
-  const result = markTeacherAttendance(data, lessonId, status, actorUserId, note);
-  if (!result.ok || result.alreadySet) return result;
-
-  const updateResult = await prisma.lesson.updateMany({
-    where: { id: lessonId, tenantId: tid },
-    data: {
-      teacherAttendanceStatus: status,
-      teacherAttendanceAt: result.lesson.teacherAttendanceAt ? new Date(result.lesson.teacherAttendanceAt) : null,
-      teacherAttendanceBy: actorUserId,
-      teacherAttendanceNote: note ?? null,
-    },
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  const result = clearLessonOpsFlag(data, lessonId, expected, actorUserId);
+  if (!result.ok || result.alreadyClear) return result;
+  const L = result.lesson;
+  const expectedWhere: Prisma.LessonWhereInput =
+    expected === "makeup"
+      ? { opsMakeupFlag: true }
+      : expected === "processed"
+        ? { opsMakeupFlag: false, lessonProcessed: true }
+        : expected === "attended"
+          ? { opsMakeupFlag: false, lessonProcessed: false, studentAttended: true }
+          : expected === "absent"
+            ? { opsMakeupFlag: false, lessonProcessed: false, studentAttended: false, studentAbsent: true }
+            : { opsMakeupFlag: false, lessonProcessed: false, studentAttended: false, studentAbsent: false, studentExcused: true };
+  const stale = await prisma.$transaction(async (tx) => {
+    const res = await tx.lesson.updateMany({
+      where: { id: lessonId, tenantId: tid, ...expectedWhere },
+      data: {
+        studentAttended: false,
+        studentAttendedAt: null,
+        studentAttendedBy: null,
+        lessonProcessed: false,
+        lessonProcessedAt: null,
+        lessonProcessedBy: null,
+        lessonProcessedReason: null,
+        opsMakeupFlag: false,
+        opsMakeupFlagAt: null,
+        opsMakeupFlagBy: null,
+        studentAbsent: false,
+        studentAbsentAt: null,
+        studentAbsentBy: null,
+        studentExcused: false,
+        studentExcusedAt: null,
+        studentExcusedBy: null,
+        status: L.status,
+        actualEndAt: L.actualEndAt ? new Date(L.actualEndAt) : null,
+      },
+    });
+    if (res.count === 0) return true;
+    if (result.cancelledMakeupIds.length > 0) {
+      await tx.makeupRequest.updateMany({
+        where: { id: { in: result.cancelledMakeupIds }, tenantId: tid, status: { in: ["pending", "suggested", "awaiting_info"] } },
+        data: { status: "cancelled", decisionNote: "Yoklama statüsü geri alındı", decidedBy: actorUserId, decidedAt: new Date() },
+      });
+    }
+    if (result.removedAttendanceIds.length > 0) {
+      await tx.attendance.deleteMany({ where: { id: { in: result.removedAttendanceIds }, tenantId: tid, makeupRequest: null } });
+    }
+    return false;
   });
-  if (updateResult.count === 0) return { ok: false, message: "Ders bulunamadı." };
-  return { ...result, data: await readData() };
+  if (stale) {
+    return {
+      ok: false,
+      code: "STALE",
+      message: "Bu dersin yoklama statüsü az önce değişti. Sayfayı yenileyip güncel statüyü kontrol edin.",
+    };
+  }
+  return result;
+}
+
+/**
+ * DB egress (2026-10-18) — ders DÜZENLEME dilimi (bkz. lesson-scope.ts `narrowLessonEditScope`; json/memory
+ * `editOnScope` ile aynı dilimi türetir): öğrenci dilimi + `windowOf` pencere verirse diğer öğrencilerin o
+ * öğretmen/oda/gün dersleri. Eskiden her sil/revize/değişim/seri iptali 2 tam okuma yapıyordu.
+ */
+export async function readLessonEditScope(
+  studentId: string,
+  windowOf?: (scope: AppData) => ConflictWindow | undefined
+): Promise<AppData> {
+  const tid = tenantId();
+  const scope: AppData = { ...(await readStudentScope(studentId)), teacherPayouts: [] };
+  const win = windowOf?.(scope);
+  if (!win || win.days.length === 0) return scope;
+  const windows = win.days.map((d) => ({ startAt: { gte: subDays(startOfDay(d), 1), lte: addDays(endOfDay(d), 1) } }));
+  const rows = await prisma.lesson.findMany({
+    where: {
+      tenantId: tid,
+      school: { tenantId: tid },
+      studentId: { not: studentId },
+      OR: [
+        ...windows.map((w) => ({ teacherId: { in: win.teacherIds }, ...w })),
+        ...windows.map((w) => ({ roomId: { in: win.roomIds }, ...w })),
+      ],
+    },
+    omit: HOT_ROW_OMIT,
+  });
+  return { ...scope, lessons: [...scope.lessons, ...rows.map(mapDbLesson)] };
+}
+
+/** Düzenlenecek dersin öğrencisinin dilimi (ders yoksa boş dilim → kural "Ders bulunamadı" döner). */
+async function readEditScopeForLesson(
+  lessonId: string,
+  windowOf?: (scope: AppData) => ConflictWindow | undefined
+): Promise<AppData> {
+  const lesson = await readLessonById(lessonId);
+  return readLessonEditScope(lesson?.studentId ?? "", windowOf);
 }
 
 /**
@@ -2469,7 +4140,7 @@ export async function markTeacherAttendanceLive(
 export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInput): Promise<ReassignLessonResult> {
   logger.info("reassignLessonTeacherOrBranchLive", input.lessonId, input.scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(input.lessonId, (scope) => reassignConflictWindow(scope, input));
   const result = reassignLessonTeacherOrBranch(data, input);
   if (!result.ok) return result;
 
@@ -2497,7 +4168,7 @@ export async function reassignLessonTeacherOrBranchLive(input: ReassignLessonInp
     }
   });
 
-  return { ...result, data: await readData() };
+  return result;
 }
 
 export async function correctLessonTimesLive(
@@ -2506,7 +4177,9 @@ export async function correctLessonTimesLive(
 ): Promise<LessonLiveUpdateResult> {
   logger.info("correctLessonTimesLive", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-10): kural yalnız dersi + aynı öğretmen/oda/öğrencinin gün penceresini okur — dar dilim (lesson-scope.ts).
+  const data = await readLessonScope(lessonId);
+  if (!data) return { ok: false, message: "Ders bulunamadı." };
   const result = applyCorrectLessonTimes(data, lessonId, correction);
   if (!result.ok) return result;
 
@@ -2537,7 +4210,10 @@ export async function addLessonSeries(
 ): Promise<CreateSeriesResult> {
   logger.info("addLessonSeries", params.studentId, params.teacherId);
   const tid = requireTenantId();
-  const data = await readData();
+  // DB egress (2026-10-17) — seri doğrulaması tam kurum verisi yerine oluşum günlerinin dar diliminde
+  // (json/memory aynı dilimi narrowSlotScope ile türetir). Kilitli çakışma kontrolü (assertSlotFreeLockedTx) aynen.
+  const data =
+    (await readSlotScope(tid, { ...params, startAt: params.startsOn }, seriesScopeDays(params))) ?? (await readData());
 
   if (!data.students.some((s) => s.id === params.studentId)) throw new Error("Öğrenci bulunamadı");
   if (!data.teachers.some((t) => t.id === params.teacherId)) throw new Error("Öğretmen bulunamadı");
@@ -2571,9 +4247,11 @@ export async function addLessonSeries(
         academicYearStart: params.academicYearStart,
         demoTag: params.demoTag,
         contractId: params.contractId,
+        enrollmentId: params.enrollmentId,
       },
     });
     for (const lesson of newLessons) {
+      await assertSlotFreeLockedTx(tx, tid, lesson);
       await tx.lesson.create({
         data: {
           id: lesson.id,
@@ -2589,6 +4267,7 @@ export async function addLessonSeries(
           type: lesson.type,
           status: lesson.status,
           seriesId: result.seriesId,
+          enrollmentId: lesson.enrollmentId,
           createdByUserId: lesson.createdByUserId,
           term: lesson.term,
           academicYearStart: lesson.academicYearStart,
@@ -2601,7 +4280,8 @@ export async function addLessonSeries(
 
   return {
     ok: true,
-    data: await readData(),
+    // Dilim + yeni seri (çağıranların hiçbiri `data`yı okumuyor; tam okuma yapılmaz).
+    data: result.data,
     seriesId: result.seriesId,
     createdLessonIds: result.createdLessonIds,
     skippedOccurrences: result.skippedOccurrences,
@@ -2612,7 +4292,7 @@ export async function addLessonSeries(
 export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<SeriesCancelResult> {
   logger.info("cancelLessonSeriesFromLesson", lessonId);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = cancelSeriesFromLesson(data, lessonId);
   if (!result.ok) return result;
 
@@ -2634,31 +4314,56 @@ export async function cancelLessonSeriesFromLesson(lessonId: string): Promise<Se
     });
   });
 
-  return { ok: true, data: await readData(), cancelledLessonIds: result.cancelledLessonIds };
+  return result;
 }
 
 /** 2026-09-17 — bkz. lesson-scope-edit.ts planLessonDeletion; korunan dersler (yoklama FK dahil) plana hiç girmez. */
 /** M — kritik şifreyle statülü tek ders silme; yoklama satırı aynı transaction'da silinir. */
 export async function forceDeleteLesson(lessonId: string): Promise<ForcedLessonDeletionPlan> {
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = planForcedLessonDeletion(data, lessonId);
   if (!result.ok) return result;
   const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.lesson.seriesId && s.status === "cancelled");
-  await prisma.$transaction(async (tx) => {
-    await tx.attendance.deleteMany({ where: { lessonId, tenantId: tid } });
-    await tx.lesson.deleteMany({ where: { id: lessonId, tenantId: tid } });
-    if (seriesClosed) {
-      await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+  const REOPENED = "makeup_reopened";
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Telafi kotası/yeniden Telafi ile aynı kilit (tenant, öğrenci): eşzamanlı "Telafi" ile silme sıraya girer.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tid}), hashtext(${result.lesson.studentId}))`;
+      const live = await tx.makeupRequest.count({
+        where: { tenantId: tid, sourceLessonId: lessonId, status: { notIn: ["cancelled", "expired"] } },
+      });
+      if (live > 0) throw new Error(REOPENED);
+      if (result.detachedMakeupLessonIds.length) {
+        await tx.lesson.updateMany({
+          where: { id: { in: result.detachedMakeupLessonIds }, tenantId: tid, status: "cancelled" },
+          data: { makeupRequestId: null },
+        });
+      }
+      if (result.removedMakeupRequestIds.length) {
+        await tx.makeupRequest.deleteMany({
+          where: { id: { in: result.removedMakeupRequestIds }, tenantId: tid, status: { in: ["cancelled", "expired"] } },
+        });
+      }
+      await tx.attendance.deleteMany({ where: { lessonId, tenantId: tid } });
+      await tx.lesson.deleteMany({ where: { id: lessonId, tenantId: tid } });
+      if (seriesClosed) {
+        await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
+      }
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === REOPENED) {
+      return { ok: false, message: "Bu ders için az önce telafi yeniden açıldı; ders silinmedi. Sayfayı yenileyip Telafi Merkezi'ni kontrol edin." };
     }
-  });
-  return { ...result, data: await readData() };
+    throw e;
+  }
+  return result;
 }
 
 export async function deleteLessonsScoped(lessonId: string, scope: LessonEditScope): Promise<LessonDeletionPlan> {
   logger.info("deleteLessonsScoped", lessonId, scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(lessonId);
   const result = planLessonDeletion(data, lessonId, scope);
   if (!result.ok) return result;
   const seriesClosed = result.data.lessonSeries.find((s) => s.id === result.seriesId && s.status === "cancelled");
@@ -2668,14 +4373,14 @@ export async function deleteLessonsScoped(lessonId: string, scope: LessonEditSco
       await tx.lessonSeries.updateMany({ where: { id: seriesClosed.id, tenantId: tid }, data: { status: "cancelled" } });
     }
   });
-  return { ...result, data: await readData() };
+  return result;
 }
 
 /** 2026-09-17 — bkz. lesson-scope-edit.ts applyLessonRevision. */
 export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<LessonRevisionResult> {
   logger.info("reviseLessonsScoped", input.lessonId, input.scope);
   const tid = requireTenantId();
-  const data = await readData();
+  const data = await readEditScopeForLesson(input.lessonId, (scope) => revisionConflictWindow(scope, input));
   const result = applyLessonRevision(data, input);
   if (!result.ok) return result;
   await prisma.$transaction(async (tx) => {
@@ -2691,14 +4396,15 @@ export async function reviseLessonsScoped(input: LessonRevisionInput): Promise<L
     }
     // ponytail: ders başına tek UPDATE; dönemlik seri (~40 ders) için yeterli, yüzlerce derste toplu SQL'e geçilir.
   }, { timeout: 30_000 });
-  return { ...result, data: await readData() };
+  return result;
 }
 
 /** "Tüm seri": geçmiş dersler korunur, gelecekteki tüm seri dersleri iptal edilir, seri cancelled olur. */
 export async function cancelEntireLessonSeries(seriesId: string): Promise<SeriesCancelResult> {
   logger.info("cancelEntireLessonSeries", seriesId);
   const tid = requireTenantId();
-  const data = await readData();
+  const series = await prisma.lessonSeries.findFirst({ where: { id: seriesId, tenantId: tid }, select: { studentId: true } });
+  const data = await readLessonEditScope(series?.studentId ?? "");
   const result = cancelEntireSeries(data, seriesId);
   if (!result.ok) return result;
 
@@ -2715,7 +4421,7 @@ export async function cancelEntireLessonSeries(seriesId: string): Promise<Series
     });
   });
 
-  return { ok: true, data: await readData(), cancelledLessonIds: result.cancelledLessonIds };
+  return result;
 }
 
 async function requireTeacherSchoolId(tid: string, teacherId: string): Promise<string> {
@@ -2731,12 +4437,16 @@ export async function addPackage(input: PackageInput): Promise<PackageMutationRe
   const result = createPackageData(data, input);
   if (!result.ok) return result;
 
+  // displayId db yolunda atomik sayaçtan gelir (tenant-kapsamlı, çakışmasız).
+  const displayId = formatDisplayId("package", await allocateSequenceValueDb(tid, "package"));
   await prisma.package.create({
     data: {
       id: result.pkg.id,
       tenantId: tid,
+      displayId,
       title: result.pkg.title,
       description: result.pkg.description,
+      applicableBranchIds: result.pkg.applicableBranchIds ?? undefined,
       status: result.pkg.status,
       price30Min: result.pkg.price30Min,
       price40Min: result.pkg.price40Min,
@@ -2748,11 +4458,12 @@ export async function addPackage(input: PackageInput): Promise<PackageMutationRe
       defaultPaymentDueDay: result.pkg.defaultPaymentDueDay,
       notes: result.pkg.notes,
       createdBy: result.pkg.createdBy,
+      createdByUserId: result.pkg.createdByUserId,
       createdAt: new Date(result.pkg.createdAt),
       updatedAt: new Date(result.pkg.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), pkg: result.pkg };
+  return { ok: true, data: result.data, pkg: { ...result.pkg, displayId } };
 }
 
 export async function updatePackage(packageId: string, patch: PackagePatch): Promise<PackageMutationResult> {
@@ -2776,11 +4487,12 @@ export async function updatePackage(packageId: string, patch: PackagePatch): Pro
       groupLessonCount: patch.groupLessonCount,
       defaultDurationMinutes: patch.defaultDurationMinutes,
       defaultPaymentDueDay: patch.defaultPaymentDueDay,
+      applicableBranchIds: patch.applicableBranchIds,
       notes: patch.notes,
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Paket bulunamadı." };
-  return { ok: true, data: await readData(), pkg: result.pkg };
+  return { ok: true, data: result.data, pkg: result.pkg };
 }
 
 export async function addDiscountCampaign(input: DiscountCampaignInput): Promise<DiscountCampaignMutationResult> {
@@ -2790,23 +4502,34 @@ export async function addDiscountCampaign(input: DiscountCampaignInput): Promise
   const result = createDiscountCampaignData(data, input);
   if (!result.ok) return result;
 
+  // displayId db yolunda atomik sayaçtan gelir (tenant-kapsamlı, çakışmasız).
+  const displayId = formatDisplayId("campaign", await allocateSequenceValueDb(tid, "campaign"));
   await prisma.discountCampaign.create({
     data: {
       id: result.campaign.id,
       tenantId: tid,
+      displayId,
       name: result.campaign.name,
+      description: result.campaign.description,
       kind: result.campaign.kind,
       discountPercent: result.campaign.discountPercent,
       active: result.campaign.active,
       validFrom: result.campaign.validFrom ? new Date(result.campaign.validFrom) : null,
       validTo: result.campaign.validTo ? new Date(result.campaign.validTo) : null,
       branchId: result.campaign.branchId ?? null,
+      applicableBranchIds: result.campaign.applicableBranchIds ?? undefined,
+      stackingRule: result.campaign.stackingRule,
+      priority: result.campaign.priority,
+      maxUsageCount: result.campaign.maxUsageCount,
+      usageCount: result.campaign.usageCount,
+      conditions: (result.campaign.conditions as import("@prisma/client").Prisma.InputJsonValue | undefined) ?? undefined,
       createdBy: result.campaign.createdBy,
+      createdByUserId: result.campaign.createdByUserId,
       createdAt: new Date(result.campaign.createdAt),
       updatedAt: new Date(result.campaign.updatedAt),
     },
   });
-  return { ok: true, data: await readData(), campaign: result.campaign };
+  return { ok: true, data: result.data, campaign: { ...result.campaign, displayId } };
 }
 
 export async function updateDiscountCampaign(
@@ -2820,17 +4543,29 @@ export async function updateDiscountCampaign(
   if (!result.ok) return result;
 
   const updateResult = await prisma.discountCampaign.updateMany({
-    where: { id: campaignId, tenantId: tid },
+    // Silinmiş satır hiçbir yamayla değişmez; eşzamanlı ikinci silme 0 satır günceller.
+    where: { id: campaignId, tenantId: tid, deletedAt: null },
     data: {
+      deletedAt: patch.deletedAt ? new Date(patch.deletedAt) : undefined,
+      deletedByUserId: patch.deletedByUserId,
+      deletionReason: patch.deletionReason,
       name: patch.name,
+      description: patch.description,
       discountPercent: patch.discountPercent,
       active: patch.active,
       validFrom: patch.validFrom !== undefined ? (patch.validFrom ? new Date(patch.validFrom) : null) : undefined,
       validTo: patch.validTo !== undefined ? (patch.validTo ? new Date(patch.validTo) : null) : undefined,
+      branchId: patch.branchId === null ? null : patch.branchId,
+      applicableBranchIds: patch.applicableBranchIds,
+      stackingRule: patch.stackingRule,
+      priority: patch.priority,
+      maxUsageCount: patch.maxUsageCount === null ? null : patch.maxUsageCount,
+      usageCount: patch.usageCount,
+      conditions: (patch.conditions as import("@prisma/client").Prisma.InputJsonValue | undefined) ?? undefined,
     },
   });
   if (updateResult.count === 0) return { ok: false, message: "Kampanya bulunamadı." };
-  return { ok: true, data: await readData(), campaign: result.campaign };
+  return { ok: true, data: result.data, campaign: result.campaign };
 }
 
 export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMutationResult> {
@@ -2856,7 +4591,7 @@ export async function addTeacherFeeRule(input: FeeRuleInput): Promise<FeeRuleMut
     },
   });
 
-  return { ok: true, data: await readData(), rule: result.rule };
+  return { ok: true, data: result.data, rule: result.rule };
 }
 
 export async function updateTeacherFeeRule(
@@ -2878,10 +4613,68 @@ export async function updateTeacherFeeRule(
       perMinuteRate: result.rule.perMinuteRate,
       effectiveFrom: new Date(result.rule.effectiveFrom),
       effectiveTo: result.rule.effectiveTo ? new Date(result.rule.effectiveTo) : null,
+      deactivatedAt: result.rule.deactivatedAt ? new Date(result.rule.deactivatedAt) : null,
+      deactivatedByUserId: result.rule.deactivatedByUserId ?? null,
+      deactivationReason: result.rule.deactivationReason ?? null,
     },
   });
 
-  return { ok: true, data: await readData(), rule: result.rule };
+  return { ok: true, data: result.data, rule: result.rule };
+}
+
+export const STALE_PAYOUT_ERROR = "STALE_PAYOUT";
+
+/** 2026-09-30 — kullanılmamış ücret kuralının kalıcı silinmesi (kullanım kontrolü tool katmanında). */
+export async function deleteTeacherFeeRule(ruleId: string): Promise<boolean> {
+  const res = await prisma.teacherFeeRule.deleteMany({ where: { id: ruleId, tenantId: requireTenantId() } });
+  return res.count === 1;
+}
+
+/** 2026-09-30 — iptal edilmiş + hiç ödemesi olmamış kaydın kalıcı silinmesi (kural tool katmanında). */
+export async function deleteTeacherPayout(payoutId: string): Promise<boolean> {
+  const res = await prisma.teacherPayout.deleteMany({ where: { id: payoutId, tenantId: requireTenantId(), status: "cancelled" } });
+  return res.count === 1;
+}
+
+export async function addTeacherPayoutExclusion(x: import("./types").TeacherPayoutExclusion): Promise<void> {
+  const tid = requireTenantId();
+  await prisma.teacherPayoutExclusion.upsert({
+    where: { tenantId_lessonId: { tenantId: tid, lessonId: x.lessonId } },
+    create: { ...x, tenantId: tid, createdAt: new Date(x.createdAt) },
+    update: { reason: x.reason, createdByUserId: x.createdByUserId, createdAt: new Date(x.createdAt) },
+  });
+}
+
+export async function removeTeacherPayoutExclusion(lessonId: string): Promise<boolean> {
+  const res = await prisma.teacherPayoutExclusion.deleteMany({ where: { lessonId, tenantId: requireTenantId() } });
+  return res.count === 1;
+}
+
+/** TeacherPayout → Prisma alanları (create/update ortak; tenant/teacher/school hariç). */
+function payoutWriteFields(p: TeacherPayout) {
+  const json = (v: unknown) => (v === undefined ? Prisma.DbNull : (v as Prisma.InputJsonValue));
+  return {
+    status: p.status,
+    paidAt: p.paidAt ? new Date(p.paidAt) : null,
+    method: p.method ?? null,
+    totalMinutes: Math.round(p.totalMinutes),
+    totalAmount: p.totalAmount,
+    originalTotalMinutes: p.originalTotalMinutes ?? null,
+    originalTotalAmount: p.originalTotalAmount ?? null,
+    lineOverrides: p.lineOverrides && Object.keys(p.lineOverrides).length > 0 ? json(p.lineOverrides) : Prisma.DbNull,
+    revisionCount: p.revisionCount ?? 0,
+    revisedAt: p.revisedAt ? new Date(p.revisedAt) : null,
+    revisedByUserId: p.revisedByUserId ?? null,
+    revisionReason: p.revisionReason ?? null,
+    pricingPolicy: p.pricingPolicy ?? null,
+    pricingSnapshot: json(p.pricingSnapshot),
+    cancelledAt: p.cancelledAt ? new Date(p.cancelledAt) : null,
+    cancelledByUserId: p.cancelledByUserId ?? null,
+    cancelReason: p.cancelReason ?? null,
+    lineSnapshot: json(p.lineSnapshot),
+    payments: json(p.payments),
+    adjustments: json(p.adjustments),
+  };
 }
 
 export async function createTeacherPayout(
@@ -2896,6 +4689,17 @@ export async function createTeacherPayout(
   const result = createTeacherPayoutSnapshot(data, teacherId, periodStart, periodEnd, new Date(), paymentMethodOverride);
   if (!result.ok) return result;
 
+  if (result.reusedCancelledId) {
+    // İptal edilmiş aynı dönem kaydı yerinde yeniden oluşturulur (sürüm kontrollü).
+    const res = await prisma.teacherPayout.updateMany({
+      where: { id: result.reusedCancelledId, tenantId: tid, status: "cancelled", version: result.payout.version ?? 0 },
+      data: { ...payoutWriteFields(result.payout), generatedAt: new Date(result.payout.generatedAt), version: { increment: 1 } },
+    });
+    if (res.count === 0) {
+      return { ok: false, code: "PAYOUT_ALREADY_EXISTS", message: "Bu dönemin kaydı az önce değişti; sayfayı yenileyip tekrar deneyin.", existingPayoutId: result.reusedCancelledId };
+    }
+    return { ok: true, data: result.data, payout: { ...result.payout, version: (result.payout.version ?? 0) + 1 } };
+  }
   const schoolId = await requireTeacherSchoolId(tid, teacherId);
   try {
     await prisma.teacherPayout.create({
@@ -2911,6 +4715,13 @@ export async function createTeacherPayout(
         status: result.payout.status,
         method: result.payout.method,
         generatedAt: new Date(result.payout.generatedAt),
+        pricingPolicy: result.payout.pricingPolicy ?? null,
+        pricingSnapshot: result.payout.pricingSnapshot
+          ? (result.payout.pricingSnapshot as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+        lineSnapshot: result.payout.lineSnapshot as unknown as Prisma.InputJsonValue,
+        payments: [],
+        adjustments: [],
       },
     });
   } catch (error) {
@@ -2926,7 +4737,7 @@ export async function createTeacherPayout(
     throw error;
   }
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
 }
 
 export async function updateTeacherPayoutPaymentMethod(
@@ -2944,34 +4755,45 @@ export async function updateTeacherPayoutPaymentMethod(
     data: { method },
   });
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
+}
+
+/** 2026-09-29/30 — ay bazlı hakediş politikası (kilit yok; kayıtların yeniden hesabı tool katmanında). */
+export async function setTeacherPayoutPolicy(
+  input: import("./teacher-payout").SetPayoutPolicyInput,
+  actorUserId: string
+): Promise<import("./teacher-payout").SetPayoutPolicyResult> {
+  const tid = requireTenantId();
+  const { setPayoutPolicyForMonthData } = await import("./teacher-payout");
+  const result = setPayoutPolicyForMonthData(await readData(), input, actorUserId);
+  if (!result.ok || !result.changed) return result;
+  const r = result.record;
+  const fields = {
+    policy: r.policy,
+    rate30: r.rate30 ?? null,
+    rate40: r.rate40 ?? null,
+    rate50: r.rate50 ?? null,
+    setByUserId: r.setByUserId,
+    setAt: new Date(r.setAt),
+  };
+  await prisma.teacherPayoutPolicyPeriod.upsert({
+    where: { tenantId_month: { tenantId: tid, month: r.month } },
+    create: { id: r.id, tenantId: tid, month: r.month, ...fields },
+    update: fields,
+  });
+  return result;
 }
 
 /** K — hakediş revizyonu/ödeme geri alma (bkz. store-json.ts aynı adlı fonksiyon). */
-export async function replaceTeacherPayout(payout: TeacherPayout): Promise<AppData> {
+export async function replaceTeacherPayout(payout: TeacherPayout): Promise<void> {
   const tid = requireTenantId();
+  // İyimser kilit: yalnız okunduğu sürümdeyse yazılır (eşzamanlı ikinci ödeme/düzeltme çift kayıt üretmez).
   const res = await prisma.teacherPayout.updateMany({
-    where: { id: payout.id, tenantId: tid },
-    data: {
-      status: payout.status,
-      paidAt: payout.paidAt ? new Date(payout.paidAt) : null,
-      method: payout.method ?? null,
-      totalMinutes: payout.totalMinutes,
-      totalAmount: payout.totalAmount,
-      originalTotalMinutes: payout.originalTotalMinutes ?? null,
-      originalTotalAmount: payout.originalTotalAmount ?? null,
-      lineOverrides:
-        payout.lineOverrides && Object.keys(payout.lineOverrides).length > 0
-          ? (payout.lineOverrides as unknown as Prisma.InputJsonValue)
-          : Prisma.DbNull,
-      revisionCount: payout.revisionCount ?? 0,
-      revisedAt: payout.revisedAt ? new Date(payout.revisedAt) : null,
-      revisedByUserId: payout.revisedByUserId ?? null,
-      revisionReason: payout.revisionReason ?? null,
-    },
+    where: { id: payout.id, tenantId: tid, version: payout.version ?? 0 },
+    data: { ...payoutWriteFields(payout), version: { increment: 1 } },
   });
-  if (res.count === 0) throw new Error("Hakediş kaydı bulunamadı");
-  return readData();
+  if (res.count === 0) throw new Error(STALE_PAYOUT_ERROR);
+  return;
 }
 
 export async function markTeacherPayoutPaid(
@@ -2989,7 +4811,7 @@ export async function markTeacherPayoutPaid(
     data: { status: "paid", paidAt: new Date(result.payout.paidAt!), method },
   });
 
-  return { ok: true, data: await readData(), payout: result.payout };
+  return { ok: true, data: result.data, payout: result.payout };
 }
 
 export async function updatePerformanceWeights(
@@ -3020,19 +4842,24 @@ export async function updateMonthlyMakeupAllowance(monthlyMakeupAllowance: numbe
 
 export async function updateMakeupWindowDays(makeupWindowDays: number): Promise<AppData> {
   const tid = requireTenantId();
-  await prisma.school.update({ where: { tenantId: tid }, data: { makeupWindowDays } });
+  await prisma.$transaction([
+    prisma.school.update({ where: { tenantId: tid }, data: { makeupWindowDays } }),
+    // expiresAtForPolicyWindow ile AYNI kural (makeup-deadline.ts): açık/planlı talebin son günü
+    // kaynak ders başlangıcı (yoksa createdAt) + yeni pencere; GREATEST → asla kısalmaz.
+    prisma.$executeRaw`UPDATE "MakeupRequest" m SET "expiresAt" = GREATEST(m."expiresAt", COALESCE((SELECT l."startAt" FROM "Lesson" l WHERE l."id" = m."sourceLessonId" AND l."tenantId" = m."tenantId"), m."createdAt") + make_interval(days => ${makeupWindowDays}::int)) WHERE m."tenantId" = ${tid} AND m."status" IN ('pending', 'suggested', 'awaiting_info', 'confirmed')`,
+  ]);
   return readData();
 }
 
 export async function updateCollectionsSettings(
   collectionsSettings: CollectionsSettings
-): Promise<AppData> {
+): Promise<void> {
   const tid = requireTenantId();
   await prisma.school.update({
     where: { tenantId: tid },
     data: { collectionsSettings: collectionsSettings as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
 export async function updateTermWeeklyClosedDays(
@@ -3051,7 +4878,7 @@ export async function updateTermWeeklyClosedDays(
   return readData();
 }
 
-export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<AppData> {
+export async function updateAcademicTermDates(academicTermDates: AcademicTermDates): Promise<void> {
   const tid = requireTenantId();
   const current = await prisma.school.findUnique({
     where: { tenantId: tid },
@@ -3062,16 +4889,16 @@ export async function updateAcademicTermDates(academicTermDates: AcademicTermDat
     where: { tenantId: tid },
     data: { termWeeklyClosedDays: merged as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
-export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<AppData> {
+export async function updateConsentSettings(consentSettings: ConsentSettings): Promise<void> {
   const tid = requireTenantId();
   await prisma.school.update({
     where: { tenantId: tid },
     data: { consentSettings: consentSettings as unknown as Prisma.InputJsonValue },
   });
-  return readData();
+  return;
 }
 
 export async function updateSchoolLogoUrl(logoUrl: string): Promise<AppData> {
@@ -3085,7 +4912,14 @@ export async function addPayment(input: {
   description: string;
   amount: number;
   dueDate: string;
-}): Promise<AppData> {
+  /** 2026-10-05 — kulüp ücreti satırı için (opsiyonel; yoksa eski davranış). */
+  id?: string;
+  source?: import("./types").PaymentSource;
+  clubMembershipId?: string;
+  installmentPeriodLabel?: string;
+  /** 2026-10-09 — satırın branş kaydı (yoksa eski davranış: NULL). */
+  enrollmentId?: string;
+}): Promise<void> {
   logger.info("addPayment", input.studentId, input.amount);
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({
@@ -3095,7 +4929,7 @@ export async function addPayment(input: {
   const isOverdue = new Date(input.dueDate).getTime() < Date.now();
   await prisma.payment.create({
     data: {
-      id: `pay_${Date.now().toString(36)}`,
+      id: input.id ?? `pay_${Date.now().toString(36)}`,
       tenantId: tid,
       studentId: input.studentId,
       schoolId: student.schoolId,
@@ -3104,9 +4938,13 @@ export async function addPayment(input: {
       status: isOverdue ? "overdue" : "pending",
       dueDate: new Date(input.dueDate),
       description: input.description,
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.clubMembershipId ? { clubMembershipId: input.clubMembershipId } : {}),
+      ...(input.installmentPeriodLabel ? { installmentPeriodLabel: input.installmentPeriodLabel } : {}),
+      ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
     },
   });
-  return readData();
+  return;
 }
 
 /** FEATURE A — bkz. store.ts yorumu. `createMany` — tek toplu yazma, id çakışma riski yok (uid() rastgele). */
@@ -3116,7 +4954,9 @@ export async function addContractInstallments(input: {
   installments: ContractInstallmentSnapshot[];
   firstPaymentCollected?: { method: string; amount: number; collectedAt: string; reference?: string; note?: string };
   reuseFirstPaymentId?: string;
-}): Promise<{ data: AppData; installments: ContractInstallmentView[] }> {
+  /** 2026-10-09 — sözleşmenin branş kaydı; taksit satırlarına (ve bağlanan kayıt ödemesine) aynen yazılır. */
+  enrollmentId?: string;
+}): Promise<{ installments: ContractInstallmentView[] }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
   if (!student) throw new Error("Öğrenci bulunamadı");
@@ -3143,6 +4983,7 @@ export async function addContractInstallments(input: {
         method: isFirstCollected ? fp!.method : inst.paymentMethod,
         source: "contract",
         contractId: input.contractId,
+        enrollmentId: input.enrollmentId ?? null,
         installmentSequence: inst.sequence,
         installmentKind: inst.kind,
         installmentPeriodLabel: inst.periodLabel,
@@ -3177,11 +5018,16 @@ export async function addContractInstallments(input: {
       data: {
         amount: firstInst?.amount,
         contractId: input.contractId,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
         installmentSequence: 1,
         description: `Sözleşme taksiti 1/${input.installments.at(-1)?.sequence ?? input.installments.length} — Kayıt anında tahsil edildi (kayıt ödemesi)`,
         installmentKind: firstInst?.kind,
         installmentPeriodLabel: firstInst?.periodLabel,
-        installmentBreakdown: firstInst?.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue | undefined,
+        // 2026-10-14 — kayıt satırı artık kendi kırılımını taşıyabilir; sözleşmenin ilk taksiti birleşik DEĞİLSE eski
+        // kırılım temizlenir (undefined Prisma'da "dokunma" demektir; json/memory'de alan zaten silinir).
+        installmentBreakdown: firstInst?.breakdown
+          ? (firstInst.breakdown as unknown as import("@prisma/client").Prisma.InputJsonValue)
+          : Prisma.DbNull,
         installmentComputationSource: firstInst?.computationSource,
         installmentNote: firstInst?.note,
       },
@@ -3201,7 +5047,6 @@ export async function addContractInstallments(input: {
       installmentNote: updated.installmentNote,
     };
   }
-  const data = await readData();
   const installmentRows = reusedRow
     ? [reusedRow, ...rows.map((r) => ({ ...r, sequence: r.installmentSequence }))]
     : rows.map((r) => ({ ...r, sequence: r.installmentSequence }));
@@ -3219,14 +5064,19 @@ export async function addContractInstallments(input: {
     computationSource: (r.installmentComputationSource as "auto" | "manual" | null | undefined) ?? undefined,
     note: r.installmentNote ?? undefined,
   }));
-  return { data, installments };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıran (contracts.ts) yalnız installments kullanır.
+  return { installments };
 }
 
 /** P0 dedup fix (2026-08-30) — bkz. store.ts StoreApi.getRegistrationFirstPayment. */
-export async function getRegistrationFirstPayment(studentId: string): Promise<import("./types").Payment | null> {
+export async function getRegistrationFirstPayment(
+  studentId: string,
+  scope?: import("./student-enrollments").EnrollmentScope
+): Promise<import("./types").Payment | null> {
   const tid = requireTenantId();
   const row = await prisma.payment.findFirst({
-    where: { tenantId: tid, studentId, source: "registration_first_payment" },
+    where: { tenantId: tid, studentId, source: "registration_first_payment", ...enrollmentScopeWhere(scope) },
+    orderBy: { createdAt: "asc" },
   });
   if (!row) return null;
   return {
@@ -3249,35 +5099,62 @@ export async function getRegistrationFirstPayment(studentId: string): Promise<im
     adjustmentReason: row.adjustmentReason ?? undefined,
     adjustedBy: row.adjustedBy ?? undefined,
     adjustedAt: row.adjustedAt?.toISOString() ?? undefined,
+    contractId: row.contractId ?? undefined,
+    enrollmentId: (row as { enrollmentId?: string | null }).enrollmentId ?? undefined,
   };
 }
 
+/** 2026-10-09 — branş kapsamı → Prisma `where` parçası (bkz. student-enrollments.ts `matchesEnrollmentScope`). */
+function enrollmentScopeWhere(scope?: import("./student-enrollments").EnrollmentScope): Prisma.PaymentWhereInput {
+  if (!scope) return {};
+  if (!scope.enrollmentId) return { enrollmentId: null };
+  return scope.includeUnlinked ? { OR: [{ enrollmentId: scope.enrollmentId }, { enrollmentId: null }] } : { enrollmentId: scope.enrollmentId };
+}
+
+/** Bkz. store-json.ts upsertMonthlyPlanPayment — dönem ayı başına tek satır; tahsilat tarihi vadeye yazılmaz. */
 export async function upsertMonthlyPlanPayment(input: {
   studentId: string;
   month: string;
   amount: number;
-  dueDate?: string;
   method?: string;
-}): Promise<{ data: AppData; paymentId: string }> {
+  /** 2026-10-09 — branş kaydı: dönem ayı satırı BRANŞ başınadır (Keman Ekim ≠ Piyano Ekim). */
+  enrollmentId?: string;
+  includeUnlinked?: boolean;
+}): Promise<{ paymentId: string }> {
   logger.info("upsertMonthlyPlanPayment", input.studentId, input.month, input.amount);
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({
     where: { id: input.studentId, tenantId: tid },
   });
   if (!student) throw new Error("Öğrenci bulunamadı");
-  const rangeStart = new Date(`${input.month}-01T00:00:00.000Z`);
-  const rangeEnd = new Date(rangeStart);
-  rangeEnd.setUTCMonth(rangeEnd.getUTCMonth() + 1);
-  const existing = await prisma.payment.findFirst({
+  const { isMonthlyPlanRowForMonth, monthlyPlanPeriodLabel } = await import("./attendance-calendar-plan");
+  // Öğrencinin sözleşmesiz aylık plan satırları azdır; dönem ayı tek kuralla (etiket → açıklama → vade) seçilir.
+  const candidates = await prisma.payment.findMany({
     where: {
       tenantId: tid,
       studentId: input.studentId,
       source: "monthly_plan",
-      dueDate: { gte: rangeStart, lt: rangeEnd },
+      contractId: null,
+      ...enrollmentScopeWhere({ enrollmentId: input.enrollmentId, includeUnlinked: input.includeUnlinked }),
     },
+    select: { id: true, description: true, dueDate: true, installmentPeriodLabel: true, source: true, amount: true, paidAmount: true, status: true, adjustedBy: true },
   });
+  const existing = candidates.find((p) =>
+    isMonthlyPlanRowForMonth(
+      {
+        id: p.id,
+        source: p.source,
+        description: p.description,
+        dueDate: p.dueDate.toISOString(),
+        installmentPeriodLabel: p.installmentPeriodLabel ?? undefined,
+        amount: p.amount,
+        paidAmount: p.paidAmount,
+        status: p.status,
+      },
+      input.month
+    )
+  );
   const description = `Aylık plan — ${input.month} (${input.amount} TL)`;
-  const explicitDueDate = input.dueDate ? new Date(`${input.dueDate}T12:00:00.000Z`) : undefined;
   let paymentId: string;
   if (existing) {
     paymentId = existing.id;
@@ -3286,7 +5163,9 @@ export async function upsertMonthlyPlanPayment(input: {
       data: {
         amount: input.amount,
         description,
-        dueDate: explicitDueDate,
+        ...(existing.installmentPeriodLabel ? {} : { installmentPeriodLabel: monthlyPlanPeriodLabel(input.month) }),
+        // 2026-10-23 — sistemin askıya aldığı satıra takvimden tahsilat: askı işareti kalkar (bkz. payments/accrual-rows.ts).
+        ...(existing.adjustedBy?.startsWith("system:") ? { adjustedBy: null, adjustmentReason: null, adjustedAt: null } : {}),
         method: input.method,
       },
     });
@@ -3301,15 +5180,17 @@ export async function upsertMonthlyPlanPayment(input: {
         amount: input.amount,
         paidAmount: 0,
         status: "pending",
-        dueDate: explicitDueDate ?? new Date(`${input.month}-01T12:00:00.000Z`),
+        dueDate: new Date(`${input.month}-01T12:00:00.000Z`),
         description,
+        installmentPeriodLabel: monthlyPlanPeriodLabel(input.month),
         source: "monthly_plan",
         method: input.method,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
       },
     });
   }
-  const data = await readData();
-  return { data, paymentId };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıranlar yalnız paymentId kullanır (aylık tahakkuk cron'u öğrenci başına çağırır).
+  return { paymentId };
 }
 
 /** Bkz. store-json.ts addRegistrationFirstPayment — aynı davranış/idempotency (mode parity). */
@@ -3327,12 +5208,14 @@ export async function addRegistrationFirstPayment(input: {
   adjustedAt?: string;
   /** Bkz. Payment.firstCollectionIncludesNextMonth. */
   firstCollectionIncludesNextMonth?: boolean;
-}): Promise<{ data: AppData; paymentId: string }> {
+  /** 2026-10-09 — branş kaydı; idempotency öğrenci + branş başınadır (ikinci branşın ilk tahsilatı ayrı satır). */
+  enrollmentId?: string;
+}): Promise<{ paymentId: string }> {
   const tid = requireTenantId();
   const student = await prisma.student.findFirst({ where: { id: input.studentId, tenantId: tid } });
   if (!student) throw new Error("Öğrenci bulunamadı");
   const existing = await prisma.payment.findFirst({
-    where: { tenantId: tid, studentId: input.studentId, source: "registration_first_payment" },
+    where: { tenantId: tid, studentId: input.studentId, source: "registration_first_payment", enrollmentId: input.enrollmentId ?? null },
   });
   let paymentId: string;
   if (existing) {
@@ -3363,11 +5246,84 @@ export async function addRegistrationFirstPayment(input: {
         adjustmentReason: input.adjustmentReason,
         adjustedBy: input.adjustedBy,
         adjustedAt: input.adjustedAt ? new Date(input.adjustedAt) : undefined,
+        ...(input.enrollmentId ? { enrollmentId: input.enrollmentId } : {}),
       },
     });
   }
-  const data = await readData();
-  return { data, paymentId };
+  // DB egress (2026-10-18) — sondaki tam okuma kalktı: çağıranlar yalnız paymentId kullanır (aylık tahakkuk cron'u öğrenci başına çağırır).
+  return { paymentId };
+}
+
+/**
+ * 2026-10-09 — branş bağı olmayan (NULL) kayıtları TEK bir branş kaydına bağlar; yalnız NULL satırlar yazılır,
+ * başka branşa bağlı satıra DOKUNULMAZ. Kulüp satırları ve grup (kulüp) dersleri branş kaydı değildir, atlanır.
+ * - `scope: "student"`: öğrencinin tüm bağsız ödemeleri + enstrümanı eşleşen ders/serileri (tek branşlı öğrenci).
+ * - `contractIds`: yalnız bu sözleşmelerin taksitleri, serileri ve o serilerin dersleri ("Branşa bağla").
+ * - `paymentIds`: yalnız bu ödemeler.
+ */
+export async function linkRecordsToEnrollment(input: {
+  studentId: string;
+  enrollmentId: string;
+  instrument?: string;
+  scope?: "student";
+  contractIds?: string[];
+  paymentIds?: string[];
+}): Promise<{ payments: number; lessons: number; series: number }> {
+  const tid = requireTenantId();
+  const base = { tenantId: tid, studentId: input.studentId, enrollmentId: null };
+  let payments = 0;
+  let lessons = 0;
+  let series = 0;
+  await prisma.$transaction(async (tx) => {
+    if (input.scope === "student") {
+      payments += (
+        await tx.payment.updateMany({
+          // Yalnız yapısal olarak sahibi belli kaynaklar (bkz. student-enrollments.ts AUTO_LINK_PAYMENT_SOURCES);
+          // elle girilmiş genel satırlar bağlanmaz.
+          where: { ...base, clubMembershipId: null, source: { in: [...AUTO_LINK_PAYMENT_SOURCES] } },
+          data: { enrollmentId: input.enrollmentId },
+        })
+      ).count;
+      if (input.instrument) {
+        lessons += (
+          await tx.lesson.updateMany({
+            where: { ...base, instrument: input.instrument, clubSessionId: null, type: { not: "group" } },
+            data: { enrollmentId: input.enrollmentId },
+          })
+        ).count;
+        series += (
+          await tx.lessonSeries.updateMany({ where: { ...base, instrument: input.instrument }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+      }
+    }
+    if (input.contractIds?.length) {
+      payments += (
+        await tx.payment.updateMany({ where: { ...base, contractId: { in: input.contractIds } }, data: { enrollmentId: input.enrollmentId } })
+      ).count;
+      const seriesRows = await tx.lessonSeries.findMany({
+        where: { tenantId: tid, studentId: input.studentId, contractId: { in: input.contractIds } },
+        select: { id: true },
+      });
+      const seriesIds = seriesRows.map((r) => r.id);
+      if (seriesIds.length) {
+        series += (
+          await tx.lessonSeries.updateMany({ where: { ...base, id: { in: seriesIds } }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+        lessons += (
+          await tx.lesson.updateMany({ where: { ...base, seriesId: { in: seriesIds } }, data: { enrollmentId: input.enrollmentId } })
+        ).count;
+      }
+    }
+    if (input.paymentIds?.length) {
+      payments += (
+        await tx.payment.updateMany({
+          where: { ...base, id: { in: input.paymentIds }, clubMembershipId: null },
+          data: { enrollmentId: input.enrollmentId },
+        })
+      ).count;
+    }
+  });
+  return { payments, lessons, series };
 }
 
 /**
@@ -3418,6 +5374,270 @@ export async function seedDemoRecords(input: DemoSeedInput): Promise<DemoSeedRes
   }
 
   return { lessonIds };
+}
+
+const MAKEUP_LIFECYCLE_CONFLICT =
+  "Bu telafi kaydı az önce değişti. Telafi Merkezi'ni yenileyip güncel durumu kontrol edin.";
+
+function makeupRequestPersistData(request: import("./types").MakeupRequest): Prisma.MakeupRequestUncheckedUpdateManyInput {
+  return {
+    status: request.status,
+    expiresAt: new Date(request.expiresAt),
+    confirmedLessonId: request.confirmedLessonId ?? null,
+    decisionNote: request.decisionNote ?? null,
+    decidedBy: request.decidedBy ?? null,
+    decidedAt: request.decidedAt ? new Date(request.decidedAt) : null,
+    slaDeadline: request.slaDeadline ? new Date(request.slaDeadline) : null,
+    slaEscalationLevel: request.slaEscalationLevel ?? 0,
+    teacherId: request.teacherId,
+    changeLog: (request.changeLog ?? []) as unknown as Prisma.InputJsonValue,
+  };
+}
+
+function lessonLifecycleData(after: Lesson): Prisma.LessonUncheckedUpdateManyInput {
+  return {
+    status: after.status,
+    teacherId: after.teacherId,
+    roomId: after.roomId,
+    branchId: after.branchId,
+    startAt: new Date(after.startAt),
+    endAt: new Date(after.endAt),
+    lessonProcessed: after.lessonProcessed ?? false,
+    lessonProcessedAt: after.lessonProcessedAt ? new Date(after.lessonProcessedAt) : null,
+    lessonProcessedBy: after.lessonProcessedBy ?? null,
+    lessonProcessedReason: after.lessonProcessedReason ?? null,
+    opsMakeupFlag: after.opsMakeupFlag ?? false,
+    opsMakeupFlagAt: after.opsMakeupFlagAt ? new Date(after.opsMakeupFlagAt) : null,
+    opsMakeupFlagBy: after.opsMakeupFlagBy ?? null,
+    studentAbsent: after.studentAbsent ?? false,
+    studentExcused: after.studentExcused ?? false,
+  };
+}
+
+/** Telafi yaşam döngüsü için dar dilim: talep, bağlı dersler ve hedef öğretmen/oda gün penceresi. */
+async function readMakeupBundleDb(op: MakeupLifecycleOp): Promise<AppData | null> {
+  const tid = requireTenantId();
+  const request = await prisma.makeupRequest.findFirst({
+    where: { id: op.requestId, tenantId: tid },
+    select: { id: true, studentId: true, teacherId: true, sourceLessonId: true, confirmedLessonId: true, expiresAt: true },
+  });
+  if (!request) return null;
+  const slot = op.kind === "revise" ? { teacherId: op.teacherId, roomId: op.roomId, startAt: op.startAt } : undefined;
+  const related = await prisma.lesson.findMany({
+    where: {
+      tenantId: tid,
+      OR: [
+        { id: { in: [request.sourceLessonId, request.confirmedLessonId].filter((id): id is string => !!id) } },
+        { makeupRequestId: request.id },
+      ],
+    },
+    select: { id: true, teacherId: true, roomId: true, startAt: true },
+  });
+  const teacherIds = [...new Set([request.teacherId, ...related.map((row) => row.teacherId), slot?.teacherId].filter((id): id is string => !!id))];
+  const roomIds = [...new Set([...related.map((row) => row.roomId), slot?.roomId].filter((id): id is string => !!id))];
+  const anchors = [request.expiresAt, ...related.map((row) => row.startAt), slot?.startAt ? new Date(slot.startAt) : undefined].filter(
+    (value): value is Date => value instanceof Date && !Number.isNaN(value.getTime())
+  );
+  const lessonOr: Prisma.LessonWhereInput[] = [{ makeupRequestId: request.id }];
+  if (related.length) lessonOr.push({ id: { in: related.map((row) => row.id) } });
+  for (const anchor of anchors) {
+    const gte = new Date(anchor.getTime() - 36 * 3_600_000);
+    const lte = new Date(anchor.getTime() + 36 * 3_600_000);
+    lessonOr.push({ teacherId: { in: teacherIds }, startAt: { gte, lte } });
+    if (roomIds.length) lessonOr.push({ roomId: { in: roomIds }, startAt: { gte, lte } });
+    lessonOr.push({ studentId: request.studentId, startAt: { gte, lte } });
+  }
+  const school = await prisma.school.findFirst({
+    where: { tenantId: tid },
+    omit: { logoUrl: true },
+    include: {
+      branches: true,
+      teachers: { where: { tenantId: tid, id: { in: teacherIds } } },
+      students: { where: { tenantId: tid, id: request.studentId } },
+      rooms: { where: { tenantId: tid, id: { in: roomIds.length ? roomIds : ["__none__"] } } },
+      lessons: { where: { tenantId: tid, OR: lessonOr }, omit: HOT_ROW_OMIT },
+      makeupRequests: { where: { tenantId: tid, studentId: request.studentId }, omit: HOT_ROW_OMIT },
+      attendances: { where: { tenantId: tid, lesson: { studentId: request.studentId } }, omit: HOT_ROW_OMIT },
+      lessonSeries: { where: { id: "__none__" } },
+      payments: { where: { id: "__none__" } },
+      teacherFeeRules: { where: { id: "__none__" } },
+      teacherPayouts: { where: { id: "__none__" } },
+    },
+  });
+  if (!school) return null;
+  return {
+    ...mapSchoolToAppData({ ...school, logoUrl: "" }),
+    packages: [],
+    discountCampaigns: [],
+    closedDayOverrides: await listClosedDays(tid).catch(() => []),
+  };
+}
+
+async function persistMakeupLifecycleResult(
+  before: AppData,
+  result: Extract<MakeupLifecycleResult, { ok: true }>
+): Promise<void> {
+  const tid = requireTenantId();
+  const beforeRequest = before.makeupRequests.find((row) => row.id === result.requestId);
+  const afterRequest = result.data.makeupRequests.find((row) => row.id === result.requestId);
+  if (!beforeRequest || !afterRequest) {
+    throw new MakeupLifecycleError("NOT_FOUND", "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin.");
+  }
+  await prisma.$transaction(async (tx) => {
+    const reqRes = await tx.makeupRequest.updateMany({
+      where: {
+        id: beforeRequest.id,
+        tenantId: tid,
+        status: beforeRequest.status,
+        expiresAt: new Date(beforeRequest.expiresAt),
+      },
+      data: makeupRequestPersistData(afterRequest),
+    });
+    if (reqRes.count === 0) throw new MakeupLifecycleError("CONFLICT", MAKEUP_LIFECYCLE_CONFLICT);
+    for (const change of result.changedLessons) {
+      const lesRes = await tx.lesson.updateMany({
+        where: {
+          id: change.before.id,
+          tenantId: tid,
+          status: change.before.status,
+          startAt: new Date(change.before.startAt),
+        },
+        data: lessonLifecycleData(change.after),
+      });
+      if (lesRes.count === 0) throw new MakeupLifecycleError("CONFLICT", MAKEUP_LIFECYCLE_CONFLICT);
+    }
+  });
+}
+
+/** Süresi dolmuş planlanmamış telafi. Dar sorgu; değişiklik yoksa yazılmaz. */
+export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
+  const tid = requireTenantId();
+  const rows = await prisma.makeupRequest.findMany({
+    where: {
+      tenantId: tid,
+      status: { in: ["pending", "suggested", "awaiting_info"] },
+      confirmedLessonId: null,
+      expiresAt: { lte: now },
+    },
+    select: {
+      id: true,
+      sourceLessonId: true,
+      expiresAt: true,
+      decisionNote: true,
+      decidedBy: true,
+      decidedAt: true,
+      changeLog: true,
+    },
+  });
+  const due = rows.filter(
+    (row) => isPastMakeupPlanningDeadline(row.expiresAt.toISOString(), now) && !isLegacyMakeupExpiry(row.expiresAt.toISOString())
+  );
+  if (due.length === 0) return;
+  const lessons = await prisma.lesson.findMany({
+    where: { tenantId: tid, id: { in: due.map((row) => row.sourceLessonId) } },
+  });
+  const byId = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+  await prisma.$transaction(async (tx) => {
+    for (const row of due) {
+      const existingLog = Array.isArray(row.changeLog) ? (row.changeLog as unknown as MakeupChangeEntry[]) : [];
+      const updated = await tx.makeupRequest.updateMany({
+        where: {
+          id: row.id,
+          tenantId: tid,
+          status: { in: ["pending", "suggested", "awaiting_info"] },
+          confirmedLessonId: null,
+        },
+        data: {
+          status: "expired",
+          decisionNote: row.decisionNote?.trim() ? row.decisionNote : MAKEUP_PLANNING_EXPIRED_REASON,
+          decidedBy: row.decidedBy ?? "system",
+          decidedAt: row.decidedAt ?? now,
+          changeLog: [
+            ...existingLog,
+            { action: "planning_expired", at: now.toISOString(), by: "system", to: MAKEUP_PLANNING_EXPIRED_REASON },
+          ] as Prisma.InputJsonValue,
+        },
+      });
+      if (updated.count === 0) continue;
+      const lesson = byId.get(row.sourceLessonId);
+      if (!lesson || lesson.status === "cancelled" || lesson.studentAttended === true) continue;
+      const human =
+        lesson.lessonProcessed === true &&
+        !!lesson.lessonProcessedReason &&
+        lesson.lessonProcessedReason !== MAKEUP_PLANNING_EXPIRED_REASON;
+      if (human) continue;
+      const already = lesson.lessonProcessedReason === MAKEUP_PLANNING_EXPIRED_REASON;
+      await tx.lesson.updateMany({
+        where: {
+          id: lesson.id,
+          tenantId: tid,
+          status: { not: "cancelled" },
+          NOT: { studentAttended: true },
+          OR: [{ lessonProcessed: false }, { lessonProcessedReason: null }, { lessonProcessedReason: MAKEUP_PLANNING_EXPIRED_REASON }],
+        },
+        data: {
+          lessonProcessed: true,
+          lessonProcessedAt: already && lesson.lessonProcessedAt ? lesson.lessonProcessedAt : now,
+          lessonProcessedBy: already && lesson.lessonProcessedBy ? lesson.lessonProcessedBy : "system",
+          lessonProcessedReason: MAKEUP_PLANNING_EXPIRED_REASON,
+          opsMakeupFlag: false,
+          opsMakeupFlagAt: null,
+          opsMakeupFlagBy: null,
+          studentAbsent: false,
+          studentExcused: false,
+        },
+      });
+    }
+  });
+}
+
+export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const bundle = await readMakeupBundleDb(op);
+  if (!bundle) {
+    return { ok: false, code: "NOT_FOUND", message: "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin." };
+  }
+  return applyMakeupLifecyclePure(bundle, op);
+}
+
+export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
+  const bundle = await readMakeupBundleDb(op);
+  if (!bundle) {
+    return { ok: false, code: "NOT_FOUND", message: "Telafi talebi bulunamadı. Telafi Merkezi'ni yenileyip kaydın durduğunu kontrol edin." };
+  }
+  const result = applyMakeupLifecyclePure(bundle, op);
+  if (!result.ok) return result;
+  try {
+    await persistMakeupLifecycleResult(bundle, result);
+  } catch (error) {
+    if (error instanceof MakeupLifecycleError) return { ok: false, code: error.code, message: error.message };
+    throw error;
+  }
+  return result;
+}
+
+/** Yalnız Geldi dersinin notunu yazar. Statü ve hakediş alanlarına dokunmaz. */
+export async function setLessonAttendanceNoteLive(
+  lessonId: string,
+  note: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const tid = requireTenantId();
+  const stored = normalizeAttendanceNote(note) ?? null;
+  const lesson = await prisma.lesson.findFirst({
+    where: { id: lessonId, tenantId: tid },
+    select: { id: true, studentAttended: true },
+  });
+  if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
+  if (lesson.studentAttended !== true) {
+    return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
+  }
+  const updated = await prisma.lesson.updateMany({
+    where: { id: lessonId, tenantId: tid, studentAttended: true },
+    data: { studentAttendanceNote: stored },
+  });
+  if (updated.count === 0) {
+    return { ok: false, message: "Dersin yoklaması az önce değişti. Sayfayı yenileyip Geldi durumunu kontrol edin." };
+  }
+  return { ok: true };
 }
 
 /** 9. tur — İptal/Telafi kaynağını sonradan belirleme/düzeltme. */
@@ -3488,3 +5708,6 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
     throw e;
   }
 }
+
+/** 2026-10-15 — kalıcı silme (plan + yürütme): kurallar `person-purge.ts`, transaction `person-purge-db.ts`. */
+export { loadPurgeSnapshotDb as loadPurgeSnapshot, executePurgeDb as executePurge } from "./person-purge-db";

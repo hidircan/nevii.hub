@@ -9,7 +9,7 @@ import { resolveLessonFinalStatus } from "./lesson-live-status";
 import { evaluateAttendanceRisk } from "./attendance-risk";
 
 export type AttendanceReportDatePreset = "today" | "this_week" | "this_month" | "custom";
-export type AttendanceReportRowStatus = "attended" | "processed" | "makeup" | "cancelled" | "planned";
+export type AttendanceReportRowStatus = "attended" | "processed" | "makeup" | "makeup_planned" | "cancelled" | "planned";
 
 function todayYmd(now: Date): string {
   return toZonedYmd(now, DEFAULT_APP_TIMEZONE);
@@ -97,15 +97,20 @@ export interface AttendanceReportRow {
   processedReason?: string;
   makeupReason?: string;
   studentAtRisk: boolean;
+  /** 2026-10-06 — Telafi Merkezi'nden planlanan ders (kalıcı kaynak: ders tipi). "Geldi" ise T işareti. */
+  plannedMakeup: boolean;
 }
 
 export interface AttendanceReportSummary {
   totalPlanned: number;
   attended: number;
+  /** `attended` içindeki planlanan telafiye geldi sayısı (ayrı toplam değil, alt kırılım). */
+  attendedPlannedMakeup: number;
   absent: number;
   excused: number;
   processed: number;
   makeup: number;
+  makeupPlanned: number;
   cancelled: number;
   riskyStudentCount: number;
 }
@@ -179,6 +184,7 @@ export function buildAttendanceReport(
       processedReason: l.lessonProcessedReason,
       makeupReason: makeupReasonBySourceLessonId.get(l.id),
       studentAtRisk: riskyStudentIds.has(l.studentId),
+      plannedMakeup: l.type === "makeup",
     }))
     .filter((row) => !filters.status || row.status === filters.status)
     .sort((a, b) => a.startAt.localeCompare(b.startAt));
@@ -186,10 +192,12 @@ export function buildAttendanceReport(
   const summary: AttendanceReportSummary = {
     totalPlanned: rows.length,
     attended: rows.filter((r) => r.status === "attended").length,
+    attendedPlannedMakeup: rows.filter((r) => r.status === "attended" && r.plannedMakeup).length,
     absent: 0,
     excused: 0,
     processed: rows.filter((r) => r.status === "processed").length,
     makeup: rows.filter((r) => r.status === "makeup").length,
+    makeupPlanned: rows.filter((r) => r.status === "makeup_planned").length,
     cancelled: rows.filter((r) => r.status === "cancelled").length,
     riskyStudentCount: new Set(rows.filter((r) => r.studentAtRisk).map((r) => r.studentId)).size,
   };

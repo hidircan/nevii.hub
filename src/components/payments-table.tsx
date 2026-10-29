@@ -2,21 +2,24 @@
 import { withReturnTo } from "@/lib/safe-return-to";
 import { useCurrentPath } from "@/lib/use-current-path";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
-import { Badge, Button, Card } from "@/components/ui";
+import { Card } from "@/components/ui";
 import {
   formatDate,
   formatDateTime,
   formatMoney,
   formatPaymentCollectionSummary,
   paymentMethodLabelTr,
-  paymentSourceLabel,
 } from "@/lib/utils";
+import { paymentSourceLabel } from "@/lib/payment-source-label";
 import { PaymentMarkPaidModal } from "@/components/payment-mark-paid-modal";
+import { PaymentDeleteDialog } from "@/components/payment-delete-dialog";
 import { PaginationControls, usePagination } from "@/components/pagination-controls";
 import type { PaymentStatus } from "@/lib/types";
+import type { PaymentDisplayStatus } from "@/lib/payments/status";
+import { PaymentStatusBadge } from "@/components/payment-status-badge";
 import { filterAndSortPayments, type PaymentSortKey } from "@/lib/payment-table-filter";
 
 export type PaymentRow = {
@@ -28,7 +31,10 @@ export type PaymentRow = {
   dueDate: string;
   amount: number;
   paidAmount: number;
+  /** Filtre için canonical statü ailesi (`canonicalPaymentStatus`) — ham, bayat DB statüsü DEĞİL. */
   status: PaymentStatus;
+  /** Rozet: tek çözücüden (payments/status.ts) — ay panosu ve öğrenci detayıyla aynı. */
+  displayStatus: PaymentDisplayStatus;
   /** ÖNCELİK 3 — otomatik ders bazlı tahsilatın kaynak dersi; manuel/paket ödemelerde yok. */
   lessonId?: string;
   lessonDate?: string;
@@ -37,6 +43,8 @@ export type PaymentRow = {
   createdAt?: string;
   source?: string;
   receivedByName?: string;
+  /** 2026-10-09 — çok branşlı öğrencide satırın branşı ("Keman" / "Branş belirtilmemiş"). */
+  branchLabel?: string;
 };
 
 type StatusFilter = "all" | PaymentStatus;
@@ -50,13 +58,13 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "voided", label: "İptal edildi" },
 ];
 
-export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite: boolean }) {
+/** `canDelete`: kurum sahibi/yöneticisi + tek kurum görünümü — sunucu (deletePaymentTool) ayrıca kritik şifre ister. */
+export function PaymentsTable({ rows, canWrite, canDelete = false }: { rows: PaymentRow[]; canWrite: boolean; canDelete?: boolean }) {
   const currentPath = useCurrentPath();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [actionOnly, setActionOnly] = useState(false);
   const [modalPayment, setModalPayment] = useState<PaymentRow | null>(null);
-  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
   const [paidFrom, setPaidFrom] = useState("");
@@ -90,10 +98,17 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
     <>
       {!canWrite ? (
         <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          &quot;Tüm kurumlar&quot; görünümündesiniz — ödeme işaretlemek için üstteki kurum seçiciden tek
+          &quot;Tüm kurumlar&quot; görünümündesiniz — kayıt düzeltmek için üstteki kurum seçiciden tek
           bir kurum seçin.
         </p>
       ) : null}
+      <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+        Bu ekran tahsilat almaz — ödemeler{" "}
+        <Link href="/panel/yoklama" className="font-medium text-[var(--color-primary)] hover:underline">
+          Yoklama Takvimi
+        </Link>{" "}
+        üzerinden tahsil edilir. Burada takip, filtreleme ve kayıt düzeltme yapılır.
+      </p>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           type="text"
@@ -160,13 +175,16 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
       </div>
 
       <Card className="overflow-hidden p-0">
-        <table className="w-full text-left text-sm">
+        {/* Mobil: tablo sayfayı yatay taşırmaz — kendi kapsayıcısında kayar (kolon gizlenmez). */}
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)] dark:border-slate-800 dark:bg-slate-900/60 dark:text-[var(--color-text-muted)]">
             <tr>
               <th className="px-4 py-3">Öğrenci</th>
               <th className="px-4 py-3">Açıklama</th>
               <th className="px-4 py-3">Vade</th>
-              <th className="px-4 py-3">Tahsil anı</th>
+              <th className="px-4 py-3">Ödemenin alındığı tarih</th>
+              <th className="px-4 py-3">Ödeme türü</th>
               <th className="px-4 py-3">Tutar</th>
               <th className="px-4 py-3">Ödemeyi alan</th>
               <th className="px-4 py-3">Durum</th>
@@ -176,16 +194,16 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
           <tbody>
             {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
+                <td colSpan={9} className="px-4 py-8 text-center text-sm text-[var(--color-text-muted)]">
                   Bu filtreye uyan ödeme bulunamadı.
                 </td>
               </tr>
             ) : (
               pageItems.map((p) => {
-                const sourceLabel = paymentSourceLabel(p.source, Boolean(p.lessonId));
+                const sourceLabel = paymentSourceLabel(p);
                 return (
                 <tr key={p.id} className="border-b border-[var(--color-border)]">
-                  <td className="px-4 py-3 font-medium text-[var(--color-text)]">
+                  <td className="break-words px-4 py-3 font-medium text-[var(--color-text)]">
                     <Link
                       href={`/panel/odemeler/${p.studentId}`}
                       className="hover:text-[var(--color-primary)] hover:underline"
@@ -194,12 +212,12 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">
-                    {p.description}
-                    {p.method ? (
-                      <span className="block text-xs text-[var(--color-text-muted)]">
-                        {paymentMethodLabelTr(p.method)}
+                    {p.branchLabel ? (
+                      <span className="mr-1.5 inline-block rounded bg-[var(--color-surface-muted)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-text)]">
+                        {p.branchLabel}
                       </span>
                     ) : null}
+                    {p.description}
                     {p.status === "paid" && p.paidAt ? (
                       <span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">
                         {formatPaymentCollectionSummary({
@@ -231,6 +249,9 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                       <span className="text-[var(--color-text-muted)]">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-[var(--color-text)]">
+                    <span className="text-xs font-medium sm:text-sm">{paymentMethodLabelTr(p.method)}</span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className="font-medium">{formatMoney(p.amount)}</span>
                     {p.paidAmount > 0 && p.paidAmount < p.amount ? (
@@ -241,26 +262,21 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-muted)]">{p.receivedByName ?? "—"}</td>
                   <td className="px-4 py-3">
-                    <Badge status={p.status} />
+                    <PaymentStatusBadge status={p.displayStatus} />
                   </td>
                   <td className="px-4 py-3">
                     {p.status === "voided" ? (
                       <span className="text-xs text-[var(--color-text-muted)]">
-                        Ders iptal edildiği için tahsilat iptal edildi.
+                        {p.source === "lesson_ops"
+                          ? "Ders iptal edildiği için tahsilat iptal edildi."
+                          : "İptal edildi (silindi); hiçbir borç ve tahsilat toplamında sayılmaz."}
                       </span>
                     ) : p.status !== "paid" ? (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="!py-1.5 text-xs"
-                        disabled={!canWrite}
-                        onClick={() => {
-                          setModalMode("create");
-                          setModalPayment(p);
-                        }}
-                      >
-                        Ödendi işaretle
-                      </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : (
+                          <span className="text-xs text-[var(--color-text-muted)]">—</span>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
@@ -272,15 +288,13 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
                         {canWrite ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              setModalMode("edit");
-                              setModalPayment(p);
-                            }}
+                            onClick={() => setModalPayment(p)}
                             className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-muted)]"
                           >
                             Detayı gör / düzenle
                           </button>
                         ) : null}
+                        {canDelete ? <PaymentDeleteDialog paymentId={p.id} /> : null}
                       </div>
                     )}
                   </td>
@@ -290,6 +304,7 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
             )}
           </tbody>
         </table>
+        </div>
         <PaginationControls
           page={page}
           totalPages={totalPages}
@@ -304,17 +319,10 @@ export function PaymentsTable({ rows, canWrite }: { rows: PaymentRow[]; canWrite
         <PaymentMarkPaidModal
           paymentId={modalPayment.id}
           studentName={modalPayment.studentName}
-          defaultAmount={
-            modalMode === "edit"
-              ? modalPayment.paidAmount || modalPayment.amount
-              : modalPayment.amount - modalPayment.paidAmount
-          }
-          mode={modalMode}
-          initialMethod={
-            modalMode === "edit" && isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined
-          }
-          initialNote={modalMode === "edit" ? modalPayment.paymentNote : undefined}
-          initialPaidAt={modalMode === "edit" ? modalPayment.paidAt : undefined}
+          defaultAmount={modalPayment.paidAmount || modalPayment.amount}
+          initialMethod={isPaymentMethod(modalPayment.method) ? modalPayment.method : undefined}
+          initialNote={modalPayment.paymentNote}
+          initialPaidAt={modalPayment.paidAt}
           dueDate={modalPayment.dueDate}
           description={modalPayment.description}
           source={modalPayment.source}

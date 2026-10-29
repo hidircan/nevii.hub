@@ -17,7 +17,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { actionChangeTaskStatus } from "@/lib/actions";
 import { Badge, Card } from "@/components/ui";
 import { formatDate, cn } from "@/lib/utils";

@@ -1,10 +1,12 @@
 import { Tabs } from "expo-router";
 import { PersonaGuard } from "../../src/components/persona-guard";
-import { Icon } from "../../src/components/ui";
+import { Icon, TabBarLabel } from "../../src/components/ui";
+import { useLocale } from "../../src/i18n/locale-context";
 import { useTheme } from "../../src/theme/theme-context";
 
 export default function TeacherLayout() {
   const t = useTheme();
+  const { t: tr } = useLocale();
   return (
     <PersonaGuard persona="teacher">
       <Tabs
@@ -12,29 +14,57 @@ export default function TeacherLayout() {
           headerShown: false,
           tabBarActiveTintColor: t.colors.primary,
           tabBarInactiveTintColor: t.colors.textMuted,
-          tabBarStyle: { backgroundColor: t.colors.bg, borderTopColor: t.colors.border },
+          tabBarStyle: {
+            backgroundColor: t.colors.bg,
+            borderTopColor: t.colors.border,
+            borderTopWidth: 0,
+            minHeight: 64,
+            paddingTop: 6,
+            paddingBottom: 6,
+            shadowColor: "#0F172A",
+            shadowOffset: { width: 0, height: -3 },
+            shadowOpacity: 0.12,
+            shadowRadius: 10,
+            elevation: 12,
+          },
+          tabBarLabel: ({ children, color }) => <TabBarLabel color={color}>{children}</TabBarLabel>,
+          tabBarItemStyle: {
+            paddingTop: 2,
+            paddingBottom: 2,
+            marginHorizontal: 3,
+            marginVertical: 0,
+            borderRadius: 999,
+            justifyContent: "center",
+          },
+          tabBarIconStyle: { marginBottom: 0 },
+
+          tabBarActiveBackgroundColor: t.colors.primarySoft,
+          tabBarInactiveBackgroundColor: "transparent"
         }}
       >
         <Tabs.Screen
           name="bugun"
-          options={{ title: "Bugün", tabBarIcon: ({ color, size }) => <Icon name="today-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.program"), tabBarIcon: ({ color }) => <Icon name="today-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="ogrencilerim"
-          options={{ title: "Öğrencilerim", tabBarIcon: ({ color, size }) => <Icon name="people-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.myStudent"), tabBarIcon: ({ color }) => <Icon name="people-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
           name="odevler"
-          options={{ title: "Ödevler", tabBarIcon: ({ color, size }) => <Icon name="book-outline" size={size} color={color} /> }}
+          options={{ title: tr("tabs.homeworkShort"), tabBarIcon: ({ color }) => <Icon name="book-outline" size={26} color={color} /> }}
         />
         <Tabs.Screen
-          name="is-takip"
-          options={{ title: "İş Takip", tabBarIcon: ({ color, size }) => <Icon name="checkbox-outline" size={size} color={color} /> }}
+          name="hakedis"
+          options={{ title: tr("tabs.compensation"), tabBarIcon: ({ color }) => <Icon name="cash-outline" size={26} color={color} /> }}
         />
-        <Tabs.Screen
-          name="hesabim"
-          options={{ title: "Hesabım", tabBarIcon: ({ color, size }) => <Icon name="person-circle-outline" size={size} color={color} /> }}
-        />
+        {/*
+          İş Takip ve Hesabım sekmeleri kaldırıldı — İş Takip Hesabım içinden,
+          Hesabım üst header'daki profil ikonundan açılır (zil ikonunun sağı).
+          Route'lar korunur (deep link + Hesabım kısayolları çalışır).
+        */}
+        <Tabs.Screen name="is-takip" options={{ href: null }} />
+        <Tabs.Screen name="hesabim" options={{ href: null }} />
         {/*
           Bu iki dosya (app/(teacher)/odevlerim.tsx, bildirimler.tsx) eski/yedek
           düz route dosyaları — gerçek ödev sekmesi "odevler" (nested,

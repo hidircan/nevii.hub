@@ -100,6 +100,9 @@ export type ScreenWidgetSummaryInput = {
   overdueTotalLabel: string;
   overdueTotal: number;
   openTasks: number;
+  /** 10. tur iş #6 — Günlük Özet'teki tek finans göstergesi (bu ay tahsilat). */
+  collectedThisMonthLabel: string;
+  collectedThisMonth: number;
 };
 
 export type ScreenWidgetMetric = { value: string; caption: string; tone?: "danger" | "warning" };
@@ -128,6 +131,10 @@ const SCREEN_WIDGET_METRICS: Partial<Record<string, (s: ScreenWidgetSummaryInput
     caption: "açık iş",
     tone: s.openTasks > 0 ? "warning" : undefined,
   }),
+  // 10. tur iş #6 — günlük karar için tek sayı: bu ayki tahsilat.
+  // Kapsam/yetki: metrik metni şube-filtreli özetten gelir; widget'ın kendisi
+  // menü görünürlüğüyle (yalnız kurum sahibi) kapılıdır.
+  "/panel/finans-ozeti": (s) => ({ value: s.collectedThisMonthLabel, caption: "bu ay tahsilat" }),
 };
 
 export function screenWidgetMetric(def: ScreenWidgetDef, s: ScreenWidgetSummaryInput): ScreenWidgetMetric | null {

@@ -1,4 +1,5 @@
-import Link from "next/link";
+import Link from "@/components/link";
+import { resolvePaymentReminderSettings } from "@/lib/payment-reminder-policy";
 import { ArrowRight, BellRing, Building2, CalendarDays, CheckCircle2, Circle, DoorOpen, Download, Music, RefreshCcw, Upload } from "lucide-react";
 import { actionResetDemo, actionResetToCleanTemplate } from "@/lib/actions";
 import { isLocalDevTooling } from "@/lib/config";
@@ -263,6 +264,7 @@ export default async function KurulumPage() {
               }
               vakifbankIban={data.settings.collectionsSettings?.vakifbankIban}
               halkbankIban={data.settings.collectionsSettings?.halkbankIban}
+              reminder={resolvePaymentReminderSettings(data.settings.collectionsSettings)}
             />
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/link";
 import { requireSessionContext } from "@/lib/auth/session";
-import { readData } from "@/lib/store";
+import { readReferenceData } from "@/lib/store";
 import { listAllHomework, listAllHomeworkSubmissions } from "@/lib/homework";
 import { Card, PageHeader, StatCard } from "@/components/ui";
 
@@ -28,7 +28,7 @@ export default async function HomeworkReportPage() {
   const [homework, submissions, data] = await Promise.all([
     listAllHomework(session.tenantId),
     listAllHomeworkSubmissions(session.tenantId),
-    readData(),
+    readReferenceData(),
   ]);
 
   const now = new Date();

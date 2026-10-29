@@ -1,20 +1,27 @@
 import { ChangeHistory } from "@/components/change-history";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
+import { readPaymentById } from "@/lib/store";
+import { paymentTargetHref } from "@/lib/notification-href";
 import { ArrowRight } from "lucide-react";
 import { BackButton } from "@/components/back-button";
-import { AddPaymentForm } from "@/components/add-payment-form";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { formatMoney } from "@/lib/utils";
 import { listStudentContractsTool } from "@/lib/services";
-import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile } from "@/lib/payment-profile";
-import { computeStudentMonthlyAmount } from "@/lib/student-payment-profile";
+import { computeStudentPaymentSummary, filterPaymentHistory, sortPaymentsForProfile, splitStudentDebt } from "@/lib/payment-profile";
+import { contractInstallmentProgressDescription } from "@/lib/attendance-calendar-plan";
+import { isTerminalContractStatus } from "@/lib/contract-list-helpers";
+import { remainingAmount, todayYmdInstitution } from "@/lib/payments/status";
+import { PaymentsMonthBoard } from "@/components/payments-month-board";
+import { buildStudentOpenDebtRows } from "@/lib/payment-month-view";
+import { computeStudentMonthlyAmount, isPercentDiscount } from "@/lib/student-payment-profile";
 import { AssistantPageContext } from "@/components/ai/assistant-page-context";
 import { StudentPaymentHistoryTable } from "@/components/student-payment-history-table";
-import { resolveCollectorDisplayNames } from "@/lib/contract-payment-plan-view";
+import { resolveActorLabels } from "@/lib/contract-payment-plan-view";
 import { QuickTaskLink } from "@/components/quick-task-link";
 import { requireSessionContext } from "@/lib/auth/session";
-import { getInstitutionContext, readScopedData } from "@/lib/institution/context";
+import { getInstitutionContext, readScopedStudentData } from "@/lib/institution/context";
+import { effectiveEnrollments, enrollmentDisplayName, enrollmentTerms, makePaymentBranchLabeler, studentWithEnrollmentTerms } from "@/lib/student-enrollments";
 
 export const dynamic = "force-dynamic";
 
@@ -31,18 +38,23 @@ export default async function StudentPaymentProfilePage({
     redirect(`/login?next=/panel/odemeler/${studentId}`);
   }
   const kurum = await getInstitutionContext(session);
-  const data = await readScopedData(kurum.scope);
+  // DB egress (2026-10-10): ekran yalnız bu öğrencinin ödeme/ders satırlarını kullanır — tek öğrenci dilimi.
+  const data = await readScopedStudentData(kurum.scope, studentId);
   const student = data.students.find((s) => s.id === studentId);
   const canWrite =
     kurum.scope.mode === "single" && (session.role === "SCHOOL_ADMIN" || session.role === "SUPER_ADMIN");
 
   if (!student) {
+    // 2026-10-15 — eski bildirim bağlantıları ödeme kimliğiyle gelir (/panel/odemeler/<ödeme>): aynı kurumdaki
+    // ödemenin öğrencisine, ilgili satıra yönlendir. Kurum dışı/silinmiş kayıtta aşağıdaki açıklama gösterilir.
+    const payment = kurum.scope.mode === "single" ? await readPaymentById(studentId) : undefined;
+    if (payment) redirect(paymentTargetHref(payment.studentId, payment.id));
     return (
       <div>
         <PageHeader title="Ödeme profili" description="Öğrenci bulunamadı." />
         <EmptyState
-          title="Öğrenci bulunamadı"
-          description="Bu öğrenci mevcut okulunuza kayıtlı değil veya kaldırılmış olabilir."
+          title="Kayıt bulunamadı"
+          description="Bu öğrenci veya ödeme kaydı mevcut kurumunuzda yok; silinmiş ya da kaldırılmış olabilir."
         />
         <BackButton
           fallbackHref="/panel/odemeler"
@@ -58,12 +70,26 @@ export default async function StudentPaymentProfilePage({
   const contracts = contractsResult.ok ? contractsResult.data.contracts : [];
   const summary = computeStudentPaymentSummary(payments, contracts);
   const hasOpenPayment = summary.openCount > 0;
+  // 2026-10-10 — çok branşlı öğrencide "beklenen aylık tutar" ilk branştan (öğrenci satırı aynası) değil HER aktif branşın
+  // kendi paket/süre/indirim koşullarından hesaplanır; tek branşlıda eski tek tutar aynen durur.
+  const branchViews = effectiveEnrollments(student, data.teachers);
+  const multiBranch = branchViews.length > 1;
   const studentPackage = (data.packages ?? []).find((p) => p.id === student.packageId);
   const monthlyAmount = computeStudentMonthlyAmount(
     student,
     studentPackage,
     (student.lessonDurationMinutes as 30 | 40 | 50 | undefined) ?? 30
   );
+  const branchMonthly = multiBranch
+    ? branchViews
+        .filter((e) => e.active)
+        .map((e) => {
+          const t = enrollmentTerms(student, e, data.teachers);
+          const pkg = (data.packages ?? []).find((p) => p.id === t.packageId);
+          const m = computeStudentMonthlyAmount(studentWithEnrollmentTerms(student, t), pkg, (t.lessonDurationMinutes as 30 | 40 | 50 | undefined) ?? 30);
+          return { id: e.id, label: enrollmentDisplayName(e, branchViews, data.teachers), pkg, m, fee: t.monthlyFee };
+        })
+    : [];
 
   // "Tahsilatı alan" görüntü adı — Payment.receivedByUserId'den (kalıcı
   // kimlik) çözülür; yalnızca GÖRÜNTÜLEME içindir, Payment'a yazılmaz.
@@ -74,11 +100,25 @@ export default async function StudentPaymentProfilePage({
   const receiverIds = Array.from(
     new Set(payments.map((p) => p.receivedByUserId).filter((id): id is string => Boolean(id)))
   );
-  const receiverNames = await resolveCollectorDisplayNames({ userIds: receiverIds, teachers: data.teachers });
+  const receiverNames = await resolveActorLabels({ tenantId: session.tenantId, userIds: receiverIds, teachers: data.teachers });
+  // 2026-10-09 — çok branşlı öğrencide her hareket branşını söyler; yeni borç eklerken branş seçilir.
+  const branchOf = makePaymentBranchLabeler({ students: [student], teachers: data.teachers, lessons: data.lessons, contracts });
   const historyPayments = filterPaymentHistory(payments).map((p) => ({
     ...p,
+    description: contractInstallmentProgressDescription(p),
     receivedByName: p.receivedByUserId ? receiverNames.get(p.receivedByUserId) : undefined,
+    branchLabel: branchOf(p),
   }));
+  // 2026-10-20 — Ödemeler dış listesiyle AYNI durum çözücüsü: açık (canlı) borçlar burada da görünür; iptal/yenilenmiş
+  // sözleşmenin ödenmemiş taksitleri ayrıca "borç değil" diye açıklanır (eskiden dışarıda "Bekliyor", içeride yoktu).
+  const todayYmd = todayYmdInstitution();
+  const terminalIds = new Set(contracts.filter((c) => isTerminalContractStatus(c.status)).map((c) => c.id));
+  const debt = splitStudentDebt(payments, terminalIds);
+  // Açık borç satırları öğrenci içi sekmeyle AYNI kurucudan (`buildStudentOpenDebtRows`) — tek dil.
+  const openRows = buildStudentOpenDebtRows(
+    debt.open.filter((p) => remainingAmount(p.amount, p.paidAmount) > 0),
+    { studentName: student.name, todayYmd, terminalContractIds: terminalIds, branchLabel: branchOf }
+  );
 
   return (
     <div>
@@ -110,21 +150,39 @@ export default async function StudentPaymentProfilePage({
             <BackButton
               fallbackHref="/panel/odemeler"
               label="Tüm ödemeler"
+              dynamicLabel
               className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 py-2 hover:bg-[var(--color-surface-muted)]"
             />
           </div>
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label="Geçerli tahakkuk" value={formatMoney(summary.totalBilled)} accent="primary" />
         <StatCard label="Toplam tahsil edilen" value={formatMoney(summary.totalCollected)} accent="success" />
         <StatCard label="Kalan borç" value={formatMoney(summary.remaining)} accent="warning" />
         <StatCard label="Gecikmiş kalan" value={formatMoney(summary.overdueRemaining)} accent="danger" />
         <StatCard label="Açık ödeme kaydı" value={summary.openCount} accent="info" />
+        <StatCard label="Ödenmiş taksit sayısı" value={summary.paidInstallmentCount} accent="success" />
       </div>
 
-      {monthlyAmount.netAmount !== null ? (
+      {multiBranch ? (
+        <Card className="mb-6 !p-4">
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-50">Beklenen aylık tutar — branş bazında</p>
+          <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+            {branchMonthly.map((b) => (
+              <li key={b.id}>
+                <span className="font-medium">{b.label}:</span> {formatMoney(b.m.netAmount ?? b.fee)}
+                {b.pkg ? ` · Paket: ${b.pkg.title}` : " · Paket seçilmedi"}
+                {b.m.discountAmount > 0 ? ` · İndirim: -${formatMoney(b.m.discountAmount)}` : ""}
+                {b.m.overrideAmount !== null ? " · Yönetici override'ı uygulanıyor" : ""}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      {!multiBranch && monthlyAmount.netAmount !== null ? (
         <Card className="mb-6 !p-4">
           <p className="text-sm font-medium text-slate-900 dark:text-slate-50">
             Beklenen aylık tutar: {formatMoney(monthlyAmount.netAmount)}
@@ -134,7 +192,7 @@ export default async function StudentPaymentProfilePage({
             {monthlyAmount.listPrice !== null ? ` · Liste fiyatı: ${formatMoney(monthlyAmount.listPrice)}` : ""}
             {monthlyAmount.discountAmount > 0
               ? ` · İndirim: -${formatMoney(monthlyAmount.discountAmount)}${
-                  monthlyAmount.discountType === "percentage" ? ` (%${monthlyAmount.discountValue})` : ""
+                  isPercentDiscount(monthlyAmount.discountType) ? ` (%${monthlyAmount.discountValue})` : ""
                 }`
               : ""}
             {monthlyAmount.overrideAmount !== null ? " · Yönetici override'ı uygulanıyor" : ""}
@@ -159,16 +217,25 @@ export default async function StudentPaymentProfilePage({
         </Card>
       ) : null}
 
-      <details className="mb-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-        <summary className="cursor-pointer text-sm font-medium text-[var(--color-text-muted)] dark:text-slate-300">
-          Yeni ödeme kaydı ekle
-        </summary>
-        <AddPaymentForm
-          fixedStudentId={student.id}
-          defaultAmount={monthlyAmount.netAmount ?? student.monthlyFee}
-          gridClassName="mt-4 grid gap-3 sm:grid-cols-3"
+      <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Açık borçlar</h2>
+      <div className="mb-6">
+        <PaymentsMonthBoard
+          monthLabel="Açık borçlar"
+          empty={{ title: "Açık borç yok", hint: "Bu öğrencinin tahsil edilmeyi bekleyen canlı bir borç satırı bulunmuyor." }}
+          rows={openRows}
+          carryover={[]}
+          paidInstallmentCounts={{ [student.id]: summary.paidInstallmentCount }}
+          canWrite={canWrite}
+          canDelete={canWrite}
         />
-      </details>
+        {debt.closedByContract.length > 0 ? (
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            {debt.closedByContract.length} taksit iptal edilen / yenilenen sözleşmeden kaldı (toplam{" "}
+            {formatMoney(debt.closedByContract.reduce((t, p) => t + remainingAmount(p.amount, p.paidAmount), 0))}): kayıt korunur
+            ama borç sayılmaz. Ödemeler ekranında da &quot;Sözleşme kapandı&quot; olarak görünür, aylık beklentiye girmez.
+          </p>
+        ) : null}
+      </div>
 
       <h2 className="mb-3 text-lg font-semibold text-[var(--color-text)] dark:text-slate-50">Ödeme geçmişi</h2>
       {/*
