@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     acceptedTerms: body.acceptedTerms === true,
     acceptedRecurring: body.acceptedRecurring === true,
     marketingConsent: body.marketingConsent === true,
+    docVersions: body.docVersions,
     userIp: clientIp(request),
     origin: new URL(request.url).origin,
   });

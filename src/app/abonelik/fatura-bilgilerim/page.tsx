@@ -14,7 +14,8 @@ export default async function BillingProfilePage() {
   } catch {
     redirect("/login?next=/abonelik/fatura-bilgilerim");
   }
-  if (session.role !== "SUPER_ADMIN" && session.role !== "SCHOOL_ADMIN") {
+  // Owner kararı (2026-10-29): yalnız kurum sahibi (SUPER_ADMIN).
+  if (session.role !== "SUPER_ADMIN") {
     redirect(homePathForRole(session.role));
   }
   const profile = await getBillingProfile(session.tenantId);

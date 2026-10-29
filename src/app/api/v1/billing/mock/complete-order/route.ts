@@ -25,7 +25,10 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const res = await completeMockOrder({ token: String(body.t ?? "") });
+  const res = await completeMockOrder({
+    token: String(body.t ?? ""),
+    origin: new URL(request.url).origin,
+  });
   if (!res.ok) {
     const status = res.error.code === "NOT_FOUND" ? 404 : 400;
     return Response.json(

@@ -1,8 +1,9 @@
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
-import { getEDocumentByOrder, getInvoiceOrder } from "@/lib/saas-billing/store";
+import { getEDocumentByOrder, getInvoiceOrder, getSaasAttemptById, getSaasPendingOrderBySubscriptionId } from "@/lib/saas-billing/store";
 import { E_DOC_KIND_LABELS, E_DOC_STATUS_LABELS } from "@/lib/saas-billing/invoicing-orders";
+import { LEGAL_DOCS } from "@/lib/saas-billing/legal-documents";
 import { formatMinorTR } from "@/lib/saas-billing/types";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,25 @@ export const dynamic = "force-dynamic";
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
 }
+
+/** Saatler açıkça Türkiye saatiyle (sunucu saat diliminden bağımsız). */
+function fmtDateTime(iso: string) {
+  return new Date(iso).toLocaleString("tr-TR", {
+    timeZone: "Europe/Istanbul",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const PROVIDER_TR: Record<string, string> = {
+  mock: "Test ödemesi",
+  manual: "Banka transferi",
+  paytr: "PayTR",
+  iyzico: "iyzico",
+};
 
 /** Belge detayı — tenant izolasyonlu; demo önizleme filigranlıdır. */
 export default async function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +40,8 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   } catch {
     redirect(`/login?next=/abonelik/faturalar/${encodeURIComponent(id)}`);
   }
-  if (session.role !== "SUPER_ADMIN" && session.role !== "SCHOOL_ADMIN") {
+  // Owner kararı (2026-10-29): yalnız kurum sahibi (SUPER_ADMIN).
+  if (session.role !== "SUPER_ADMIN") {
     redirect(homePathForRole(session.role));
   }
   const order = await getInvoiceOrder(id);
@@ -38,6 +59,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   }
   const doc = await getEDocumentByOrder(order.id);
   const demo = doc?.kind === "demo_preview";
+  const attempt = await getSaasAttemptById(order.attemptId).catch(() => null);
+  const originOrder = await getSaasPendingOrderBySubscriptionId(order.subscriptionId).catch(() => null);
+  const consents = originOrder?.consents?.docVersions ? Object.entries(originOrder.consents.docVersions) : [];
+  const docTitle = (id: string) => LEGAL_DOCS.find((d) => d.id === id)?.title ?? id;
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
       <p className="text-sm text-slate-500">
@@ -66,10 +91,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
       ) : null}
 
       <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold">Sipariş özeti (kayıt anı)</h2>
+        <h2 className="text-base font-semibold">Tahsilat bildirimi (ödeme özeti)</h2>
+        <p className="mt-1 text-xs text-slate-500">Bu özet GİB faturası veya banka dekontu değildir. Saatler Türkiye saatiyle gösterilir.</p>
         <dl className="mt-3 space-y-1.5 text-sm">
           <div className="flex justify-between gap-2"><dt className="text-slate-600">Hizmet dönemi</dt><dd>{fmtDate(order.periodStart)} – {fmtDate(order.periodEnd)}</dd></div>
           <div className="flex justify-between gap-2"><dt className="text-slate-600">Alıcı</dt><dd className="text-right">{order.buyer.legalTitle}</dd></div>
+          <div className="flex justify-between gap-2"><dt className="text-slate-600">Satıcı</dt><dd className="text-right">{order.seller.legalTitle}</dd></div>
           <div className="flex justify-between gap-2"><dt className="text-slate-600">KDV hariç bedel</dt><dd className="tabular-nums">{formatMinorTR(order.exclMinor, order.currency)}</dd></div>
           <div className="flex justify-between gap-2">
             <dt className="text-slate-600">KDV{order.taxRateBps !== null ? ` (%${(order.taxRateBps / 100).toLocaleString("tr-TR")})` : ""}{order.taxDemo ? ", örnek oran" : ""}</dt>
@@ -81,6 +108,10 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           {order.campaignCode ? (
             <div className="flex justify-between gap-2"><dt className="text-slate-600">Kampanya</dt><dd>{order.campaignCode}</dd></div>
           ) : null}
+          <div className="flex justify-between gap-2"><dt className="text-slate-600">Ödeme kanalı</dt><dd>{attempt ? (PROVIDER_TR[attempt.provider] ?? attempt.provider) : "—"}</dd></div>
+          {attempt?.providerRef ? <div className="flex justify-between gap-2"><dt className="text-slate-600">İşlem referansı</dt><dd className="font-mono text-xs">{attempt.providerRef}</dd></div> : null}
+          {attempt ? <div className="flex justify-between gap-2"><dt className="text-slate-600">Ödeme kaydı</dt><dd>{fmtDateTime(attempt.createdAt)}</dd></div> : null}
+          <div className="flex justify-between gap-2"><dt className="text-slate-600">Kayıt zamanı</dt><dd>{fmtDateTime(order.createdAt)}</dd></div>
         </dl>
       </div>
 
@@ -91,12 +122,29 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             <div className="flex justify-between gap-2"><dt className="text-slate-600">Tür</dt><dd>{E_DOC_KIND_LABELS[doc.kind]}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-slate-600">Durum</dt><dd><strong>{E_DOC_STATUS_LABELS[doc.status]}</strong></dd></div>
             {doc.documentNo ? <div className="flex justify-between gap-2"><dt className="text-slate-600">Belge no</dt><dd>{doc.documentNo}</dd></div> : null}
+            {doc.ettn ? <div className="flex justify-between gap-2"><dt className="text-slate-600">ETTN</dt><dd className="font-mono text-xs">{doc.ettn}</dd></div> : null}
             {doc.transmissionStatus ? <div className="flex justify-between gap-2"><dt className="text-slate-600">Resmî iletim</dt><dd>{doc.transmissionStatus}</dd></div> : null}
             <div className="flex justify-between gap-2">
               <dt className="text-slate-600">E-posta iletimi</dt>
               <dd>{doc.emailStatus === "sent" ? "Gönderildi" : doc.emailStatus === "failed" ? "Gönderilemedi" : doc.emailStatus === "skipped" ? "Atlandı" : "Bekliyor"}</dd>
             </div>
+            <div className="flex justify-between gap-2"><dt className="text-slate-600">Belge kaydı</dt><dd>{fmtDateTime(doc.createdAt)}</dd></div>
           </dl>
+        </div>
+      ) : null}
+
+      {consents.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-semibold">Kabul edilen sözleşmeler</h2>
+          <p className="mt-1 text-xs text-slate-500">Ödeme anında kabul ettiğiniz sürümler (sonradan değişmez).</p>
+          <ul className="mt-3 space-y-1.5 text-sm">
+            {consents.map(([id, version]) => (
+              <li key={id} className="flex justify-between gap-2">
+                <span>{docTitle(id)}</span>
+                <span className="text-slate-500">sürüm {version}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

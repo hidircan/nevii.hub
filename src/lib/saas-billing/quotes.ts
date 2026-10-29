@@ -99,6 +99,8 @@ export async function submitQuoteRequest(args: {
     createdAt: now,
   };
   await saveSaasQuoteRequest(record);
+  const { notifyOwnerNewRequest } = await import("./request-notify");
+  await notifyOwnerNewRequest({ kind: "teklif", id: record.id, institutionName: record.institutionName, createdAt: now });
   return ok(record);
 }
 

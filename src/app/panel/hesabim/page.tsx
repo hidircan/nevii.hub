@@ -4,6 +4,7 @@ import { getUserById } from "@/lib/auth/users";
 import { getInstitutionContext } from "@/lib/institution/context";
 import { roleLabelTr } from "@/lib/auth/role-labels";
 import { isDbMode } from "@/lib/config";
+import Link from "@/components/link";
 import { Card, PageHeader } from "@/components/ui";
 import { AccountPasswordForm } from "@/components/account-password-form";
 import { AccountEmailChangeForm } from "@/components/account-email-change-form";
@@ -62,6 +63,41 @@ export default async function HesabimPage() {
           <h2 className="mb-4 font-semibold text-[var(--color-text)]">E-posta değiştir</h2>
           <AccountEmailChangeForm currentEmail={user?.email} />
         </Card>
+
+        {session.role === "SUPER_ADMIN" ? (
+          <Card>
+            <h2 className="mb-2 font-semibold text-[var(--color-text)]">Abonelik ve kurum</h2>
+            <p className="mb-4 text-sm text-[var(--color-text-muted)]">
+              NeviiHub aboneliğiniz, fatura bilgileriniz ve kurum ayarlarınız. Yalnız kurum sahibi görür.
+            </p>
+            <nav aria-label="Abonelik ve kurum" className="grid gap-2 text-sm">
+              <Link
+                href="/abonelik"
+                className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2.5 font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Aboneliğim
+              </Link>
+              <Link
+                href="/abonelik/fatura-bilgilerim"
+                className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2.5 font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Fatura Bilgilerim
+              </Link>
+              <Link
+                href="/abonelik/faturalar"
+                className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2.5 font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Faturalarım
+              </Link>
+              <Link
+                href="/panel/ayarlar/kurum"
+                className="rounded-[var(--radius-md)] border border-[var(--color-border)] px-3 py-2.5 font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-muted)]"
+              >
+                Kurum Ayarları
+              </Link>
+            </nav>
+          </Card>
+        ) : null}
 
         <Card>
           <h2 className="mb-4 font-semibold text-[var(--color-text)]">Şifre değiştir</h2>

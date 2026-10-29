@@ -52,6 +52,11 @@ async function loadAll(): Promise<DynamicUserRecord[]> {
   }
 }
 
+/** Tek dosya okuma — kurum listesi gibi toplu görünümler için (N+1 yok). */
+export async function listDynamicUsers(): Promise<DynamicUserRecord[]> {
+  return loadAll();
+}
+
 async function saveAll(rows: DynamicUserRecord[]): Promise<void> {
   const fs = await import("fs/promises");
   await fs.mkdir(path.dirname(FILE), { recursive: true });

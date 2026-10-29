@@ -72,7 +72,9 @@ export async function POST(request: Request) {
         ok: false,
         error: {
           code: "PENDING_EXISTS",
-          message: "Bu e-posta ile bekleyen bir kaydınız var. Size verilen bağlantıdan devam edin.",
+          message:
+            "Bu e-posta ile bekleyen bir kaydınız var. Kaydı oluşturduğunuz sekmeden devam edin; " +
+            "bağlantıyı kaybettiyseniz kayıt süresi dolunca (24 saat) yeniden başlayabilirsiniz.",
         },
       },
       { status: 409 }

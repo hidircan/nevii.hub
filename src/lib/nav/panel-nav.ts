@@ -122,14 +122,18 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 ];
 
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
-  /** Kurum sahibinin kendi NeviiHub aboneliği — /abonelik sayfaları (SUPER_ADMIN yazar, SCHOOL_ADMIN okur). */
-  { href: "/abonelik", label: "Aboneliğim", icon: RefreshCcw, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/abonelik/fatura-bilgilerim", label: "Fatura Bilgilerim", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/abonelik/faturalar", label: "Faturalarım", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/ayarlar/kurum", label: "Kurum Ayarları", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  /**
+   * BİLİNÇLİ olarak burada YOK (2026-10-29 owner kararı):
+   * - Aboneliğim / Fatura Bilgilerim / Faturalarım / Kurum Ayarları: yalnız
+   *   kurum sahibi (SUPER_ADMIN) görür, girişi yan menüde değil
+   *   "Profilim / Hesap ayarları" (`/panel/hesabim`) ekranındadır.
+   * - Kurum Özellikleri: hiçbir kurum kullanıcısında görünmez; bu
+   *   konfigürasyonları HYPER_ADMIN NeviiOS üzerinden yürütür
+   *   (kurum tarafı `/panel/ayarlar/ozellikler` rotası `/panel`'e yönlenir).
+   * Rotaların kendisi ve sunucu kapıları (SUPER_ADMIN) SAKLI kalır.
+   */
   /** 10. tur iş #2 — kurum bazlı davet/şifre-sıfırlama e-posta şablonları. */
   { href: "/panel/e-posta-sablonlari", label: "E-posta Şablonları", icon: Mail, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
-  { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },
   { href: "/panel/kurulum", label: "Kurulum Merkezi", icon: Settings },
   /** ÇALIŞMA GÜNÜ TEK KAYNAĞI — haftalık kural + resmî tatil + zorla aç/kapat istisnaları. */

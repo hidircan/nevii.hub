@@ -9,6 +9,7 @@ import {
   buildPendingSubscription,
   canTransition,
   cancelAtPeriodEnd,
+  guardActivePaidOverwrite,
   mapProviderStatus,
   planUpgradeRequiresPayment,
   reactivate,
@@ -178,5 +179,38 @@ describe("saas abonelik durum makinesi", () => {
     });
     expect(s.acceptedAt).toBe("2026-02-01T00:00:00.000Z");
     expect(s.amountMinor).toBe(50000);
+  });
+});
+
+describe("aktif ödenmiş üzerine yazma koruması (§9)", () => {
+  const base = {
+    planKey: "core",
+    billingInterval: "monthly",
+    targetPlanKey: "pro",
+    targetInterval: "monthly",
+    nowMs: new Date("2026-10-29T12:00:00Z").getTime(),
+  };
+  it("aktif + ödenmiş süre varken farklı plan engellenir", () => {
+    expect(
+      guardActivePaidOverwrite({ ...base, status: "active", paidThrough: "2026-11-29T12:00:00Z" })
+    ).toMatch(/korunur/);
+  });
+  it("aktif + ödenmiş süre varken aynı plan (çift çekim) engellenir", () => {
+    expect(
+      guardActivePaidOverwrite({
+        ...base,
+        targetPlanKey: "core",
+        status: "active",
+        paidThrough: "2026-11-29T12:00:00Z",
+      })
+    ).toMatch(/zaten ödenmiş/);
+  });
+  it("süresi dolmuş aktif / deneme / bekleyen akışlar engellenmez", () => {
+    expect(
+      guardActivePaidOverwrite({ ...base, status: "active", paidThrough: "2026-10-28T12:00:00Z" })
+    ).toBeNull();
+    expect(guardActivePaidOverwrite({ ...base, status: "trialing", paidThrough: null })).toBeNull();
+    expect(guardActivePaidOverwrite({ ...base, status: "pending", paidThrough: null })).toBeNull();
+    expect(guardActivePaidOverwrite({ ...base, status: "past_due", paidThrough: null })).toBeNull();
   });
 });

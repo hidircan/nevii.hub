@@ -150,7 +150,6 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "tools:catalog",
     "demo:reset",
     "export:institution",
-    "institution:settings",
     "institution:features",
     "notifications:read",
     "communication:write",

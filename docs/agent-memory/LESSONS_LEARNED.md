@@ -1629,3 +1629,34 @@ vakası). Oysa `TeacherPayoutSnapshotLine` tutarı ve `feeRuleId` izini donmuş 
 (silinen kuralın parametreleri `teacher_fee.delete` audit metasına yazılır); etki sayılarıyla önizleme + açık onay,
 ölü bir engel mesajından her zaman üstündür. Ayrıca kullanım sayaçları politika-bilinçli olmalı: sabit-ücret
 ayındaki ders kurala "çözümlense" bile tutarı ondan almaz (eski `feeRuleUsage` politika körü sayıyordu).
+
+## 2026-10-29 — Satın alma hunisinde sekme durumu kayboluyordu: taslak siliniyor, kendi bekleyen kaydına "zaten var" deniyordu
+
+`OrderInfoForm` idempotency anahtarını sayfa yüklemede üretip yalnız React state'inde tutuyordu; kayıt
+token'ı tek sunucu yanıtında dönüyor, istemcide saklanmıyordu. Paket detayına gidip dönünce form
+boşalıyor (BUG1); "Kaydı oluştur" sonrası geri/ileri yapınca YENİ anahtarla ikinci kayıt denemesi
+`pending_exists` ile duvara çarpıyordu (BUG2) — üstelik hata mesajındaki "size verilen bağlantı"
+pratikte hiç verilmemişti (ölü yönlendirme). Aynı kökten üçüncü belirti: taslak NeviiOS'ta görünmüyordu.
+**Ders:** loginless checkout'ta anahtar + token + taslak sekme-ömürlü oturumda (`checkout-session.ts`,
+`useSyncExternalStore`) sabitlenir; sunucu replay'i aynı anahtarla sürdürür, e-posta tek başına yetki
+değildir (sürdürme yalnız token/replay/e-posta-bağlantısıyla). Hata mesajı var-olmayan bir bağlantıya
+yönlendiremez — ya sürdürme düğmesi sunulur ya da güvenli yeniden-başlangıç yolu yazılır.
+
+## 2026-10-29 — Kurum checkout'u aktif ödenmiş aboneliği yerinde eziyordu (plan/snapshot/hak kaybı)
+
+`/api/v1/billing/checkout` mevcut aboneliği `{...existing, planKey: yeni, status: "pending"}` ile
+üzerine yazıyordu: "yeni plan seçti" anında ödenmiş hak pending'e düşüyor, eski snapshot kayboluyordu.
+`applyPlanChange(next_period)` ise ölü koddu (üretimde çağıranı ve notu okuyanı yok — sahte zamanlama).
+**Ders:** yıkıcı geçişler fail-closed engellenir (`guardActivePaidOverwrite`: aktif + ödenmiş süre
+varken yeni çekim/değişim yok, yönlendirme mesajı var); gerçek zamanlanmış-değişim DB şeması +
+dönüm-uygulayıcısı gerektirir ve migration'sız "not'a yazdım, olur" diye sunulamaz.
+
+## 2026-10-29 — "use client" dosyasından sunucu bileşenine sabit aktarımı Turbopack RSC'de patlıyor
+
+Özet sayfası (RSC) `DASHBOARD_SECTIONS` dizisini istemci editör dosyasından
+import ediyordu; tsc temizdi ama çalışmada `X.map is not a function` verdi —
+istemci modülünün bileşen-dışı export'ları RSC'de tanımsız geliyor.
+**Ders:** sunucu + istemcinin paylaştığı sabitler framework-bağımsız bir
+`src/lib/...` modülünde durmalı (`dashboard-view.ts` deseni); sayfa
+dosyalarından `@/components` import'ları yalnız PascalCase bileşen + `type`
+olmalı. tsc bunu yakalamaz, gözle denetlenir.

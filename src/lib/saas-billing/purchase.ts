@@ -60,6 +60,8 @@ export async function submitPurchaseRequest(args: {
     createdAt: now,
   };
   await saveSaasPurchaseRequest(record);
+  const { notifyOwnerNewRequest } = await import("./request-notify");
+  await notifyOwnerNewRequest({ kind: "satin-alma", id: record.id, institutionName: record.institutionName, createdAt: now });
   return ok(record);
 }
 

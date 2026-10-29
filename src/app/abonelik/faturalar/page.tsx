@@ -19,7 +19,8 @@ export default async function InvoicesPage() {
   } catch {
     redirect("/login?next=/abonelik/faturalar");
   }
-  if (session.role !== "SUPER_ADMIN" && session.role !== "SCHOOL_ADMIN") {
+  // Owner kararı (2026-10-29): yalnız kurum sahibi (SUPER_ADMIN).
+  if (session.role !== "SUPER_ADMIN") {
     redirect(homePathForRole(session.role));
   }
   const orders = await listTenantInvoiceOrders(session.tenantId, 50);
@@ -55,7 +56,7 @@ export default async function InvoicesPage() {
                   <p className="text-sm font-bold tabular-nums">{formatMinorTR(o.totalMinor, o.currency)}</p>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  Hizmet dönemi: {fmtDate(o.periodStart)} – {fmtDate(o.periodEnd)} ·{" "}
+                  {fmtDate(o.createdAt)} · Hizmet dönemi: {fmtDate(o.periodStart)} – {fmtDate(o.periodEnd)} ·{" "}
                   {doc ? E_DOC_KIND_LABELS[doc.kind] : "Belge hazırlanıyor"}
                 </p>
                 {pending ? (

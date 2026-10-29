@@ -1,7 +1,9 @@
 import Link from "@/components/link";
-import { getOrderPublicView } from "@/lib/saas-billing/pending-orders";
+import { requireSessionContext } from "@/lib/auth/session";
+import { getCheckoutDocContext, getOrderOwnerView, getOrderPublicView } from "@/lib/saas-billing/pending-orders";
 import { getPricedPlan, renewalNoteFor } from "@/lib/saas-billing/catalog";
 import { CheckoutSteps } from "@/components/billing/checkout-steps";
+import { CheckoutTimeoutGuard } from "@/components/billing/checkout-timeout-guard";
 import { OrderSummaryRows } from "@/components/billing/order-summary";
 import { OrderPayForm } from "@/components/billing/order-pay-form";
 
@@ -37,6 +39,13 @@ export default async function OrderPreviewPage({
     );
   }
   const o = view.data;
+  // §7: kurum sahibi KENDİ oturumunda tam adres görür (yanlış adresi fark
+  // edip "Bilgileri düzenle" ile düzeltebilir); diğer herkes maskeli görür.
+  const session = await requireSessionContext().catch(() => null);
+  const ownerView = session ? await getOrderOwnerView({ token: t ?? "", session }) : null;
+  const ownerEmail = ownerView && ownerView.ok ? ownerView.data.ownerEmail : o.ownerEmailMasked;
+  const invoiceEmail = ownerView && ownerView.ok ? ownerView.data.invoiceEmail : o.billing.invoiceEmailMasked;
+  const taxId = ownerView && ownerView.ok ? (ownerView.data.taxId ?? "—") : o.billing.taxIdMasked;
   if (o.status === "paid") {
     return (
       <div className="min-h-screen bg-white text-slate-900">
@@ -55,6 +64,7 @@ export default async function OrderPreviewPage({
   }
   const plan = await getPricedPlan(o.planKey, o.interval);
   const renewalNote = renewalNoteFor(o.interval);
+  const docCtx = await getCheckoutDocContext();
   const editHref = `/satin-al/bilgiler?t=${encodeURIComponent(t ?? "")}`;
   const termsText = o.totals
     ? `${o.planLabel} (${o.interval === "yearly" ? "yıllık" : "aylık"}), KDV dahil toplam ${o.totals.displayTotal}.`
@@ -62,6 +72,7 @@ export default async function OrderPreviewPage({
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
+      <CheckoutTimeoutGuard token={t ?? ""} validatePath={`/api/v1/billing/orders?t=${encodeURIComponent(t ?? "")}`} />
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="rounded-lg text-lg font-extrabold tracking-tight">NeviiHub</Link>
@@ -99,10 +110,10 @@ export default async function OrderPreviewPage({
               <dl className="mt-4 grid gap-x-6 gap-y-2.5 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-slate-500">Kurum</dt><dd className="text-right font-medium">{o.institutionName}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-slate-500">Yetkili</dt><dd className="text-right font-medium">{o.ownerName}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Hesap e-postası</dt><dd className="font-medium">{o.ownerEmailMasked}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Hesap e-postası</dt><dd className="font-medium">{ownerEmail}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-slate-500">Fatura alıcısı</dt><dd className="text-right font-medium">{o.billing.legalTitle}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Vergi kimlik no</dt><dd className="font-medium">{o.billing.taxIdMasked}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Fatura e-postası</dt><dd className="font-medium">{o.billing.invoiceEmailMasked}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Vergi kimlik no</dt><dd className="font-medium">{taxId}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-slate-500">Fatura e-postası</dt><dd className="font-medium">{invoiceEmail}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-slate-500">Paket</dt><dd className="font-medium">{o.planLabel} ({o.interval === "yearly" ? "yıllık" : "aylık"})</dd></div>
               </dl>
             </section>
@@ -115,6 +126,12 @@ export default async function OrderPreviewPage({
                   termsText={termsText}
                   renewalNote={renewalNote}
                   totalDisplay={o.totals.displayTotal}
+                  documents={docCtx.documents}
+                  acceptedVersions={docCtx.acceptedVersions}
+                  providerDisplayName={docCtx.provider.displayName}
+                  providerTermsUrl={docCtx.provider.termsUrl}
+                  docsApproved={docCtx.docsApproved}
+                  isMock={docCtx.isMock}
                 />
               ) : (
                 <p className="text-sm text-slate-600">

@@ -71,6 +71,12 @@ const LABELS: Record<string, string> = {
   "saas.edoc.resend_email": "E-belge e-postası yeniden gönderildi",
   "saas.edoc.retry": "E-belge düzenleme yeniden denendi",
   "saas.access_denied": "Yetkisiz işlem engellendi",
+  "saas.seller_profile.update": "Satıcı bilgileri güncellendi",
+  "saas.request.notified": "Yeni talep bildirimi gönderildi",
+  "saas.legal_doc.revise": "Hukuki belge taslağı oluşturuldu",
+  "saas.legal_doc.review": "Hukuki belge değerlendirmesi güncellendi",
+  "saas.legal_doc.publish": "Hukuki belge sürümü yayımlandı",
+  "saas.legal_doc.unpublish": "Hukuki belge yayından kaldırıldı",
   // Giriş ve güvenlik
   "auth.login_success": "Giriş yapıldı",
   "auth.success": "Giriş yapıldı",

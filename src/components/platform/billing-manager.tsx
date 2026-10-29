@@ -61,13 +61,20 @@ function executionTr(model: string | null): string | null {
   return null;
 }
 
-/** NeviiOS abonelik yönetimi: erişim kontrolü, istisna, deneme kararı, ödeme karşılaştırma, kampanya. */
-export function BillingManager({ data }: { data: Overview }) {
+const TROUBLED = new Set(["past_due", "suspended"]);
+
+/** NeviiOS abonelik yönetimi: erişim kontrolü, istisna, deneme kararı, ödeme karşılaştırma. Kampanyalar ayrı ekranda. */
+export function BillingManager({ data, initialStatus }: { data: Overview; initialStatus?: string }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [exc, setExc] = useState({ tenantId: "", until: "", reason: "" });
   const [man, setMan] = useState({ tenantId: "", providerRef: "", amountTl: "", currency: "TRY", occurredAt: "", note: "" });
-  const [cmp, setCmp] = useState({ name: "", tenantId: "", discountType: "percent", percent: "20", amountTl: "", intervalScope: "both", validTo: "", maxRenewals: "12", postCampaignNote: "" });
+  const [statusFilter, setStatusFilter] = useState(initialStatus ?? "");
+  const visibleSubs = data.subscriptions.filter(
+    (s) =>
+      !statusFilter ||
+      (statusFilter === "sorunlu" ? TROUBLED.has(s.status) : s.status === statusFilter)
+  );
 
   async function post(path: string, body: unknown) {
     setBusy(true);
@@ -113,15 +120,31 @@ export function BillingManager({ data }: { data: Overview }) {
       ) : null}
 
       <section id="abonelikler" className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
-        <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Kurum abonelikleri ({data.subscriptions.length})</h2>
-          <button disabled={busy} className={btnGhost} title="Sağlayıcıdaki ödeme durumlarıyla yerel kayıtları karşılaştırır" onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "reconcile", limit: 25 }); if (d) refresh(); }}>
-            Ödeme durumlarını karşılaştır
-          </button>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold">Kurum abonelikleri ({visibleSubs.length})</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Duruma göre süz"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1.5 text-xs"
+            >
+              <option value="">Tüm durumlar</option>
+              <option value="sorunlu">Ödeme sorunu olanlar</option>
+              {Object.entries(SUBSCRIPTION_STATUS_TR).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <button disabled={busy} className={btnGhost} title="Sağlayıcıdaki ödeme durumlarıyla yerel kayıtları karşılaştırır" onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "reconcile", limit: 25 }); if (d) refresh(); }}>
+              Ödeme durumlarını karşılaştır
+            </button>
+          </div>
         </div>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">Her satır bir kurumun aboneliğidir. Satırdaki bağlantılardan kurum detayına ve belgelerine geçilir.</p>
         {data.subscriptions.length === 0 ? (
           <p className="text-sm text-[var(--color-text-muted)]">Kayıtlı abonelik yok.</p>
+        ) : visibleSubs.length === 0 ? (
+          <p className="text-sm text-[var(--color-text-muted)]">Bu durumda abonelik yok.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -138,7 +161,7 @@ export function BillingManager({ data }: { data: Overview }) {
                 </tr>
               </thead>
               <tbody>
-                {data.subscriptions.map((s) => {
+                {visibleSubs.map((s) => {
                   const exec = executionTr(s.executionModel);
                   return (
                     <tr key={s.tenantId} className="border-b border-[var(--color-border)] align-top">
@@ -239,53 +262,18 @@ export function BillingManager({ data }: { data: Overview }) {
       </section>
 
       <section id="kampanyalar" className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
-        <h2 className="mb-1 text-base font-semibold">Pilot kampanya oluştur</h2>
-        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Kampanya yalnız seçili kuruma uygulanır; herkese açık kupon değildir.</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          <input placeholder="Ad" aria-label="Kampanya adı" value={cmp.name} onChange={(e) => setCmp({ ...cmp, name: e.target.value })} className={input} />
-          {tenantOptions(cmp.tenantId, (v) => setCmp({ ...cmp, tenantId: v }), "Pilot kurum")}
-          <select aria-label="İndirim türü" value={cmp.discountType} onChange={(e) => setCmp({ ...cmp, discountType: e.target.value })} className={input}>
-            <option value="percent">Yüzde</option>
-            <option value="fixed_minor">Sabit tutar (₺)</option>
-          </select>
-          {cmp.discountType === "percent" ? (
-            <input type="number" min={1} max={100} placeholder="Yüzde" aria-label="Yüzde" value={cmp.percent} onChange={(e) => setCmp({ ...cmp, percent: e.target.value })} className={input} />
-          ) : (
-            <input type="number" min={0} step="0.01" placeholder="Tutar (₺)" aria-label="Sabit tutar TL" value={cmp.amountTl} onChange={(e) => setCmp({ ...cmp, amountTl: e.target.value })} className={input} />
-          )}
-          <select aria-label="Periyot kapsamı" value={cmp.intervalScope} onChange={(e) => setCmp({ ...cmp, intervalScope: e.target.value })} className={input}>
-            <option value="both">Aylık + Yıllık</option>
-            <option value="monthly">Yalnız aylık</option>
-            <option value="yearly">Yalnız yıllık</option>
-          </select>
-          <input type="date" aria-label="Bitiş" value={cmp.validTo} onChange={(e) => setCmp({ ...cmp, validTo: e.target.value })} className={input} />
-          <input type="number" min={0} placeholder="Azami yenileme" aria-label="Azami yenileme" value={cmp.maxRenewals} onChange={(e) => setCmp({ ...cmp, maxRenewals: e.target.value })} className={input} />
-          <input placeholder="Sonrası fiyat notu (zorunlu)" aria-label="Sonrası fiyat" value={cmp.postCampaignNote} onChange={(e) => setCmp({ ...cmp, postCampaignNote: e.target.value })} className={`${input} sm:col-span-2`} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold">Kampanyalar</h2>
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">Kampanya oluşturma ve kapatma yalnız Kampanyalar ekranında yapılır.</p>
+          </div>
+          <a className={btnGhost} href="/platform/kampanyalar">
+            Kampanyaları görüntüle
+          </a>
         </div>
-        <button
-          disabled={busy || !cmp.name || !cmp.tenantId || !cmp.postCampaignNote}
-          className={`${btn} mt-2`}
-          onClick={async () => {
-            const d = await post("/api/v1/platform/billing/campaigns", {
-              action: "create",
-              name: cmp.name,
-              tenantId: cmp.tenantId,
-              discountType: cmp.discountType,
-              percent: cmp.discountType === "percent" ? Number(cmp.percent) : null,
-              amountTl: cmp.discountType === "fixed_minor" ? cmp.amountTl : null,
-              intervalScope: cmp.intervalScope,
-              validTo: cmp.validTo ? new Date(cmp.validTo).toISOString() : null,
-              maxRenewals: cmp.maxRenewals ? Number(cmp.maxRenewals) : null,
-              postCampaignNote: cmp.postCampaignNote,
-            });
-            if (d) refresh();
-          }}
-        >
-          Kampanya oluştur
-        </button>
       </section>
 
-      <section className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+      <section id="bildirimler" className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
         <h2 className="mb-1 text-base font-semibold">Başarısız bildirim işleri ({data.failedWebhooks.length})</h2>
         <p className="mb-3 text-xs text-[var(--color-text-muted)]">Sağlayıcıdan gelen ve işlenemeyen ödeme bildirimleri. Kayıt silinmez; sorun çözülünce yeniden işlenir.</p>
         {data.failedWebhooks.length === 0 ? (

@@ -2,9 +2,11 @@ import Link from "@/components/link";
 import { PageHeader, EmptyState } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getEDocumentByOrder, listAllInvoiceOrders } from "@/lib/saas-billing/store";
-import { E_DOC_KIND_LABELS, E_DOC_STATUS_LABELS, getSellerSnapshot } from "@/lib/saas-billing/invoicing-orders";
+import { E_DOC_KIND_LABELS, E_DOC_STATUS_LABELS } from "@/lib/saas-billing/invoicing-orders";
+import { getEffectiveSeller } from "@/lib/saas-billing/seller-profile";
 import { formatMinorTR } from "@/lib/saas-billing/types";
 import { EDocsManager, type EDocRow } from "@/components/platform/edocs-manager";
+import { SellerProfileEditor } from "@/components/platform/seller-profile-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,7 @@ export default async function EDocsPage({
 }) {
   await requireHyperAdminPage("/platform/fatura/e-belgeler");
   const { tenant } = await searchParams;
-  const seller = getSellerSnapshot();
+  const { snapshot: seller, sources } = await getEffectiveSeller();
   const orders = await listAllInvoiceOrders(100).catch(() => null);
   if (!orders) {
     return <EmptyState title="Belgeler yüklenemedi" description="Kayıtlar okunamadı." />;
@@ -48,36 +50,18 @@ export default async function EDocsPage({
       createdDisplay: fmt(o.createdAt),
     });
   }
-  const missing = [
-    seller.taxId ? null : "vergi kimlik numarası (SAAS_SELLER_TAX_ID)",
-    seller.taxOffice ? null : "vergi dairesi (SAAS_SELLER_TAX_OFFICE)",
-    seller.addressLine ? null : "adres (SAAS_SELLER_ADDRESS)",
-    seller.city ? null : "il (SAAS_SELLER_CITY)",
-  ].filter((x): x is string => Boolean(x));
   return (
     <div>
-      <PageHeader
-        title="Faturalar / e-Belgeler"
-        description="NeviiHub SaaS satış belgeleri: sipariş, belge durumu, resmî iletim ve e-posta. Kimlik numaraları bu listede gösterilmez."
-      />
-      <section aria-label="Satıcı bilgileri" className="mb-6 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
-        <h2 className="text-base font-semibold">Satıcı bilgileri (belgelerdeki NeviiHub kaydı)</h2>
-        <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-          Kaynak: sunucu ortam değişkenleri (SAAS_SELLER_*). Bu ekrandan değiştirilemez; alıcı bilgileri kurumların
-          fatura profilinden gelir ve satıcıyla karıştırılmaz.
-        </p>
-        <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Ticaret unvanı</dt><dd className="font-medium">{seller.legalTitle}</dd></div>
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Vergi kimlik no</dt><dd className="font-medium">{seller.taxId ?? "eksik"}</dd></div>
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Vergi dairesi</dt><dd className="font-medium">{seller.taxOffice ?? "eksik"}</dd></div>
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Adres</dt><dd className="font-medium">{[seller.addressLine, seller.city].filter(Boolean).join(", ") || "eksik"}</dd></div>
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Fatura e-postası</dt><dd className="font-medium">{seller.invoiceEmail}</dd></div>
-          <div className="flex justify-between gap-2"><dt className="text-[var(--color-text-muted)]">Doğrulama</dt><dd className="font-medium">{seller.verified ? "Tamam" : "Eksik bilgi var — resmî belge düzenlenemez"}</dd></div>
-        </dl>
-        {missing.length > 0 ? (
-          <p className="mt-2 text-xs text-[var(--color-warning)]">Eksikler: {missing.join("; ")}. Gerçek belge için mali müşavir onayı gerekir.</p>
-        ) : null}
-      </section>
+      <Link className="text-sm text-[var(--color-primary)] hover:underline" href="/platform/fatura">
+        ← Kurum Abonelikleri
+      </Link>
+      <div className="mt-2">
+        <PageHeader
+          title="Faturalar / e-Belgeler"
+          description="NeviiHub SaaS satış belgeleri: sipariş, belge durumu, resmî iletim ve e-posta. Kimlik numaraları bu listede gösterilmez."
+        />
+      </div>
+      <SellerProfileEditor seller={seller} sources={sources} />
       {tenant ? (
         <p className="mb-4 text-sm text-[var(--color-text-muted)]">
           Kurum süzgeci etkin.{" "}

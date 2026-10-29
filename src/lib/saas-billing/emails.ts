@@ -187,3 +187,104 @@ export async function sendCheckoutInvitationEmail(args: {
     textBody: `${args.planLabel} (${amount}) davetiniz: ${args.checkoutUrl} — geçerlilik: ${exp}.`,
   });
 }
+
+/**
+ * Kayıt sürdürme bağlantısı — bağlantısını kaybeden alıcıya, SADECE
+ * kayıttaki e-posta adresine gönderilir (posta kutusu sahipliği kanıtı).
+ * Yanıt HER ZAMAN aynıdır (kayıt var/yok bilgisi sızdırılmaz).
+ */
+/** Platform sahibine yeni talep bildirimi (kurum + tür + zaman + detay bağlantısı; kimlik/fatura verisi yok). */
+export async function sendNewRequestNotification(args: {
+  to: string;
+  kindLabel: string;
+  institutionName: string;
+  createdAtDisplay: string;
+  detailUrl: string;
+}): Promise<SaasEmailResult> {
+  return sendSaasEmail({
+    to: args.to,
+    subject: `Yeni ${args.kindLabel}: ${args.institutionName}`,
+    htmlBody: layout(
+      `Yeni ${args.kindLabel}`,
+      `<p><strong>${args.institutionName}</strong> — ${args.createdAtDisplay}.</p>\n<p><a href="${args.detailUrl}">NeviiOS'ta incele</a></p>`
+    ),
+    textBody: `Yeni ${args.kindLabel}: ${args.institutionName} — ${args.createdAtDisplay}. İncele: ${args.detailUrl}`,
+  });
+}
+
+export async function sendOrderResumeEmail(args: {
+  to: string;
+  institutionName: string;
+  resumeUrl: string;
+  expiresAt: string;
+}): Promise<SaasEmailResult> {
+  const exp = new Date(args.expiresAt).toLocaleDateString("tr-TR");
+  return sendSaasEmail({
+    to: args.to,
+    subject: "NeviiHub satın alma kaydınıza devam edin",
+    htmlBody: layout(
+      "Kaydınıza devam edin",
+      `<p><strong>${args.institutionName}</strong> için başlatılmış ödeme bekleyen kaydınız var.</p>\n<p><a href="${args.resumeUrl}">Kaydıma güvenli şekilde devam et</a> — bağlantı ${exp} tarihine kadar geçerlidir, tek kayıt içindir ve başkasıyla paylaşılmamalıdır.</p>`
+    ),
+    textBody: `Kaydınıza devam edin: ${args.resumeUrl} — geçerlilik: ${exp}.`,
+  });
+}
+
+/**
+ * Hesap e-postası (ödeme sonrası): kabul edilen sözleşme sürümleri + ödeme
+ * özeti + kurulum açıklaması ve BAĞLANTISI. Kurulum bağlantısı YALNIZ bu
+ * adrese gider (muhasebe adresine ASLA).
+ */
+export async function sendOrderAccountEmail(args: {
+  to: string;
+  institutionName: string;
+  planLabel: string;
+  totalDisplay: string;
+  periodLabel: string;
+  docTitles: { title: string; version: string }[];
+  setupUrl: string | null;
+}): Promise<SaasEmailResult> {
+  const docs = args.docTitles.map((d) => `<li>${d.title} (sürüm ${d.version})</li>`).join("");
+  return sendSaasEmail({
+    to: args.to,
+    subject: "NeviiHub ödemeniz alındı — hesabınızı kurun",
+    htmlBody: layout(
+      "Ödemeniz alındı",
+      `<p><strong>${args.institutionName}</strong> için <strong>${args.planLabel}</strong> (${args.totalDisplay}, ${args.periodLabel}) ödemeniz doğrulandı.</p>\n<p><strong>Kabul ettiğiniz belgeler:</strong></p>\n<ul>${docs}</ul>\n${
+        args.setupUrl
+          ? `<p><a href="${args.setupUrl}">Hesabınıza erişmek için parolanızı belirleyin</a> — bağlantı tek kullanımlıktır.</p>`
+          : `<p>Hesap kurulum bağlantınız ayrıca iletilecek.</p>`
+      }`
+    ),
+    textBody: `Ödemeniz alındı: ${args.planLabel} ${args.totalDisplay} ${args.periodLabel}. ${args.setupUrl ? `Kurulum: ${args.setupUrl}` : ""}`,
+  });
+}
+
+/**
+ * Fatura e-postası: resmî belge durumu. Belge hazır değilse "hazırlanıyor"
+ * denir; "gönderildi" YALNIZCA doğrulandığında yazılır. Kendi PDF'miz resmî
+ * fatura gibi sunulmaz; sipariş özeti dekont diye etiketlenmez.
+ */
+export async function sendOrderInvoiceEmail(args: {
+  to: string;
+  institutionName: string;
+  planLabel: string;
+  totalDisplay: string;
+  invoiceReady: boolean;
+  invoiceUrl: string | null;
+}): Promise<SaasEmailResult> {
+  return sendSaasEmail({
+    to: args.to,
+    subject: args.invoiceReady ? "NeviiHub faturanız hazır" : "NeviiHub ödemeniz alındı — faturanız hazırlanıyor",
+    htmlBody: layout(
+      args.invoiceReady ? "Faturanız hazır" : "Faturanız hazırlanıyor",
+      args.invoiceReady && args.invoiceUrl
+        ? `<p><strong>${args.institutionName}</strong> için <strong>${args.planLabel}</strong> (${args.totalDisplay}) faturanız hazırdır.</p>\n<p><a href="${args.invoiceUrl}">Faturayı görüntüleyin</a></p>`
+        : `<p><strong>${args.institutionName}</strong> için ödemeniz alındı. Faturanız hazırlanıyor; hazır olduğunda bu adrese gönderilecek.</p>`
+    ),
+    textBody:
+      args.invoiceReady && args.invoiceUrl
+        ? `Faturanız hazır: ${args.invoiceUrl}`
+        : `Ödemeniz alındı; faturanız hazırlanıyor (${args.planLabel} ${args.totalDisplay}).`,
+  });
+}
