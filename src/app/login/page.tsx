@@ -8,6 +8,16 @@ import { PORTAL_RECORD_MISSING_PARAM } from "@/lib/auth/portal-record-missing";
 import { cookies } from "next/headers";
 import { LOCALE_COOKIE, authCopy, readLocaleCookie } from "@/lib/i18n/copy";
 import { resolveSafeLoginNext } from "@/lib/auth/role-routes";
+import { SiteAppBanner } from "@/components/site/app-banner";
+import { appStoreIdFromUrl, getAppBannerConfig, resolveMobileAppLinks } from "@/lib/platform/site-mobile-apps";
+import type { Metadata } from "next";
+
+export async function generateMetadata(): Promise<Metadata> {
+  // iOS Safari'nin yerel "Uygulamada aç" bandı (App Store kimliği varsa).
+  const links = await resolveMobileAppLinks().catch(() => null);
+  const appId = links?.appStoreUrl ? appStoreIdFromUrl(links.appStoreUrl) : null;
+  return appId ? { other: { "apple-itunes-app": `app-id=${appId}` } } : {};
+}
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +81,7 @@ export default async function LoginPage({
     redirect(safeNext || homePathForRole(session.role));
   }
 
+  const appBanner = await getAppBannerConfig().catch(() => null);
   const banners = (
     <>
       {portalRecordMissing ? (
@@ -209,6 +220,15 @@ export default async function LoginPage({
           </p>
         </div>
       </main>
+      {appBanner ? (
+        <SiteAppBanner
+          {...appBanner}
+          title={lang === "en" ? "NeviiHub app" : "NeviiHub uygulaması"}
+          subtitle={lang === "en" ? "Notifications and one-tap actions" : "Bildirimler ve tek dokunuşla işlemler"}
+          openLabel={lang === "en" ? "Open" : "Uygulamada aç"}
+          dismissLabel={lang === "en" ? "Dismiss" : "Kapat"}
+        />
+      ) : null}
     </div>
   );
 }

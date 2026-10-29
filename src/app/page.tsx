@@ -100,12 +100,8 @@ async function LandingContent() {
   const { resolveSiteContent } = await import("@/lib/platform/site-content-overrides");
   const c = await resolveSiteContent(readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value));
   // Bant yalnız uygulama tanımlıysa (şema veya mağaza bağlantısı) anlamlıdır.
-  const { getSiteMobileApps, resolveMobileAppLinks } = await import("@/lib/platform/site-mobile-apps");
-  const [site, resolved] = await Promise.all([getSiteMobileApps(), resolveMobileAppLinks()]);
-  const scheme = process.env.MOBILE_APP_SCHEME || undefined;
-  const bannerApp = site.appStoreVisible ? resolved.appStoreUrl : undefined;
-  const bannerPlay = site.playVisible ? resolved.playStoreUrl : undefined;
-  const bannerLive = Boolean(scheme || bannerApp || bannerPlay);
+  const { getAppBannerConfig } = await import("@/lib/platform/site-mobile-apps");
+  const banner = await getAppBannerConfig();
   return (
     // Bu ekran her zaman AÇIK temadır (cihaz koyu temada olsa bile) — bkz.
     // sections.tsx tema notu; logo beyaz güvenli alan kartında durur.
@@ -136,12 +132,11 @@ async function LandingContent() {
         <ContactSection c={c} />
       </main>
       <SiteFooter c={c} />
-      {bannerLive ? (
+      {banner ? (
         <SiteAppBanner
-          scheme={scheme}
-          appStoreUrl={bannerApp}
-          playStoreUrl={bannerPlay}
+          {...banner}
           title={c.mobileApp.title}
+          subtitle="Bildirimler ve tek dokunuşla işlemler"
           openLabel={c.mobileApp.openInApp}
           dismissLabel={c.mobileApp.dismiss}
         />
