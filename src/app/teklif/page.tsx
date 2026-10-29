@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { QuoteForm } from "@/components/site/quote-form";
 
 export const dynamic = "force-dynamic";

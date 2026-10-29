@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { getValidInvitation, resolveInvitationCampaign } from "@/lib/saas-billing/neviiads-import";

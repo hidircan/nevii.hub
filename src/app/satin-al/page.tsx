@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { getPublishedCatalog } from "@/lib/platform/commercial-catalog";
 import { getPricedPlan } from "@/lib/saas-billing/catalog";
 import { formatExVat, getTaxConfig } from "@/lib/saas-billing/tax";

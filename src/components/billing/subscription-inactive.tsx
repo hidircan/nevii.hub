@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { SUBSCRIPTION_INACTIVE_MESSAGE } from "@/lib/saas-billing/enforcement";
 
 /**

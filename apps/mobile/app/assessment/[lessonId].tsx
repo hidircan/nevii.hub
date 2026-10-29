@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { apiPost } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
@@ -108,14 +108,18 @@ export default function AssessmentScreen() {
       : undefined;
   const draft = matchedPending?.draft;
 
-  useEffect(() => {
-    if (isPeriodic && draft && !draftHydrated) {
+  // Taslak hidratasyonu: effect içinde sync setState yerine render sırasında
+  // önceki-taslak karşılaştırması (React'ın önerdiği desen; tek seferlik davranış aynı).
+  const [prevDraft, setPrevDraft] = useState<typeof draft>(undefined);
+  if (isPeriodic && draft && draft !== prevDraft) {
+    setPrevDraft(draft);
+    if (!draftHydrated) {
       setScores({ ...draft.suggestedScores });
-      setOverallProgressNote((prev) => prev || draft.synthesizedNotes.overallProgressNote);
-      setRecommendationNote((prev) => prev || draft.synthesizedNotes.recommendationNote);
+      if (!overallProgressNote) setOverallProgressNote(draft.synthesizedNotes.overallProgressNote);
+      if (!recommendationNote) setRecommendationNote(draft.synthesizedNotes.recommendationNote);
       setDraftHydrated(true);
     }
-  }, [isPeriodic, draft, draftHydrated]);
+  }
 
   const allScored = CRITERIA.every((c) => scores[c.key] !== null);
   const canSubmitLesson =

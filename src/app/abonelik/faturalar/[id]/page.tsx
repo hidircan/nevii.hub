@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { requireSessionContext, homePathForRole } from "@/lib/auth/session";
 import { getEDocumentByOrder, getInvoiceOrder } from "@/lib/saas-billing/store";

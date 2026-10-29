@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { getOrderPublicView } from "@/lib/saas-billing/pending-orders";
 import { getPricedPlan, renewalNoteFor } from "@/lib/saas-billing/catalog";
 import { CheckoutSteps } from "@/components/billing/checkout-steps";
