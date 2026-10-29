@@ -236,6 +236,26 @@ https://github.com/hidircan/notaplan
 
 İş Takip hatırlatmaları ayrıdır: `POST /api/v1/tasks/reminders/tick` + `TASK_REMINDER_CRON_SECRET`.
 
+## NeviiAds köprüsü (yerel satış takibi ↔ NeviiOS)
+
+NeviiAds (`~/Projects/NeviiAds`, yalnız localde) NeviiOS'a teklif/kurum aktarır ve salt-okunur satış
+özeti okur. Her istek NeviiAds'te bir düğmeyle başlar; polling/arka plan senkronu yoktur. NeviiAds'e
+DB veya service-role kimliği verilmez — yalnız iki ayrı, iptal edilebilir jeton:
+
+| Env (NeviiHub, `.env.local`) | Ne açar | Uç |
+|---|---|---|
+| `NEVIIADS_IMPORT_ENABLED=true` + `NEVIIADS_IMPORT_TOKEN` | Kabul edilmiş teklif → mevcut kuruma abonelik daveti; yeni kurum → satın alma başvurusu | `POST /api/v1/billing/neviiads/import`, `POST /api/v1/billing/neviiads/prospect` |
+| `NEVIIADS_SUMMARY_TOKEN` | Salt-okunur özet: yeni başvurular, ödeme bekleyen siparişler, aktif abonelikler, aktarılan tekliflerin davet durumu | `GET /api/v1/billing/neviiads/summary` |
+
+Kurulum (local):
+1. Jetonları üretin (`openssl rand -hex 24`, iki kez) ve yalnız `.env.local`'a yazın; NeviiHub'ı yeniden başlatın.
+2. NeviiAds → Ayarlar → Entegrasyonlar → NeviiHub: adres (`http://127.0.0.1:3000`) + iki jeton → "Kaydet ve Doğrula".
+3. Teklif ekranında "NeviiOS'a aktar"; Genel Bakış'ta "NeviiOS Satış Özeti → Özeti Getir".
+
+İptal: env değerini değiştirin/silin ve NeviiHub'ı yeniden başlatın. Aynı teklif sürümünün kurum aktarımı
+idempotenttir (ikinci davet açmaz); olmayan `tenantId` reddedilir. Not: db modunda başvuru/sipariş listeleri
+henüz dosya deposundan okunuyor (SettingOverride kalıcılaştırması ayrı işte) — özet orada boş görünebilir.
+
 ## Health
 
 - `GET /api/v1/health` — liveness

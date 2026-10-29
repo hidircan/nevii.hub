@@ -1,5 +1,7 @@
 /**
  * NeviiAds → NeviiHub "kabul edilmiş teklifi aboneliğe aktar" köprüsü.
+ * Ayrıca: yeni kurum → satın alma başvurusu, ve NeviiOS → NeviiAds
+ * salt-okunur satış özeti (ayrı `NEVIIADS_SUMMARY_TOKEN`).
  *
  * MALİYET/KOTA SINIRI (önceliklidir):
  * - Varsayılan KAPALI (`NEVIIADS_IMPORT_ENABLED=true` olmadan çalışmaz).
@@ -22,29 +24,51 @@ import { uid } from "../utils";
 import { fail, ok, type ServiceResult } from "../services/result";
 import { getPricedPlan } from "./catalog";
 import { validateCampaignForTenant } from "./campaigns";
+import { submitPurchaseRequest } from "./purchase";
+import { getPlatformTenant, listPlatformTenants } from "../platform/store";
+import { getPublishedCatalog } from "../platform/commercial-catalog";
 import {
   findSaasInvitationByProposal,
   getSaasCampaign,
   getSaasCampaignByCode,
   getSaasInvitationByTokenHash,
+  listSaasInvitations,
+  listSaasPendingOrders,
+  listSaasPurchaseRequests,
+  listSaasSubscriptions,
   saveSaasInvitation,
 } from "./store";
 import type { SaasBillingInterval, SaasCheckoutInvitationRecord } from "./types";
 import { isSaasBillingInterval } from "./types";
 
+const IMPORT_DISABLED_MESSAGE =
+  "NeviiAds aktarımı kapalı. NeviiHub ortamına NEVIIADS_IMPORT_ENABLED=true ve NEVIIADS_IMPORT_TOKEN ekleyip sunucuyu yeniden başlatın.";
+const IMPORT_TOKEN_MESSAGE =
+  "Aktarım jetonu eşleşmiyor. NeviiAds → Ayarlar → Entegrasyonlar → NeviiHub bölümüne NeviiHub'daki NEVIIADS_IMPORT_TOKEN değerini girin.";
+
 export function isNeviiAdsImportEnabled(): boolean {
   return (process.env.NEVIIADS_IMPORT_ENABLED || "").toLowerCase() === "true";
 }
 
-function expectedTokenHash(): string | null {
-  const raw = process.env.NEVIIADS_IMPORT_TOKEN || "";
+type BridgeTokenEnv = "NEVIIADS_IMPORT_TOKEN" | "NEVIIADS_SUMMARY_TOKEN";
+
+function expectedTokenHash(envName: BridgeTokenEnv): string | null {
+  const raw = process.env[envName] || "";
   if (!raw) return null;
   return createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
 /** Dar kapsamlı aktarım jetonu doğrulaması (sabit zamanlı karşılaştırma). */
 export function verifyImportToken(provided: string | null): boolean {
-  const expected = expectedTokenHash();
+  return verifyBridgeToken(provided, "NEVIIADS_IMPORT_TOKEN");
+}
+
+/**
+ * Köprü jetonları ayrıdır: aktarım (yazma) ve özet (salt-okunur) ayrı env'de;
+ * env silinip sunucu yeniden başlatılınca jeton iptal olur.
+ */
+function verifyBridgeToken(provided: string | null, envName: BridgeTokenEnv): boolean {
+  const expected = expectedTokenHash(envName);
   if (!expected || !provided) return false;
   const a = createHash("sha256").update(provided, "utf8").digest("hex");
   if (a.length !== expected.length) return false;
@@ -92,10 +116,10 @@ export async function importAcceptedProposal(args: {
   }>
 > {
   if (!isNeviiAdsImportEnabled()) {
-    return fail("FORBIDDEN", "NeviiAds aktarımı kapalı (varsayılan).");
+    return fail("FORBIDDEN", IMPORT_DISABLED_MESSAGE);
   }
   if (!verifyImportToken(args.token)) {
-    return fail("FORBIDDEN", "Aktarım yetkisi geçersiz.");
+    return fail("FORBIDDEN", IMPORT_TOKEN_MESSAGE);
   }
   const parsed = importSchema.safeParse(args.input);
   if (!parsed.success) {
@@ -107,6 +131,14 @@ export async function importAcceptedProposal(args: {
   // Idempotency: aynı kabulden çift abonelik/davet yok.
   const existing = await findSaasInvitationByProposal(v.proposalId, v.proposalVersion);
   if (existing) return ok({ invitation: existing, duplicate: true, token: null });
+
+  // Kurum varlığı: yanlış tenantId ile kimsenin açamayacağı davet üretilmez.
+  if (!(await getPlatformTenant(v.tenantId))) {
+    return fail(
+      "NOT_FOUND",
+      `NeviiHub'da "${v.tenantId}" kimlikli kurum yok. NeviiAds'te özeti yenileyip listeden kurumu seçin; kurum henüz yoksa "Yeni kurum başvurusu" ile aktarın.`
+    );
+  }
 
   const interval = v.billingInterval as SaasBillingInterval;
   const plan = await getPricedPlan(v.planKey, interval);
@@ -154,6 +186,106 @@ export async function importAcceptedProposal(args: {
   await saveSaasInvitation(invitation);
   // Ham jeton YALNIZCA bu yanıtta döner (tek gösterim); DB'de hash tutulur.
   return ok({ invitation, duplicate: false, token });
+}
+
+/**
+ * NeviiAds'teki kurum NeviiHub'da henüz yoksa: teklif → satın alma başvurusu
+ * (`/platform/basvurular`). Mevcut başvuru akışı aynen kullanılır (tenant
+ * AÇMAZ, ödeme BAŞLATMAZ; onay sahipte). Aktarım jetonuyla korunur.
+ */
+export async function importProspectAsPurchaseRequest(args: {
+  token: string | null;
+  input: unknown;
+}): Promise<ServiceResult<{ requestId: string }>> {
+  if (!isNeviiAdsImportEnabled()) return fail("FORBIDDEN", IMPORT_DISABLED_MESSAGE);
+  if (!verifyImportToken(args.token)) return fail("FORBIDDEN", IMPORT_TOKEN_MESSAGE);
+  const res = await submitPurchaseRequest({ input: args.input });
+  return res.ok ? ok({ requestId: res.data.id }) : res;
+}
+
+const ACTIVE_SUB_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+/**
+ * NeviiOS → NeviiAds salt-okunur satış özeti. Kullanıcı düğmeye basınca TEK
+ * istek; polling/arka plan senkronu yok. Sınırlı listeler (tam okuma yok),
+ * yalnız satış takibine gereken alanlar (fatura/kimlik/jeton verisi YOK).
+ * Ayrı jeton: `NEVIIADS_SUMMARY_TOKEN` (yalnız okuma; aktarım yapamaz).
+ */
+export async function getNeviiAdsSalesSummary(args: { token: string | null; nowIso?: string }) {
+  if (!process.env.NEVIIADS_SUMMARY_TOKEN) {
+    return fail(
+      "FORBIDDEN",
+      "NeviiAds özeti kapalı. NeviiHub ortamına NEVIIADS_SUMMARY_TOKEN ekleyip sunucuyu yeniden başlatın."
+    );
+  }
+  if (!verifyBridgeToken(args.token, "NEVIIADS_SUMMARY_TOKEN")) {
+    return fail(
+      "FORBIDDEN",
+      "Özet jetonu eşleşmiyor. NeviiAds → Ayarlar → Entegrasyonlar → NeviiHub bölümüne NeviiHub'daki NEVIIADS_SUMMARY_TOKEN değerini girin."
+    );
+  }
+  const [requests, orders, subs, invitations, tenants, { catalog }] = await Promise.all([
+    listSaasPurchaseRequests(200),
+    listSaasPendingOrders(200),
+    listSaasSubscriptions(200),
+    listSaasInvitations(100),
+    listPlatformTenants(),
+    getPublishedCatalog(),
+  ]);
+  const tenantName = new Map(tenants.map((t) => [t.tenantId, t.name]));
+  const planLabel = new Map(catalog.plans.map((p) => [p.key, p.label]));
+  const newRequests = requests.filter((r) => r.status === "pending");
+  const awaiting = orders.filter((o) => o.status === "awaiting_payment");
+  const activeSubs = subs.filter((s) => ACTIVE_SUB_STATUSES.has(s.status));
+  return ok({
+    generatedAt: args.nowIso ?? new Date().toISOString(),
+    counts: {
+      newPurchaseRequests: newRequests.length,
+      awaitingPaymentOrders: awaiting.length,
+      activeSubscriptions: activeSubs.length,
+    },
+    purchaseRequests: newRequests.slice(0, 20).map((r) => ({
+      id: r.id,
+      institutionName: r.institutionName,
+      ownerName: r.ownerName,
+      ownerEmail: r.ownerEmail,
+      planLabel: planLabel.get(r.planKey) ?? r.planKey,
+      interval: r.interval,
+      createdAt: r.createdAt,
+    })),
+    pendingOrders: awaiting.slice(0, 20).map((o) => ({
+      id: o.id,
+      institutionName: o.institutionName,
+      planLabel: planLabel.get(o.planKey) ?? o.planKey,
+      interval: o.interval,
+      expiresAt: o.expiresAt,
+      createdAt: o.createdAt,
+    })),
+    subscriptions: activeSubs.slice(0, 50).map((s) => ({
+      tenantId: s.tenantId,
+      tenantName: tenantName.get(s.tenantId) ?? null,
+      planLabel: planLabel.get(s.planKey) ?? s.planKey,
+      status: s.status,
+      billingInterval: s.billingInterval,
+      amountMinor: s.priceSnapshot.amountMinor,
+      currentPeriodEnd: s.currentPeriodEnd,
+    })),
+    /** NeviiAds'ten gelen davetlerin durumu (teklif ↔ davet eşleşmesi). */
+    proposalInvitations: invitations
+      .filter((i) => i.proposalId)
+      .map((i) => ({
+        proposalId: i.proposalId,
+        proposalVersion: i.proposalVersion,
+        tenantName: tenantName.get(i.tenantId) ?? null,
+        status: i.status,
+        expiresAt: i.expiresAt,
+      })),
+    /** Aktarım seçicileri: yayındaki paketler + mevcut kurumlar. */
+    plans: catalog.plans
+      .filter((p) => p.status === "active" && !p.legacy)
+      .map((p) => ({ key: p.key, label: p.label })),
+    tenants: tenants.map((t) => ({ tenantId: t.tenantId, name: t.name })),
+  });
 }
 
 // ───────────── Davet kullanımı (checkout) ─────────────

@@ -206,7 +206,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                           className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-xs"
                         >
                           <option value="neviios">NeviiOS taslağı</option>
-                          <option value="neviiads-aktarim">NeviiAds'ten aktarıldı</option>
+                          <option value="neviiads-aktarim">NeviiAds&apos;ten aktarıldı</option>
                         </select>
                       </label>
                       <button
