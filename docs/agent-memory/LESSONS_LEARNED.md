@@ -1660,3 +1660,15 @@ istemci modülünün bileşen-dışı export'ları RSC'de tanımsız geliyor.
 `src/lib/...` modülünde durmalı (`dashboard-view.ts` deseni); sayfa
 dosyalarından `@/components` import'ları yalnız PascalCase bileşen + `type`
 olmalı. tsc bunu yakalamaz, gözle denetlenir.
+
+## 2026-10-30 — saas-billing koleksiyonları db modunda Vercel /tmp dosyasına yazılıyordu
+- Bekleyen sipariş, talep, teklif, fatura/satıcı profili, hukuki belge, fatura siparişi ve e-belge için Prisma modeli
+  yoktu; `readState/writeState` db modunda da JSON dosyasına (Vercel'de `/tmp`, örnek başına geçici) düşüyordu.
+  Sonuç: başka örnekte "Kayıt bulunamadı", soğuk başlangıçta kaybolan talep/yayın. Yorumda "kalıcı değil" yazıyordu ama UI'da yoktu.
+- Düzeltme: db modunda `SettingOverride` satırları (`scopeType = saas_billing:<koleksiyon>`, kayıt başına satır);
+  platform ayar listesi bu öneki hariç tutar. Kural: db modunda kalıcı veri asla dosyaya yazılmaz.
+
+## 2026-10-30 — globals.css katmansız kuralları Tailwind sınıflarını eziyor
+- `body * { font-family: var(--font-sans) !important }` ve `h1,h2,h3 { color }` katmansız; Tailwind v4 yardımcıları
+  `@layer utilities` içinde → `text-white`, `font-normal`, satır içi `fontFamily` (p üzerinde) etkisiz kaldı.
+- Display font için `h1–h3` kullan; renk/ağırlık için satır içi stil. Ekran görüntüsü yerine `getComputedStyle` ile doğrula.
