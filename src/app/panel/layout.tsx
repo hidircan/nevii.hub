@@ -35,6 +35,23 @@ export default async function PanelLayout({
     redirect(homePathForRole(session.role));
   }
 
+  // SaaS abonelik enforcement (V1): enforcement açık + ödeme hakkı bitmiş
+  // kurumda panel içeriği yerine kısıt ekranı. Gerçek kısıt API katmanında
+  // (withApiHandler); bu yalnızca web UX geçidi. Varsayılan KAPALI.
+  const { decideSaasAccess } = await import("@/lib/saas-billing/enforcement");
+  const saasAccess = await decideSaasAccess(session.tenantId);
+  if (!saasAccess.allowed) {
+    const { SubscriptionInactive } = await import("@/components/billing/subscription-inactive");
+    const { getInstitutionContext: getCtx } = await import("@/lib/institution/context");
+    const kurumCtx = await getCtx(session).catch(() => null);
+    const kurumName = kurumCtx?.available.find((k) => k.tenantId === session.tenantId)?.name ?? null;
+    return (
+      <div className="min-h-screen bg-white">
+        <SubscriptionInactive canManageBilling kurumName={kurumName} />
+      </div>
+    );
+  }
+
   const [kurum, user, jar] = await Promise.all([
     getInstitutionContext(session),
     getUserById(session.userId),

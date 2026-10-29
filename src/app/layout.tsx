@@ -19,7 +19,8 @@ import { GlobalAssistant } from "@/components/ai/global-assistant";
 import { SessionWatcher } from "@/components/session-watcher";
 import { IdleSessionManager } from "@/components/idle-session-manager";
 import { ACCESS_COOKIE } from "@/lib/auth/cookies";
-import { LOCALE_COOKIE, readLocaleCookie } from "@/lib/i18n/copy";
+import { LOCALE_COOKIE } from "@/lib/i18n/copy";
+import { readSiteLocaleCookie } from "@/lib/site-locales";
 import { resolveTenantLanguage } from "@/lib/i18n/locale";
 import { getSessionContext } from "@/lib/auth/session";
 
@@ -101,7 +102,8 @@ export default async function RootLayout({
     font: clamped.fontChoice,
   });
   const density = clamped.density;
-  let lang = readLocaleCookie(jar.get(LOCALE_COOKIE)?.value);
+  // Oturumsuz sayfalarda site dili (tr/en/de/fr/es); oturum varsa kurum dili (tr/en) kazanır.
+  let lang: string = readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value);
   try {
     const session = await getSessionContext();
     if (session && session.role !== "HYPER_ADMIN") {

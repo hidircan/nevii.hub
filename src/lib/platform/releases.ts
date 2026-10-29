@@ -192,7 +192,7 @@ export function getRuntimeBuildInfo(e: NodeJS.ProcessEnv = process.env): Runtime
     commitSha: null,
     branch: null,
     url: null,
-    note: "Sağlayıcı ortam bilgisi yok (yerel çalışma). Commit/deployment bilgisi uydurulmaz.",
+    note: "Yayın ortamı bilgisi yok (yerel çalışma). Kod/yayın bilgisi uydurulmaz.",
   };
 }
 
@@ -216,7 +216,7 @@ export async function getMigrationStatus(): Promise<{ rows: MigrationStatusRow[]
     return {
       rows: repo.map((name) => ({ name, inRepo: true, applied: null, appliedAt: null })),
       source: "repo_only",
-      note: "STORE_MODE db değil — veritabanı uygulanma durumu okunmadı. Kontrol: npx prisma migrate status.",
+      note: "Veritabanı kipi açık değil — uygulanma durumu okunmadı.",
     };
   }
   try {

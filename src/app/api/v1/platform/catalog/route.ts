@@ -5,6 +5,7 @@ import {
   deleteCatalogPlan,
   getCatalogOverview,
   getPublishedCatalog,
+  renameCatalogPlan,
   setCatalogPlanStatus,
   upsertCatalogModule,
   upsertCatalogPlan,
@@ -36,6 +37,8 @@ export const POST = withApiHandler(
         return setCatalogPlanStatus(ctx, b);
       case "plan_delete":
         return deleteCatalogPlan(ctx, b);
+      case "plan_rename":
+        return renameCatalogPlan(ctx, b);
       case "module_upsert":
         return upsertCatalogModule(ctx, b);
       case "quote": {

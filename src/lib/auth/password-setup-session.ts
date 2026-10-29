@@ -18,13 +18,15 @@ import {
   resolvePostPasswordDestination,
   type ClientSurface,
 } from "./post-password-routing";
+import { resolveMobileAppLinks } from "../platform/site-mobile-apps";
 
-/** Uygulama tanımlı DEĞİLSE (env yok) hiçbir derin bağlantı/mağaza bağlantısı üretilmez. */
-export function getMobileAppConfig() {
+/** Uygulama tanımlı DEĞİLSE hiçbir derin bağlantı/mağaza bağlantısı üretilmez. Mağaza linkleri tek kaynaktan (site ayarı > env). */
+export async function getMobileAppConfig() {
+  const links = await resolveMobileAppLinks();
   return {
     scheme: process.env.MOBILE_APP_SCHEME || undefined,
-    appStoreUrl: process.env.APP_STORE_URL || undefined,
-    playStoreUrl: process.env.PLAY_STORE_URL || undefined,
+    appStoreUrl: links.appStoreUrl,
+    playStoreUrl: links.playStoreUrl,
   };
 }
 
@@ -33,6 +35,12 @@ export async function buildPasswordSetupSessionResponse(input: {
   request: Request;
   /** İstemcinin bildirdiği ortam — YALNIZ sunum; rol/portal kararını ETKİLEMEZ. */
   surface?: string;
+  /**
+   * Güvenli varış değişikliği (yalnız izinli sabit yol; açık yönlendirme YOK).
+   * Yeni kurum kurulumunda /panel veri yokluğunda çökebildiği için kurulum
+   * akışı /abonelik'e iner (abonelik/fatura tenant-bağımsız çalışır).
+   */
+  webPathOverride?: "/abonelik";
 }): Promise<NextResponse> {
   // Rol GÜVENİLİR kaynaktan: token'ın sahibi olan kullanıcı kaydı.
   const user = await getUserById(input.userId);
@@ -50,9 +58,12 @@ export async function buildPasswordSetupSessionResponse(input: {
   const destination = resolvePostPasswordDestination({
     role: user.role,
     surface,
-    app: getMobileAppConfig(),
+    app: await getMobileAppConfig(),
     platform: detectMobilePlatform(userAgent),
   });
+  if (input.webPathOverride) {
+    destination.webPath = input.webPathOverride;
+  }
 
   // 10. tur iş #1 — davet kabulü sonrası JWT bayat pasif kayda kilitlenmesin
   // (kabul, bekleyen erişimleri aktive ETTİKTEN SONRA çağrılır — bkz. route).

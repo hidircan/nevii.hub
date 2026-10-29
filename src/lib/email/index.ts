@@ -1,5 +1,5 @@
 export type { EmailSendInput, EmailSendResult, EmailTransport } from "./types";
-export { getEmailConfig, getEmailProviderName, isEmailProviderConfigured, getAppBaseUrl, getPublicAppBaseUrl, getMobileAppLinks } from "./config";
+export { getEmailConfig, getEmailProviderName, isEmailProviderConfigured, getAppBaseUrl, getPublicAppBaseUrl } from "./config";
 export { getEmailTransport, setEmailTransportForTests } from "./transport";
 
 import { getEmailTransport } from "./transport";

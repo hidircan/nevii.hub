@@ -43,7 +43,7 @@ const PRESET_LABEL: Record<string, string> = {
   unified: "Birleşik — Şube Müdürü = Kurum Yöneticisi",
   branch_scoped: "Ayrık — Şube Müdürü yalnız atanmış şube",
 };
-const STATUS_LABEL: Record<string, string> = { active: "aktif", deactivated: "pasif", deleted: "silinmiş" };
+const STATUS_LABEL: Record<string, string> = { active: "Aktif", deactivated: "Pasif", deleted: "Silinmiş" };
 
 function grantSummary(grants: Grant[]): { resource: string; text: string }[] {
   const by = new Map<string, Grant[]>();
@@ -64,6 +64,8 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
   const [preset, setPreset] = useState({ value: data.managerPreset?.preset ?? "branch_scoped", reason: "" });
   const [roleTarget, setRoleTarget] = useState<Record<string, string>>({});
   const [assignUser, setAssignUser] = useState("");
+  const [screenQ, setScreenQ] = useState("");
+  const screenTerm = screenQ.trim().toLocaleLowerCase("tr");
 
   const sys = data.systemRoles.find((r) => r.key === selected);
   const custom = data.customRoles.find((r) => r.id === selected);
@@ -157,7 +159,7 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
     if (!res.ok) return;
     const d = res.data;
     setPending({
-      title: `Yönetici preset'i: ${PRESET_LABEL[d.before]} → ${PRESET_LABEL[d.after]}`,
+      title: `Yönetici hazır şablonu: ${PRESET_LABEL[d.before]} → ${PRESET_LABEL[d.after]}`,
       lines: [
         `Etkilenen şube müdürü: ${d.affectedUsers.length} (${d.affectedUsers.map((u) => u.name ?? u.emailMasked).join(", ") || "—"})`,
         `Açılacak ekranlar: ${d.screensOpened.join(", ") || "—"}`,
@@ -191,7 +193,7 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
             value={data.tenantId ?? ""}
             onChange={(e) => router.push(e.target.value ? `/platform/roller?tenantId=${e.target.value}` : "/platform/roller")}
           >
-            <option value="">Tüm kurumlar (salt sayım)</option>
+            <option value="">Tüm kurumlar (yalnız görüntüleme)</option>
             {data.tenants.map((t) => (
               <option key={t.tenantId} value={t.tenantId}>
                 {t.name}
@@ -200,7 +202,7 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
           </Select>
         </label>
         <p className="text-xs text-[var(--color-text-muted)]">
-          Rol atama, özel rol ve yönetici preset’i kurum seçilince açılır. Sistem rollerinin izinleri kodda sabittir; Platform Sahibi izinleri bu ekrandan değiştirilemez.
+          Kurum seçince rol atama, özel rol ve yönetici hazır şablonu açılır. Sistem rollerinin izinleri değiştirilemez; Platform Sahibi izinleri bu ekrandan değiştirilemez.
         </p>
       </Card>
 
@@ -212,11 +214,11 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
 
       {data.managerPreset ? (
         <Card>
-          <h2 className="text-sm font-semibold">Yönetici izin preset’i</h2>
+          <h2 className="text-sm font-semibold">Yönetici hazır izin şablonu</h2>
           <p className="mt-1 text-xs text-[var(--color-text-muted)]">
             Şu an: <strong>{PRESET_LABEL[data.managerPreset.preset ?? "branch_scoped"]}</strong>
             {data.managerPreset.ownerDefault ? " · owner kararıyla varsayılan birleşik" : ""}. Rol adları ayrı kalır; yalnız efektif izin seti eşitlenir.
-            Personel ve finans özeti her iki preset’te de yalnız Kurum Sahibi’ndedir.
+            Personel ve finans özeti her iki şablonda da yalnız Kurum Sahibi’ndedir.
           </p>
           <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_2fr_auto]">
             <Select aria-label="Preset" value={preset.value} onChange={(e) => setPreset({ ...preset, value: e.target.value })}>
@@ -337,11 +339,19 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
             </div>
           ) : null}
           <div>
-            <h3 className="text-sm font-semibold">Ekran erişimi (registry)</h3>
-            <p className="text-xs text-[var(--color-text-muted)]">Ekran eklemek, o ekranın registry’deki izin kaydını role ekler — serbest route yazılamaz.</p>
-            <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+            <h3 className="text-sm font-semibold">Ekran erişimi</h3>
+            <p className="text-xs text-[var(--color-text-muted)]">Ekran eklemek, o ekranın izin kaydını role ekler — serbest adres yazılamaz.</p>
+            <Input
+              aria-label="Ekran ara"
+              placeholder="Ekran ara…"
+              value={screenQ}
+              onChange={(e) => setScreenQ(e.target.value)}
+              className="mt-2 max-w-56 text-xs"
+            />
+            <ul className="mt-2 grid max-h-64 gap-1 overflow-auto text-sm sm:grid-cols-2">
               {data.screens
                 .filter((s) => s.area !== "platform")
+                .filter((s) => !screenTerm || `${s.label} ${s.id}`.toLocaleLowerCase("tr").includes(screenTerm))
                 .map((s) => {
                   const has = custom.screens.some((x) => x.id === s.id);
                   return (
@@ -367,27 +377,33 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
         </Card>
       ) : null}
 
-      <Card className="overflow-x-auto">
-        <h2 className="text-sm font-semibold">Modül (feature) ↔ izin ilişkisi</h2>
-        <p className="mt-1 text-xs text-[var(--color-text-muted)]">Erişim = paket/entitlement AND modül açık AND rol izni AND kapsam. Modül kapalıysa izin tek başına ekran açmaz.</p>
-        <table className="mt-2 w-full min-w-[600px] text-left text-xs">
-          <thead>
-            <tr className="text-[var(--color-text-muted)]">
-              <th className="py-1">Modül</th>
-              <th>İzin kaynakları</th>
-              <th>Bağlı ekranlar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.features.map((f) => (
-              <tr key={f.key} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                <td className="py-1">{f.label}</td>
-                <td>{f.resources.join(", ") || "—"}</td>
-                <td>{f.screens.join(", ") || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <Card>
+        <details>
+          <summary className="cursor-pointer text-sm font-semibold hover:underline">
+            Modül ve izin ilişkisi ({data.features.length} modül)
+          </summary>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">Erişim için dört koşul birlikte gerekir: paket hakkı, açık modül, rol izni ve kapsam. Modül kapalıysa izin tek başına ekran açmaz.</p>
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full min-w-[600px] text-left text-xs">
+              <thead>
+                <tr className="text-[var(--color-text-muted)]">
+                  <th className="py-1">Modül</th>
+                  <th>İzin kaynakları</th>
+                  <th>Bağlı ekranlar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.features.map((f) => (
+                  <tr key={f.key} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                    <td className="py-1">{f.label}</td>
+                    <td>{f.resources.join(", ") || "—"}</td>
+                    <td>{f.screens.join(", ") || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </Card>
 
       {pending ? (
@@ -423,64 +439,158 @@ export function RoleDirectory({ data }: { data: RoleDirectoryData }) {
   );
 }
 
+const PAGE_SIZES = [10, 25, 50] as const;
+
 function UsersTable({ users, action }: { users: DirUser[]; action?: (u: DirUser) => React.ReactNode }) {
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(0);
+  const [size, setSize] = useState<(typeof PAGE_SIZES)[number]>(10);
+  const term = q.trim().toLocaleLowerCase("tr");
+  const filtered = useMemo(
+    () =>
+      users.filter(
+        (u) =>
+          (!term || `${u.name ?? ""} ${u.emailMasked} ${u.tenantName}`.toLocaleLowerCase("tr").includes(term)) &&
+          (!status || u.status === status)
+      ),
+    [users, term, status]
+  );
+  const pages = Math.max(1, Math.ceil(filtered.length / size));
+  const safePage = Math.min(page, pages - 1);
+  const rows = filtered.slice(safePage * size, safePage * size + size);
   if (users.length === 0) return <p className="text-sm text-[var(--color-text-muted)]">Bu rolde kullanıcı yok.</p>;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] text-left text-sm">
-        <thead>
-          <tr className="text-xs text-[var(--color-text-muted)]">
-            <th className="py-1">Kullanıcı</th>
-            <th>E-posta</th>
-            <th>Kurum</th>
-            <th>Şube</th>
-            <th>Durum</th>
-            {action ? <th>İşlem</th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-              <td className="py-1">{u.name ?? "—"}</td>
-              <td>{u.emailMasked}</td>
-              <td>{u.tenantName}</td>
-              <td>{u.branchIds.length || "—"}</td>
-              <td>{STATUS_LABEL[u.status] ?? u.status}</td>
-              {action ? <td>{action(u)}</td> : null}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          aria-label="Kullanıcı ara"
+          placeholder="Ad, e-posta veya kurum ara…"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setPage(0);
+          }}
+          className="max-w-64"
+        />
+        <Select
+          aria-label="Durum filtresi"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(0);
+          }}
+        >
+          <option value="">Tüm durumlar</option>
+          <option value="active">Aktif</option>
+          <option value="deactivated">Pasif</option>
+          <option value="deleted">Silinmiş</option>
+        </Select>
+        <label className="ml-auto flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+          Sayfa başına
+          <Select
+            aria-label="Sayfa başına satır"
+            value={size}
+            onChange={(e) => {
+              setSize(Number(e.target.value) as (typeof PAGE_SIZES)[number]);
+              setPage(0);
+            }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-[var(--color-text-muted)]">Filtreye uygun kullanıcı yok.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="text-xs text-[var(--color-text-muted)]">
+                <th className="py-1">Kullanıcı</th>
+                <th>E-posta</th>
+                <th>Kurum</th>
+                <th>Şube</th>
+                <th>Durum</th>
+                {action ? <th>İşlem</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((u) => (
+                <tr key={u.id} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                  <td className="py-1">{u.name ?? "—"}</td>
+                  <td>{u.emailMasked}</td>
+                  <td>{u.tenantName}</td>
+                  <td>{u.branchIds.length || "—"}</td>
+                  <td>{STATUS_LABEL[u.status] ?? u.status}</td>
+                  {action ? <td>{action(u)}</td> : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+        <span>
+          {filtered.length === 0 ? "0" : `${safePage * size + 1}–${Math.min(filtered.length, safePage * size + size)}`} / {filtered.length} kullanıcı
+        </span>
+        <span className="flex gap-1">
+          <Button variant="ghost" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}>
+            ‹ Önceki
+          </Button>
+          <Button variant="ghost" disabled={safePage >= pages - 1} onClick={() => setPage(safePage + 1)}>
+            Sonraki ›
+          </Button>
+        </span>
+      </div>
     </div>
   );
 }
 
 function GrantsAndScreens({ grants, screens }: { grants: Grant[]; screens: ScreenRef[] }) {
+  const [q, setQ] = useState("");
+  const term = q.trim().toLocaleLowerCase("tr");
+  const shown = term ? screens.filter((s) => `${s.label} ${s.path} ${s.id}`.toLocaleLowerCase("tr").includes(term)) : screens;
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      <div>
-        <h3 className="text-sm font-semibold">Erişilen ekranlar / modüller</h3>
-        <ul className="mt-1 space-y-0.5 text-xs">
-          {screens.length === 0 ? <li className="text-[var(--color-text-muted)]">—</li> : null}
-          {screens.map((s) => (
-            <li key={s.id}>
-              {s.label} <code className="text-[10px] text-[var(--color-text-muted)]">{s.path}</code>
-              {s.feature ? <span className="text-[10px] text-[var(--color-text-muted)]"> · modül: {s.feature}</span> : null}
-            </li>
-          ))}
-        </ul>
+    <details>
+      <summary className="cursor-pointer text-sm font-semibold hover:underline">
+        Erişilen ekranlar ({screens.length}) ve izinler ({grantSummary(grants).length} kaynak)
+      </summary>
+      <div className="mt-2 grid gap-3 md:grid-cols-2">
+        <div>
+          <Input
+            aria-label="Ekran ara"
+            placeholder="Ekran ara…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="mb-1 max-w-56 text-xs"
+          />
+          <ul className="max-h-56 space-y-0.5 overflow-auto text-xs">
+            {shown.length === 0 ? <li className="text-[var(--color-text-muted)]">—</li> : null}
+            {shown.map((s) => (
+              <li key={s.id}>
+                {s.label} <code className="text-[10px] text-[var(--color-text-muted)]">{s.path}</code>
+                {s.feature ? <span className="text-[10px] text-[var(--color-text-muted)]"> · modül: {s.feature}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold">İzinler (kaynak · aksiyon · kapsam)</h3>
+          <ul className="mt-1 max-h-56 space-y-0.5 overflow-auto text-xs">
+            {grants.length === 0 ? <li className="text-[var(--color-text-muted)]">—</li> : null}
+            {grantSummary(grants).map((g) => (
+              <li key={g.resource}>
+                <strong>{g.resource}</strong>: {g.text}
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
-      <div>
-        <h3 className="text-sm font-semibold">İzinler (kaynak · aksiyon · kapsam)</h3>
-        <ul className="mt-1 space-y-0.5 text-xs">
-          {grants.length === 0 ? <li className="text-[var(--color-text-muted)]">—</li> : null}
-          {grantSummary(grants).map((g) => (
-            <li key={g.resource}>
-              <strong>{g.resource}</strong>: {g.text}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+    </details>
   );
 }

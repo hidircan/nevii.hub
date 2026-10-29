@@ -25,14 +25,14 @@ export default async function RolesMatrixPage({ searchParams }: { searchParams: 
     <div className="space-y-4">
       <PageHeader
         title="Roller ve izinler"
-        description="Kaynak × aksiyon × kapsam. Kapsam: P=platform, K=kurum, Ş=şube, A=atanmış, Ö=kendi. Erişim = entitlement AND feature flag AND izin AND kapsam."
+        description="Her rolün hangi ekranlara erişip ne yapabileceği. Sistem rollerinin izinleri değiştirilemez; kurum seçince rol atama açılır."
       />
       {directory.ok ? (
         <RoleDirectory data={directory.data} />
       ) : (
         <p role="alert" className="text-sm text-[var(--color-danger)]">{directory.error.message}</p>
       )}
-      <h2 className="pt-2 text-sm font-semibold">Sistem rol matrisi (kodda sabit, salt-okur)</h2>
+      <h2 className="pt-2 text-sm font-semibold">Sistem rol matrisi (değiştirilemez, yalnız görüntülenir)</h2>
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-left text-xs">
           <thead>

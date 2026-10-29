@@ -20,6 +20,11 @@ import {
   SITE_STEPS,
 } from "../site-content";
 import { BRAND } from "../brand";
+import { trContent } from "../site-locales/tr";
+import { enContent } from "../site-locales/en";
+import { deContent } from "../site-locales/de";
+import { frContent } from "../site-locales/fr";
+import { esContent } from "../site-locales/es";
 
 const ROOT = path.resolve(import.meta.dirname, "../../..");
 const page = readFileSync(path.join(ROOT, "src/app/page.tsx"), "utf-8");
@@ -40,8 +45,10 @@ describe("dürüstlük — uydurma veri yok", () => {
     expect(SITE_HERO.primaryCta.label).toContain("Demo");
   });
 
-  it("App Store / Google Play linki yok (mobil mağaza uygulaması yayınlanmadı)", () => {
-    expect(`${page}\n${sections}`).not.toMatch(/app store|google play|play\.google|apps\.apple/i);
+  it("sabit kodlanmış mağaza bağlantısı yok (butonlar yapılandırılmış URL koşullu)", () => {
+    // Mağaza butonları/bant bileşeni koşullu render edilir (URL yoksa gizli/"yakında");
+    // kaynakta kullanılabilir gerçek bir App Store/Play bağlantısı sabit yazılamaz.
+    expect(`${page}\n${sections}`).not.toMatch(/apps\.apple\.com\/|play\.google\.com\/store/i);
   });
 
   it("'otomatik gönderir' vaadi yok — mesajlar her zaman onaylıdır", () => {
@@ -54,11 +61,13 @@ describe("dürüstlük — uydurma veri yok", () => {
 });
 
 describe("SEO temeli", () => {
-  it("başlık ≤60 karakter ve marka + kategori içerir", () => {
-    const m = page.match(/title: "([^"]+)"/);
-    expect(m?.[1]).toBeTruthy();
-    expect(m![1]!.length).toBeLessThanOrEqual(60);
-    expect(m![1]).toContain("NeviiHub");
+  it("başlık ≤60 karakter ve marka + kategori içerir (5 dil)", () => {
+    // Başlık locale sözlüğünden gelir (generateMetadata); her dilde kilitlenir.
+    expect(page).toContain("c.meta.title");
+    for (const c of [trContent, enContent, deContent, frContent, esContent]) {
+      expect(c.meta.title.length).toBeLessThanOrEqual(60);
+      expect(c.meta.title).toContain("NeviiHub");
+    }
   });
 
   it("tek H1 (hero) + JSON-LD (SoftwareApplication + FAQPage)", () => {

@@ -23,7 +23,7 @@ export async function BrandPreview({ tenantId }: { tenantId: string }) {
         <div className="mx-auto max-w-sm text-center">
           {logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logo} alt="" className="mx-auto mb-3 h-12 w-auto max-w-[180px] rounded bg-white object-contain p-1" />
+            <img src={logo} alt="" className="mx-auto mb-3 h-12 w-auto max-w-[180px] rounded bg-[var(--color-surface)] object-contain p-1" />
           ) : (
             <p className="mb-3 text-xs text-[var(--color-text-muted)]">(logo kayıtlı değil — kurum adı metin gösterilir)</p>
           )}

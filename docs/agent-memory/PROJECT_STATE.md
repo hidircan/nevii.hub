@@ -415,6 +415,55 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Kritik işlem kapısı TEK: `checkCriticalPassword` + `canRunCriticalActions` (tools.ts).
 - Rol modeli: tek HYPER_ADMIN platform sahibi; kurum sahibi SUPER_ADMIN.
 
+## Güncel snapshot — 2026-10-26 (SaaS billing C2: REVIEW + kilit matrisi)
+
+- **Dal:** `feat/saas-billing-v1` (commit'ler korundu; commitsiz, onay bekleniyor).
+  24-saat auto-release KALDIRILDI → REVIEW + operatör izni; kilit A–D testli.
+- PayTR: test = merchant modu + istek bayrağı (resmî belge); sandbox blocker sürüyor.
+- Doğrulama: 119 billing geçti; typecheck/lint/build geçti.
+  Tam süit: 3796/23 pre-existing, yeni regresyon yok.
+- Ayrıntı: `docs/billing/SAAS_BILLING_V1.md` §8.6.
+
+## Önceki snapshot — 2026-10-26 (SaaS billing R1-C: son kabul)
+
+- **Dal:** `feat/saas-billing-v1` (commit'ler korundu; R1-C commitsiz, onay bekleniyor).
+  **Migration (güncellendi, UYGULANMADI):** + `sentAt`/`retryable` + açık-claim kısmi indexi.
+- R1-C: atomik claim (`FOR UPDATE` + index), uzlaştırma sertleştirme, canlı-tahsilat
+  kilidi, timing-safe job secret, consent kaydı, provider-pin callback, legacy-link
+  izni, izole test rehberi, rollback runbook. "Satışa hazır" KAPATILMADI.
+- Doğrulama: 112 billing testi geçti (19 kabul); typecheck/lint/build geçti.
+  Tam süit: 3789/23 pre-existing, yeni regresyon yok. Gerçek sandbox E2E
+  yapılmadı (merchant+yetki owner'da).
+- Ayrıntı: `docs/billing/SAAS_BILLING_V1.md` §8, `docs/billing/ISOLATED_TEST_GUIDE.md`.
+
+## Önceki snapshot — 2026-10-26 (SaaS billing R1: fintech-bağımsız + PayTR)
+
+- **Dal:** `feat/saas-billing-v1` (V1 commit'leri korundu; R1 commitsiz, onay bekleniyor).
+  **Migration (güncellendi, UYGULANMADI):** `20261026090000_saas_billing_v1` — executionModel/
+  merchant/providerCardRef/providerLinks/billing* + debtKey + dönem tek-success indexi.
+- R1: domain/adaptör ayrımı + PayTR adaptörü (kart doğrudan PayTR'ye, HMAC callback,
+  durum sorgusu) + günlük tahsilat job (dry-run varsayılan, parti 25) + manuel
+  mutabakat + TRY/USD + tz-aware dönemler. QNBpay bekleniyor (adaptör yok).
+  iyzico alternatif. Enforcement/NeviiAds KAPALI. "Satışa hazır" KAPATILMADI.
+- Doğrulama: typecheck/lint-validate/build + 93 billing testi geçti (46 R1 + 47 V1).
+  Tam süit: 23 pre-existing hata V1 ile dosya-dosya aynı (R1 money regresyonu
+  yakalanıp düzeltildi). Gerçek sandbox E2E yapılmadı (merchant+yetki owner'da).
+- Ayrıntı: `docs/billing/SAAS_BILLING_V1.md` §7, `docs/project-brain/SESSION_HANDOFF.md`.
+
+## Önceki snapshot — 2026-10-26 (SaaS abonelik V1)
+
+- **Dal:** `feat/saas-billing-v1` (HEAD `fbe6f63`, local commit bekliyor). **Migration (additive, UYGULANMADI):**
+  `20261026090000_saas_billing_v1` — 6 yeni tablo; Payment/Contract/Payout'a dokunulmaz.
+- Kapsam: katalog genişletme + iyzico Abonelik sandbox istemcisi (mock etiketli) + durum
+  makinesi + webhook inbox/mutabakat + enforcement (varsayılan KAPALI) + trial + pilot
+  kampanya + NeviiAds köprüsü (varsayılan KAPALI) + `/abonelik`, `/deneme`, `/platform/fatura`.
+- Doğrulama: 51 yeni test geçti; typecheck/prisma validate/build geçti; kapsam lint temiz.
+  Gerçek iyzico sandbox E2E YAPILMADI (merchant anahtarları owner'da). Detay:
+  `docs/billing/SAAS_BILLING_V1.md` (UAT 15 adım + go-live listesi).
+- KRİTİK: `test.neviihub.com` prod'a 307 redirect (2026-10-25 ölçüm) — test hedefi
+  olarak KULLANILMAZ. Deploy yok; izole Preview/test-DB owner onayıyla doğrulanacak.
+- NeviiAds'e dokunulmadı (local); yeni cron/polling/senkron yok.
+
 ## Güncel snapshot — 2026-09-28 (NeviiOS Control Center)
 - **Dal:** `feat/neviios-control-recovery` → `test` (`e73aee9`). **Migration yok.**
   6 commit: mobil kontrol matrisi + marka doğrulama; Expo policy kapısı;

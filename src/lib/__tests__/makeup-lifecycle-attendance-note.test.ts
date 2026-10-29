@@ -440,11 +440,18 @@ describe("Geldi yoklama notu", () => {
     const id = await lessonId();
     const teacher = await setLessonOpsFlagTool({ ...ctx, role: "TEACHER", teacherId: "t1" }, { lessonId: id, flag: "attended", attendanceNote: "gizli" });
     expect(!teacher.ok && teacher.error.code).toBe("FORBIDDEN");
-    await runWithTenantAsync("tenant_other_kurum", async () => {
-      await expect(
+    // Dosya-başına-kurum yalıtımı: B kurumu kendi dosyasına bakar, A'nın
+    // dersini bulamaz (NOT_FOUND) — A'nın dersine yazım olmaz, fırlatma yok.
+    await fs.rm(path.join(DIR, "store-tenant_other_kurum.json"), { force: true });
+    try {
+      const cross = await runWithTenantAsync("tenant_other_kurum", async () =>
         setLessonOpsFlagTool({ ...ctx, tenantId: "tenant_other_kurum" }, { lessonId: id, flag: "attended", attendanceNote: "yabancı" })
-      ).rejects.toThrow(/Cross-tenant access denied/);
-    });
+      );
+      expect(!cross.ok && cross.error.code).toBe("NOT_FOUND");
+    } finally {
+      await fs.rm(path.join(DIR, "store-tenant_other_kurum.json"), { force: true });
+    }
     expect((await readStored()).lessons.find((l) => l.id === id)!.studentAttended).not.toBe(true);
+    expect((await readStored()).lessons.find((l) => l.id === id)!.studentAttendanceNote ?? null).toBeNull();
   });
 });

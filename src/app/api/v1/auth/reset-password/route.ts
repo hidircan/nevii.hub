@@ -11,6 +11,8 @@ const schema = z.object({
   newPassword: z.string().min(8, "Şifre en az 8 karakter olmalı."),
   /** P0 (2026-09-05) — istemci ortamı; YALNIZ derin bağlantı/sunum seçimi için. Rol/portal kararını ETKİLEMEZ. */
   surface: z.enum(["desktop_web", "mobile_web", "mobile_app"]).optional(),
+  /** Kurulum akışı varış değişikliği — yalnız izinli sabit yol (açık yönlendirme YOK). */
+  setupNext: z.literal("/abonelik").optional(),
 });
 
 const GENERIC_INVALID_MESSAGE =
@@ -58,6 +60,7 @@ export const POST = withApiHandler(
       userId: consumed.userId,
       request,
       surface: parsed.data.surface,
+      webPathOverride: parsed.data.setupNext,
     });
   },
   { public: true }

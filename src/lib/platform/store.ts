@@ -668,6 +668,12 @@ export async function appendPlatformAudit(event: Omit<PlatformAuditEvent, "id" |
 export async function listPlatformAudit(filter?: {
   targetTenantId?: string;
   limit?: number;
+  actionPrefix?: string;
+  actorUserId?: string;
+  outcome?: string;
+  entityType?: string;
+  after?: string;
+  before?: string;
 }): Promise<PlatformAuditEvent[]> {
   const limit = filter?.limit ?? 100;
   if (isDbMode) {
@@ -675,7 +681,16 @@ export async function listPlatformAudit(filter?: {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
       const rows = await prisma.platformAuditEvent.findMany({
-        where: filter?.targetTenantId ? { targetTenantId: filter.targetTenantId } : undefined,
+        where: {
+          ...(filter?.targetTenantId ? { targetTenantId: filter.targetTenantId } : {}),
+          ...(filter?.actionPrefix ? { action: { startsWith: filter.actionPrefix } } : {}),
+          ...(filter?.actorUserId ? { actorUserId: filter.actorUserId } : {}),
+          ...(filter?.outcome ? { outcome: filter.outcome } : {}),
+          ...(filter?.entityType ? { entityType: filter.entityType } : {}),
+          ...(filter?.after || filter?.before
+            ? { createdAt: { ...(filter.after ? { gte: new Date(filter.after) } : {}), ...(filter.before ? { lte: new Date(filter.before) } : {}) } }
+            : {}),
+        },
         orderBy: { createdAt: "desc" },
         take: limit,
       });
@@ -703,6 +718,12 @@ export async function listPlatformAudit(filter?: {
   if (filter?.targetTenantId) {
     rows = rows.filter((e) => e.targetTenantId === filter.targetTenantId);
   }
+  if (filter?.actionPrefix) rows = rows.filter((e) => e.action.startsWith(filter.actionPrefix!));
+  if (filter?.actorUserId) rows = rows.filter((e) => e.actorUserId === filter.actorUserId);
+  if (filter?.outcome) rows = rows.filter((e) => e.outcome === filter.outcome);
+  if (filter?.entityType) rows = rows.filter((e) => e.entityType === filter.entityType);
+  if (filter?.after) rows = rows.filter((e) => e.createdAt >= filter.after!);
+  if (filter?.before) rows = rows.filter((e) => e.createdAt <= filter.before!);
   return rows.slice(0, limit);
 }
 

@@ -23,6 +23,7 @@ import path from "path";
 import { resolveDataDir } from "./config";
 import { withFileLock, writeJsonFileAtomic } from "./atomic-json-file";
 import { createSeedData, createEmptyTemplateData } from "./seed";
+import { createHash } from "crypto";
 import { tryTenantId } from "./tenant-context";
 import { withClosedDayOverrides, withoutClosedDayOverrides } from "./closed-day-overrides";
 import { DEFAULT_TENANT_ID } from "./auth/config";
@@ -164,7 +165,29 @@ import { mobileDashboardCounts } from "./dashboard/mobile-counts";
 const DATA_DIR = resolveDataDir(path.join(process.cwd(), "data"));
 const DATA_FILE = path.join(DATA_DIR, "store.json");
 
-async function ensureDataFile() {
+/**
+ * JSON modu çok-tenant dosya düzeni (2026-10-28):
+ * - Varsayılan demo kurumu → `store.json` (DEĞİŞMEDİ; mevcut veri/yollar korunur).
+ * - Diğer her tenant → `store-<tenant>.json` (yalnız güvenli karakterler).
+ * Yeni dosya BOŞ şablonla açılır (demo öğrenci/ders/finans YOK);
+ * mevcut tenant'ın verisi başka dosyaya ASLA karışmaz.
+ */
+function sanitizeTenantFilePart(tid: string): string {
+  const clean = tid.replace(/[^a-zA-Z0-9_-]/g, "");
+  if (clean.length >= 3 && clean.length <= 64) return clean;
+  return createHash("sha256").update(tid, "utf8").digest("hex").slice(0, 32);
+}
+
+function dataFileForTenant(tid: string): string {
+  if (tid === DEFAULT_TENANT_ID) return DATA_FILE;
+  return path.join(DATA_DIR, `store-${sanitizeTenantFilePart(tid)}.json`);
+}
+
+function currentDataFile(): string {
+  return dataFileForTenant(tryTenantId() ?? DEFAULT_TENANT_ID);
+}
+
+async function ensureDataFile(tid?: string, name?: string) {
   // Faz 12 doğrulaması sırasında bulunan kök neden düzeltmesi: `fs.access`
   // kontrolü ÖNCEDEN kilit DIŞINDAYDI — soğuk başlangıçta eşzamanlı birden
   // fazla çağrı hepsi "dosya yok" görüp BAĞIMSIZ birer `createSeedData()` +
@@ -175,15 +198,38 @@ async function ensureDataFile() {
   // kontrol+yazım TEK kilit altında; `writeData` yerine doğrudan
   // `writeJsonFileAtomic` çağrılır (aksi hâlde `withFileLock` kendi kendini
   // bekleyip kilitlenirdi — reentrant değildir).
-  await withFileLock(DATA_FILE, async () => {
+  const tenantId = tid ?? tryTenantId() ?? DEFAULT_TENANT_ID;
+  const file = dataFileForTenant(tenantId);
+  await withFileLock(file, async () => {
     try {
-      await fs.access(DATA_FILE);
+      await fs.access(file);
     } catch {
       await fs.mkdir(DATA_DIR, { recursive: true });
-      const seed = createSeedData();
-      await writeJsonFileAtomic(DATA_FILE, seed);
+      // Varsayılan kurum demo tohumu KORUR; yeni kurumlar BOŞ şablon alır
+      // (demo öğrenci/ders/finans kaydı KOPYALANMAZ).
+      const seed =
+        tenantId === DEFAULT_TENANT_ID
+          ? createSeedData()
+          : {
+              ...createEmptyTemplateData(),
+              settings: {
+                ...createEmptyTemplateData().settings,
+                tenantId,
+                name: name?.trim() || "Yeni Kurum",
+                shortName: name?.trim() || "Yeni Kurum",
+              },
+            };
+      await writeJsonFileAtomic(file, seed);
     }
   });
+}
+
+/**
+ * Yeni kurumun operasyon dosyasını idempotent açar (yoksa BOŞ şablon;
+ * varsa DOKUNMAZ — isim dahil hiçbir şeyi ezmez).
+ */
+export async function ensureTenantDataFile(tenantId: string, name: string): Promise<void> {
+  await ensureDataFile(tenantId, name);
 }
 
 function assertTenant(data: AppData) {
@@ -196,7 +242,7 @@ function assertTenant(data: AppData) {
 
 export async function readData(): Promise<AppData> {
   await ensureDataFile();
-  const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const raw = await fs.readFile(currentDataFile(), "utf-8");
   const data = JSON.parse(raw) as AppData;
   if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
   if (!data.settings.feeRoundingMode) data.settings.feeRoundingMode = "exact_minutes";
@@ -233,7 +279,8 @@ export async function readData(): Promise<AppData> {
  */
 export async function writeData(data: AppData): Promise<void> {
   assertTenant(data);
-  await withFileLock(DATA_FILE, () => writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(data)));
+  const file = currentDataFile();
+  await withFileLock(file, () => writeJsonFileAtomic(file, withoutClosedDayOverrides(data)));
 }
 
 /** Tek kilit altında oku-değiştir-yaz. `fn` fırlatırsa dosya yazılmaz. */
@@ -242,15 +289,16 @@ export async function mutateStoreUnderLock(
   onWriteFail?: () => Promise<void>
 ): Promise<AppData> {
   await ensureDataFile();
-  return withFileLock(DATA_FILE, async () => {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const file = currentDataFile();
+  return withFileLock(file, async () => {
+    const raw = await fs.readFile(file, "utf-8");
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
     const next = await fn(await withClosedDayOverrides(data, data.settings.tenantId));
     assertTenant(next);
     try {
-      await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(next));
+      await writeJsonFileAtomic(file, withoutClosedDayOverrides(next));
     } catch (err) {
       if (onWriteFail) await onWriteFail();
       throw err;
@@ -283,8 +331,30 @@ export async function resetToCleanTemplate(): Promise<AppData> {
  * mümkündür.
  */
 export async function listTenants(): Promise<{ tenantId: string; name: string }[]> {
-  const data = await readData();
-  return [{ tenantId: data.settings.tenantId, name: data.settings.name }];
+  // JSON çok-tenant: store.json + store-*.json dosyaları taranır (sınırlı).
+  await ensureDataFile(DEFAULT_TENANT_ID);
+  let entries: string[] = [];
+  try {
+    entries = (await fs.readdir(DATA_DIR)).filter(
+      (f) => f === "store.json" || (f.startsWith("store-") && f.endsWith(".json"))
+    ).slice(0, 200);
+  } catch {
+    entries = ["store.json"];
+  }
+  const out: { tenantId: string; name: string }[] = [];
+  for (const f of entries) {
+    try {
+      const raw = await fs.readFile(path.join(DATA_DIR, f), "utf-8");
+      const data = JSON.parse(raw) as AppData;
+      const tid = data.settings?.tenantId || DEFAULT_TENANT_ID;
+      if (!out.some((o) => o.tenantId === tid)) {
+        out.push({ tenantId: tid, name: data.settings?.name || tid });
+      }
+    } catch {
+      // Bozuk dosya listeyi kırmaz; okuma sırasında ayrıca raporlanır.
+    }
+  }
+  return out;
 }
 
 /** Bkz. src/lib/reference-data.ts — json/memory tam veriden türetir (db ile aynı şekil). */
@@ -438,8 +508,9 @@ export async function markAttendance(input: {
 }): Promise<AppData> {
   await ensureDataFile();
   // Ensure read-modify-write occurs under the same file lock so counting + write are atomic.
-  return await withFileLock(DATA_FILE, async () => {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const file = currentDataFile();
+  return await withFileLock(file, async () => {
+    const raw = await fs.readFile(file, "utf-8");
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
@@ -513,7 +584,7 @@ export async function markAttendance(input: {
       attendances: [...filtered, attendance],
       makeupRequests,
     };
-    await writeJsonFileAtomic(DATA_FILE, next);
+    await writeJsonFileAtomic(file, next);
     return next;
   });
 }
@@ -1932,8 +2003,9 @@ async function persistLessonOpsUnderLock(
   attendanceNote?: string | null
 ): Promise<ReturnType<typeof applyLessonOpsFlag>> {
   await ensureDataFile();
-  return withFileLock(DATA_FILE, async () => {
-    const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const file = currentDataFile();
+  return withFileLock(file, async () => {
+    const raw = await fs.readFile(file, "utf-8");
     const data = JSON.parse(raw) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
@@ -1946,7 +2018,7 @@ async function persistLessonOpsUnderLock(
     if (!scope) return { ok: false, message: "Ders bulunamadı." };
     const result = apply(scope, lessonId, _flag, actorUserId, undefined, reason, disruption, attendanceNote);
     if (result.ok && !result.alreadySet) {
-      await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
+      await writeJsonFileAtomic(file, mergeLessonScope(data, result.data, lessonId));
     }
     return result;
   });
@@ -1981,15 +2053,16 @@ export async function clearLessonOpsFlagLive(
 ): Promise<import("./lesson-ops").ClearLessonOpsResult> {
   const { clearLessonOpsFlag } = await import("./lesson-ops");
   await ensureDataFile();
-  return withFileLock(DATA_FILE, async () => {
-    const data = JSON.parse(await fs.readFile(DATA_FILE, "utf-8")) as AppData;
+  const file = currentDataFile();
+  return withFileLock(file, async () => {
+    const data = JSON.parse(await fs.readFile(file, "utf-8")) as AppData;
     if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
     assertTenant(data);
     const scope = narrowLessonScope(data, lessonId);
     if (!scope) return { ok: false, code: "NOT_FOUND", message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
     const result = clearLessonOpsFlag(scope, lessonId, expected, actorUserId);
     if (result.ok && !result.alreadyClear) {
-      await writeJsonFileAtomic(DATA_FILE, mergeLessonScope(data, result.data, lessonId));
+      await writeJsonFileAtomic(file, mergeLessonScope(data, result.data, lessonId));
     }
     return result;
   });
@@ -2043,7 +2116,7 @@ export async function deletePackage(packageId: string, expectedUpdatedAt: string
 }
 
 async function readJsonRaw(): Promise<AppData> {
-  const raw = await fs.readFile(DATA_FILE, "utf-8");
+  const raw = await fs.readFile(currentDataFile(), "utf-8");
   const data = JSON.parse(raw) as AppData;
   if (!data.settings.tenantId) data.settings.tenantId = DEFAULT_TENANT_ID;
   assertTenant(data);
@@ -2053,11 +2126,12 @@ async function readJsonRaw(): Promise<AppData> {
 /** Planlanmamış telafi süresi dolduysa kaynak dersi İşlendi yapar. Değişiklik yoksa dosyaya yazılmaz. */
 export async function commitMakeupPlanningExpiry(now: Date = new Date()): Promise<void> {
   await ensureDataFile();
-  await withFileLock(DATA_FILE, async () => {
+  const file = currentDataFile();
+  await withFileLock(file, async () => {
     const data = await readJsonRaw();
     const closed = closeExpiredUnplannedMakeups(data, now);
     if (!closed.changed) return;
-    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(closed.data));
+    await writeJsonFileAtomic(file, withoutClosedDayOverrides(closed.data));
   });
 }
 
@@ -2068,12 +2142,13 @@ export async function previewMakeupLifecycle(op: MakeupLifecycleOp): Promise<Mak
 
 export async function applyMakeupLifecycle(op: MakeupLifecycleOp): Promise<MakeupLifecycleResult> {
   await ensureDataFile();
-  return withFileLock(DATA_FILE, async () => {
+  const file = currentDataFile();
+  return withFileLock(file, async () => {
     const raw = await readJsonRaw();
     const overlaid = await withClosedDayOverrides(raw, raw.settings.tenantId);
     const result = applyMakeupLifecycleOnFull(overlaid, op);
     if (!result.ok) return result;
-    await writeJsonFileAtomic(DATA_FILE, withoutClosedDayOverrides(result.data));
+    await writeJsonFileAtomic(file, withoutClosedDayOverrides(result.data));
     return result;
   });
 }
@@ -2085,7 +2160,8 @@ export async function setLessonAttendanceNoteLive(
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const stored = normalizeAttendanceNote(note) ?? null;
   await ensureDataFile();
-  return withFileLock(DATA_FILE, async () => {
+  const file = currentDataFile();
+  return withFileLock(file, async () => {
     const data = await readJsonRaw();
     const lesson = data.lessons.find((row) => row.id === lessonId);
     if (!lesson) return { ok: false, message: "Ders bulunamadı. Sayfayı yenileyip tekrar deneyin." };
@@ -2093,7 +2169,7 @@ export async function setLessonAttendanceNoteLive(
       return { ok: false, message: "Not yalnız Geldi yoklamasına yazılır. Önce Geldi'yi işaretleyin, sonra notu kaydedin." };
     }
     const lessons = data.lessons.map((row) => (row.id === lessonId ? { ...row, studentAttendanceNote: stored } : row));
-    await writeJsonFileAtomic(DATA_FILE, { ...data, lessons });
+    await writeJsonFileAtomic(file, { ...data, lessons });
     return { ok: true };
   });
 }

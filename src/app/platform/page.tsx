@@ -4,35 +4,48 @@ import { StatusBadge, toneForHealthStatus } from "@/components/platform/status-b
 import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getPlatformDashboard } from "@/lib/platform/service";
 import { planLabel } from "@/lib/platform/entitlements";
+import { getPlanNameMap } from "@/lib/platform/commercial-catalog";
+import { FEATURE_BY_KEY } from "@/lib/platform/features";
+import { auditActionLabel } from "@/lib/platform/audit-labels";
+import { DashboardRefresh } from "@/components/platform/dashboard-refresh";
 
 export const dynamic = "force-dynamic";
 
-function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
-  return (
-    <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-      <h2 className="text-sm font-semibold text-[var(--color-text)]">{children}</h2>
-      {hint ? <p className="text-xs text-[var(--color-text-muted)]">{hint}</p> : null}
-    </div>
-  );
-}
+const SUB_STATUS_TR: Record<string, string> = {
+  past_due: "Ödeme gecikmiş",
+  suspended: "Erişim kısıtlı",
+};
 
-function NavCard({ href, title, description }: { href: string; title: string; description: string }) {
+const PAY_EVENT_TR: Record<string, { label: string; tone: "ok" | "warning" | "danger" | "neutral" }> = {
+  processed: { label: "işlendi", tone: "ok" },
+  received: { label: "alındı", tone: "neutral" },
+  failed: { label: "başarısız", tone: "danger" },
+  ignored: { label: "yoksayıldı", tone: "warning" },
+};
+
+const fmtDate = (iso: string | null) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+};
+
+function QuickAction({ href, title, description }: { href: string; title: string; description: string }) {
   return (
     <Link
       href={href}
-      className="block rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-border-strong)]"
+      className="block rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 hover:border-[var(--color-border-strong)]"
     >
       <p className="text-sm font-semibold text-[var(--color-primary)]">{title}</p>
-      <p className="mt-1 text-xs text-[var(--color-text-muted)]">{description}</p>
+      <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{description}</p>
     </Link>
   );
 }
 
 /**
- * NeviiOS Control Room (2026-09-28): izleme → kurumlar → yayın/operasyon →
- * güvenlik bilgi mimarisi. Tüm sayılar gerçek özet verisidir; canlı
- * telemetri, hayalî deployment durumu veya çalışmayan komut paneli yok —
- * yayın/operasyon kartları ilgili sayfalara gider.
+ * NeviiOS Özet: göstergeler → bekleyen işler → hızlı işlemler →
+ * son hareketler → sistem durumu. Tüm sayılar gerçek kayıtlardan;
+ * tahsilat toplamı gibi tarama gerektiren para göstergeleri YOK
+ * (yanıltıcı tahmini engellemek için).
  */
 export default async function PlatformDashboardPage() {
   const session = await requireHyperAdminPage("/platform");
@@ -41,21 +54,221 @@ export default async function PlatformDashboardPage() {
     return <EmptyState title="Özet yüklenemedi" description={result.error.message} />;
   }
   const data = result.data;
-  const errors = data.health.filter((c) => toneForHealthStatus(c.status) === "danger").length;
-  const warnings = data.health.filter((c) => toneForHealthStatus(c.status) === "warning").length;
+  const planNames = await getPlanNameMap();
+  const nameOf = (key: string) => planNames.get(key) ?? planLabel(key);
+  const pendingTotal = data.billing.pendingTrialsTotal + data.billing.pendingPurchasesTotal + data.billing.pendingQuotesTotal;
+  const queueEmpty =
+    pendingTotal === 0 && data.billing.troubledSubsTotal === 0 && data.billing.trialsEndingTotal === 0;
+  const updatedAt = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
   return (
-    <div className="space-y-8">
-      <PageHeader
-        title="NeviiOS Control Center"
-        description={`${data.totals.tenants} kurum · ${data.totals.active} aktif · ${errors} kritik · ${warnings} uyarı`}
-      />
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <PageHeader title="Özet" description="Kurumlar, satış ve sistem durumu — bugünün görünümü." />
+        <DashboardRefresh at={updatedAt} />
+      </div>
 
-      <section aria-labelledby="cr-durum">
-        <div id="cr-durum">
-          <SectionTitle hint="Gerçek altyapı kartları — değerler gizlenmez, anahtarlar gösterilmez">
-            Sistem durumu
-          </SectionTitle>
+      <section aria-label="Göstergeler" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Kurumlar" value={`${data.totals.tenants} toplam · ${data.totals.active} aktif`} />
+        <StatCard label="Aktif abonelik" value={data.billing.activeSubs} accent="success" />
+        <StatCard
+          label="Ödeme sorunu"
+          value={data.billing.troubledSubsTotal}
+          accent={data.billing.troubledSubsTotal > 0 ? "danger" : undefined}
+        />
+        <StatCard
+          label="Bekleyen başvuru"
+          value={pendingTotal}
+          accent={pendingTotal > 0 ? "warning" : undefined}
+        />
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[var(--color-text)]">Bekleyen işler</h2>
+            <Link href="/platform/basvurular" className="text-xs text-[var(--color-primary)] hover:underline">
+              Başvurular ve davetler
+            </Link>
+          </div>
+          {queueEmpty ? (
+            <p className="mt-3 text-sm text-[var(--color-text-muted)]">
+              Bekleyen iş yok. Yeni deneme ve satın alma başvuruları burada listelenir.
+            </p>
+          ) : (
+            <ul className="mt-3 divide-y divide-[var(--color-border)] text-sm">
+              {data.billing.pendingTrials.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone="warning">deneme başvurusu</StatusBadge>
+                  <span className="font-medium text-[var(--color-text)]">{r.institutionName}</span>
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {r.ownerName} · {fmtDate(r.createdAt)}
+                  </span>
+                </li>
+              ))}
+              {data.billing.pendingPurchases.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone="warning">satın alma başvurusu</StatusBadge>
+                  <span className="font-medium text-[var(--color-text)]">{r.institutionName}</span>
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {nameOf(r.planKey)} · {r.interval === "yearly" ? "yıllık" : "aylık"} · {fmtDate(r.createdAt)}
+                  </span>
+                </li>
+              ))}
+              {data.billing.pendingQuotes.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone="warning">teklif isteği</StatusBadge>
+                  <span className="font-medium text-[var(--color-text)]">{r.institutionName}</span>
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {r.ownerName} · {fmtDate(r.createdAt)}
+                  </span>
+                </li>
+              ))}
+              {data.billing.troubledSubs.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone="danger">{SUB_STATUS_TR[s.status] ?? s.status}</StatusBadge>
+                  <Link
+                    href={`/platform/kurumlar/${s.tenantId}`}
+                    className="font-medium text-[var(--color-primary)] hover:underline"
+                  >
+                    {s.tenant}
+                  </Link>
+                  <span className="text-xs text-[var(--color-text-muted)]">{nameOf(s.planKey)}</span>
+                </li>
+              ))}
+              {data.billing.trialsEnding.map((s) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone="neutral">deneme bitiyor</StatusBadge>
+                  <Link
+                    href={`/platform/kurumlar/${s.tenantId}`}
+                    className="font-medium text-[var(--color-primary)] hover:underline"
+                  >
+                    {s.tenant}
+                  </Link>
+                  <span className="text-xs text-[var(--color-text-muted)]">bitiş: {fmtDate(s.trialEndsAt)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <nav aria-label="Hızlı işlemler" className="space-y-2">
+          <h2 className="text-sm font-semibold text-[var(--color-text)]">Hızlı işlemler</h2>
+          <QuickAction href="/platform/kurumlar/yeni" title="Yeni kurum" description="Kurumu ve sahibini oluştur." />
+          <QuickAction href="/platform/paketler/yeni" title="Yeni paket" description="Taslak kataloga paket ekle." />
+          <QuickAction href="/platform/basvurular" title="Başvuruları incele" description="Onay veya davet gönder." />
+          <QuickAction href="/platform/odeme-saglayicilari" title="Ödeme sağlayıcıları" description="PayTR / iyzico durumu." />
+          <QuickAction href="/platform/denetim" title="Denetim kaydı" description="Son değişikliklerin izi." />
+        </nav>
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-[var(--color-text)]">
+            Son ödeme hareketleri
+            {data.billing.failedPaymentsTotal > 0 ? (
+              <span className="ml-2 font-normal text-[var(--color-danger)]">{data.billing.failedPaymentsTotal} başarısız bildirim</span>
+            ) : null}
+          </h2>
+          <Link href="/platform/fatura" className="text-xs text-[var(--color-primary)] hover:underline">
+            Kurum abonelikleri
+          </Link>
+        </div>
+        {data.billing.paymentEvents.length === 0 ? (
+          <p className="mt-3 text-sm text-[var(--color-text-muted)]">
+            Henüz ödeme bildirimi yok. Sağlayıcıdan gelen her bildirim anında buraya düşer.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-[var(--color-border)] text-sm">
+            {data.billing.paymentEvents.map((w) => {
+              const t = PAY_EVENT_TR[w.status] ?? { label: w.status, tone: "neutral" as const };
+              return (
+                <li key={w.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <StatusBadge tone={t.tone}>{t.label}</StatusBadge>
+                  <span className="font-medium text-[var(--color-text)]">
+                    {w.provider === "mock" ? "Test ödemesi" : w.provider === "manual" ? "Banka transferi" : w.provider === "paytr" ? "PayTR" : w.provider === "iyzico" ? "iyzico" : w.provider}
+                  </span>
+                  {w.tenant ? <span className="text-[var(--color-text-muted)]">{w.tenant}</span> : null}
+                  <span className="text-xs text-[var(--color-text-muted)]">{fmtDate(w.createdAt)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold text-[var(--color-text)]">Son hareketler</h3>
+            <Link href="/platform/denetim" className="text-xs text-[var(--color-primary)] hover:underline">
+              Tümü
+            </Link>
+          </div>
+          {data.recentAudit.length === 0 ? (
+            <p className="mt-3 text-sm text-[var(--color-text-muted)]">Kayıt yok.</p>
+          ) : (
+            <ul className="mt-3 space-y-2 text-sm">
+              {data.recentAudit.map((e) => (
+                <li key={e.id} className="text-[var(--color-text-muted)]" title={e.action}>
+                  <span className="text-[var(--color-text)]">{auditActionLabel(e.action)}</span>
+                  {e.targetTenantId ? ` · ${data.tenantNames[e.targetTenantId] ?? e.targetTenantId}` : ""}
+                  <span className="block text-xs">{e.createdAt}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+        <Card>
+          <h3 className="text-sm font-semibold text-[var(--color-text)]">Kurum ara</h3>
+          <form action="/platform/kurumlar" method="get" className="mt-3 flex gap-2">
+            <input
+              name="q"
+              placeholder="Kurum adı"
+              aria-label="Kurum ara"
+              className="w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              className="rounded-[var(--radius-md)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white"
+            >
+              Ara
+            </button>
+          </form>
+          <h3 className="mt-4 text-sm font-semibold text-[var(--color-text)]">Paket dağılımı</h3>
+          {Object.keys(data.planDistribution).length === 0 ? (
+            <p className="mt-2 text-sm text-[var(--color-text-muted)]">Henüz kurum yok.</p>
+          ) : (
+            <ul className="mt-2 space-y-1 text-sm text-[var(--color-text-muted)]">
+              {Object.entries(data.planDistribution).map(([plan, count]) => (
+                <li key={plan}>
+                  {nameOf(plan)}: {count}
+                </li>
+              ))}
+            </ul>
+          )}
+          <details className="mt-3">
+            <summary className="cursor-pointer text-xs text-[var(--color-text-muted)] hover:underline">
+              Modül dağılımı (gelişmiş)
+            </summary>
+            <ul className="mt-2 max-h-48 space-y-1 overflow-auto text-sm text-[var(--color-text-muted)]">
+              {Object.entries(data.featureDistribution).map(([flag, bucket]) => (
+                <li key={flag}>
+                  {FEATURE_BY_KEY.get(flag as Parameters<typeof FEATURE_BY_KEY.get>[0])?.label ?? flag}: {bucket.on} açık /{" "}
+                  {bucket.off} kapalı
+                </li>
+              ))}
+            </ul>
+          </details>
+        </Card>
+      </div>
+
+      <section aria-label="Sistem durumu">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold text-[var(--color-text)]">Sistem durumu</h2>
+          <Link href="/platform/sistem-sagligi" className="text-xs text-[var(--color-primary)] hover:underline">
+            Tüm kartlar
+          </Link>
         </div>
         {data.health.length === 0 ? (
           <EmptyState title="Sağlık verisi yok" description="Altyapı kartları henüz üretilmedi." />
@@ -75,138 +288,6 @@ export default async function PlatformDashboardPage() {
             ))}
           </ul>
         )}
-        <div className="mt-3">
-          {data.problemIntegrations.length === 0 ? (
-            <p className="text-xs text-[var(--color-text-muted)]">
-              <StatusBadge tone="ok">sorunsuz</StatusBadge> Kritik entegrasyon hatası yok.
-            </p>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {data.problemIntegrations.map((i) => (
-                <li key={i.provider} className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={toneForHealthStatus(i.status)}>{i.status}</StatusBadge>
-                  <span className="text-[var(--color-text-muted)]">{i.label}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <section aria-labelledby="cr-kurumlar">
-        <div id="cr-kurumlar">
-          <SectionTitle hint="İşlemler her zaman açık hedef tenant ile yapılır">Kurumlar</SectionTitle>
-        </div>
-        <div className="mb-4 grid gap-4 sm:grid-cols-3">
-          <StatCard label="Toplam kurum" value={data.totals.tenants} />
-          <StatCard label="Aktif" value={data.totals.active} accent="success" />
-          <StatCard label="Pasif" value={data.totals.inactive} accent="warning" />
-        </div>
-        <Card>
-          <h3 className="text-sm font-semibold text-[var(--color-text)]">Kurum ara / incele</h3>
-          <form action="/platform/kurumlar" method="get" className="mt-3 flex gap-2">
-            <input
-              name="q"
-              placeholder="Kurum adı veya id"
-              aria-label="Kurum ara"
-              className="w-full rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm"
-            />
-            <button
-              type="submit"
-              className="rounded-[var(--radius-md)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white"
-            >
-              Ara
-            </button>
-          </form>
-          {data.recentTenants.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--color-text-muted)]">Henüz kurum yok.</p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {data.recentTenants.map((t) => (
-                <li key={t.tenantId} className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/platform/kurumlar/${t.tenantId}`}
-                    className="text-sm font-medium text-[var(--color-primary)] hover:underline"
-                  >
-                    {t.name}
-                  </Link>
-                  <span className="text-xs text-[var(--color-text-muted)]">{planLabel(t.planKey)}</span>
-                  <StatusBadge tone={t.active ? "ok" : "warning"}>{t.active ? "aktif" : "pasif"}</StatusBadge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </section>
-
-      <section aria-labelledby="cr-yayin">
-        <div id="cr-yayin">
-          <SectionTitle hint="Durumlar ilgili sayfalardaki gerçek kayıtlardan okunur">Yayın ve operasyon</SectionTitle>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <NavCard href="/platform/release-merkezi" title="Release merkezi" description="Sürüm kararları ve yayın akışı." />
-          <NavCard href="/platform/deploymentlar" title="Deploymentlar" description="Dağıtım kayıtları ve durumları." />
-          <NavCard href="/platform/operasyon" title="Operasyon" description="Günlük operasyon araçları ve bakım." />
-          <NavCard href="/platform/sistem-sagligi" title="Sistem sağlığı" description="Altyapı kartlarının tamamı." />
-        </div>
-      </section>
-
-      <section aria-labelledby="cr-paket">
-        <div id="cr-paket">
-          <SectionTitle hint="Ticari hak dağılımı — bayrak değil, paket görünümü">Paket ve modüller</SectionTitle>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <h3 className="text-sm font-semibold text-[var(--color-text)]">Plan dağılımı</h3>
-            {Object.keys(data.planDistribution).length === 0 ? (
-              <p className="mt-3 text-sm text-[var(--color-text-muted)]">Henüz kurum yok.</p>
-            ) : (
-              <ul className="mt-3 space-y-1 text-sm text-[var(--color-text-muted)]">
-                {Object.entries(data.planDistribution).map(([plan, count]) => (
-                  <li key={plan}>
-                    {planLabel(plan)}: {count}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-          <Card>
-            <h3 className="text-sm font-semibold text-[var(--color-text)]">Özellik dağılımı</h3>
-            <ul className="mt-3 max-h-64 space-y-1 overflow-auto text-sm text-[var(--color-text-muted)]">
-              {Object.entries(data.featureDistribution).map(([flag, bucket]) => (
-                <li key={flag}>
-                  {flag}: {bucket.on} açık / {bucket.off} kapalı
-                </li>
-              ))}
-            </ul>
-          </Card>
-        </div>
-      </section>
-
-      <section aria-labelledby="cr-guvenlik">
-        <div id="cr-guvenlik">
-          <SectionTitle hint="Son 8 kayıt — tamamı denetim zaman çizelgesinde">Güvenlik ve denetim</SectionTitle>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <NavCard href="/platform/denetim" title="Denetim" description="Tüm platform denetim olayları." />
-          <NavCard href="/platform/kullanicilar" title="Platform kullanıcıları" description="HYPER_ADMIN hesap yönetimi." />
-          <NavCard href="/platform/roller" title="Roller" description="Rol dizini ve yetki sınırları." />
-        </div>
-        <Card>
-          <h3 className="text-sm font-semibold text-[var(--color-text)]">Son ayar değişiklikleri</h3>
-          {data.recentAudit.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--color-text-muted)]">Kayıt yok.</p>
-          ) : (
-            <ul className="mt-3 space-y-2 text-sm">
-              {data.recentAudit.map((e) => (
-                <li key={e.id} className="text-[var(--color-text-muted)]">
-                  {e.createdAt} · {e.action}
-                  {e.targetTenantId ? ` · ${e.targetTenantId}` : ""}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
       </section>
     </div>
   );

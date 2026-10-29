@@ -15,7 +15,14 @@ import {
  * ile (varsa, e-posta linkinden) önceden doldurulur ama salt-okunur DEĞİLDİR —
  * kod elle yazılabilir olacak şekilde tasarlandı (bkz. password-reset.ts).
  */
-export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
+export function ResetPasswordForm({
+  initialToken,
+  setupMode,
+}: {
+  initialToken: string;
+  /** İlk kurulum: kod-isteme adımı gizlenir, "sıfırlama" dili kullanılmaz. */
+  setupMode?: boolean;
+}) {
   const router = useRouter();
   /**
    * P0 UAT (2026-09-08) — "Şifremi unuttum akışı yok".
@@ -95,7 +102,12 @@ export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
       const res = await fetch("/api/v1/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: code.trim(), newPassword, surface: currentClientSurface() }),
+        body: JSON.stringify({
+          token: code.trim(),
+          newPassword,
+          surface: currentClientSurface(),
+          ...(setupMode ? { setupNext: "/abonelik" as const } : {}),
+        }),
       });
       const json = (await res.json()) as {
         ok: boolean;
@@ -123,7 +135,7 @@ export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
     return (
       <div className="space-y-3">
         <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
-          Şifreniz güncellendi. Portalınıza yönlendiriliyorsunuz…
+          {setupMode ? "Parolanız oluşturuldu. Portalınıza yönlendiriliyorsunuz…" : "Şifreniz güncellendi. Portalınıza yönlendiriliyorsunuz…"}
         </p>
         {appDownloadUrl ? (
           <p className="text-xs text-[var(--color-text-muted)]">
@@ -197,11 +209,11 @@ export function ResetPasswordForm({ initialToken }: { initialToken: string }) {
         />
       </div>
       <div>
-        <Label>Yeni şifre</Label>
+        <Label>{setupMode ? "Parola" : "Yeni şifre"}</Label>
         <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} minLength={8} required />
       </div>
       <div>
-        <Label>Yeni şifre (tekrar)</Label>
+        <Label>{setupMode ? "Parola (tekrar)" : "Yeni şifre (tekrar)"}</Label>
         <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={8} required />
       </div>
       {error ? <p className="text-xs font-medium text-rose-600">{error}</p> : null}

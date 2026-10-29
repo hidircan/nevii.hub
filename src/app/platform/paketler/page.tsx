@@ -13,7 +13,7 @@ export default async function PackagesPage() {
     <div>
       <PageHeader
         title="Paketler, modüller ve fiyat"
-        description="Paket ≠ entitlement ≠ modül bayrağı ≠ izin. Limit aşımı veri silmez; yalnız yeni öğrenci, yeni davet ve yeni şube durur."
+        description="Satışa sunulan paketler, içerikleri ve fiyatları. Limit aşımında mevcut veri silinmez; yalnız yeni öğrenci, davet ve şube eklenemez."
       />
       <PackagesManager data={res.data} />
     </div>

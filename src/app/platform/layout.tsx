@@ -53,7 +53,7 @@ export default async function PlatformLayout({ children }: { children: React.Rea
   const shell = resolvePlatformShell({ role: session.role, savedThemeProfile: prefs?.themeProfile, cookieTheme });
   const homebrewDefault = shell === "homebrew";
   // Menü = ekran registry + aynı resolver (sunucu kontrolüyle tek kaynak).
-  const links = screensFor({ grants }, "platform").map((s) => ({ href: s.path, label: s.label }));
+  const links = screensFor({ grants }, "platform").map((s) => ({ href: s.path, label: s.label, group: s.navGroup ?? null }));
   return (
     <div
       className={

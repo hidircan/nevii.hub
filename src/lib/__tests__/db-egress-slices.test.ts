@@ -196,17 +196,35 @@ describe("DB egress dilimleri — tam okumayla aynı sonuç", () => {
     await expect(readStudentScope("")).rejects.toThrow(/studentId gerekli/);
   });
 
-  it("dilimler kurum korumasını taşır: başka kurum bağlamında okuma reddedilir", async () => {
-    await readData();
-    const reads: Array<() => Promise<unknown>> = [
-      () => readStudentScope("s1"),
-      () => readReferenceData(),
-      () => readStudentById("s1"),
-      () => readStudentListData(),
-      () => readLessonWindow("2026-09-01T00:00:00Z", "2026-09-30T00:00:00Z"),
-    ];
-    for (const read of reads) {
-      await expect(runWithTenantAsync("tenant_baska_kurum", read)).rejects.toThrow(/Cross-tenant/);
+  it("dilimler kurum korumasını taşır: başka kurum yalnız kendi (boş) verisini okur, asıl kurumun verisi sızmaz", async () => {
+    // Dosya-başına-kurum yalıtımı: B kurumu kendi dosyasını okur (boş) — A'nın
+    // kayıtları (s1/x1/...) sonuçlarda ASLA görünmez. Reddetme yerine boş-dönüş
+    // sözleşmesi; sızıntı iddiası kayıt kimlikleriyle kilitlenir.
+    const full = await seedTwoStudents();
+    expect(full.students.map((s) => s.id)).toEqual(expect.arrayContaining(["s1"]));
+    await fs.rm(path.join(DIR, "store-tenant_baska_kurum.json"), { force: true });
+    try {
+      const scope = await runWithTenantAsync("tenant_baska_kurum", () => readStudentScope("s1"));
+      expect(scope.students).toEqual([]);
+      expect(scope.lessons).toEqual([]);
+      expect(scope.payments).toEqual([]);
+      const ref = await runWithTenantAsync("tenant_baska_kurum", () => readReferenceData());
+      expect(ref.students).toEqual([]);
+      expect(ref.teachers).toEqual([]);
+      expect(ref.settings.tenantId).toBe("tenant_baska_kurum");
+      const byId = await runWithTenantAsync("tenant_baska_kurum", () => readStudentById("s1"));
+      expect(byId).toBeUndefined();
+      const list = await runWithTenantAsync("tenant_baska_kurum", () => readStudentListData());
+      expect(list.students).toEqual([]);
+      const win = await runWithTenantAsync("tenant_baska_kurum", () =>
+        readLessonWindow("2026-09-01T00:00:00Z", "2026-09-30T00:00:00Z")
+      );
+      expect(win.lessons).toEqual([]);
+      // A'nın dosyası değişmedi: B'nin okuması A'ya yazmadı.
+      const again = await readData();
+      expect(again.students.map((s) => s.id)).toEqual(expect.arrayContaining(["s1"]));
+    } finally {
+      await fs.rm(path.join(DIR, "store-tenant_baska_kurum.json"), { force: true });
     }
   });
 

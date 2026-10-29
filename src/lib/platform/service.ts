@@ -33,6 +33,8 @@ import { appearancePolicyConflict, normalizeAppearancePolicy } from "./policies"
 import { deleteSettingOverride, listFeatureOverrides } from "./store";
 import { FEATURES_POLICY_KEY, PLATFORM_SCOPE_ID, isGovernedPolicyKey, recordPublishedVersion } from "./policy-version-log";
 import { PLAN_KEY_PATTERN } from "./types";
+import { listSaasPurchaseRequests, listSaasQuoteRequests, listSaasSubscriptions, listSaasTrialRequests, listSaasWebhookEvents } from "../saas-billing/store";
+import { listFailedWebhookEvents } from "../saas-billing/webhooks";
 import { PLAN_CATALOG, resolveTenantLimits, STAFF_SEAT_ROLES } from "./entitlements";
 import {
   createTenantDraft,
@@ -110,6 +112,25 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
   const integrations = await listPublicIntegrations("platform", "*");
   const problemIntegrations = integrations.filter((i) => i.status === "error" || i.status === "not_configured");
 
+  // Satış bekleyen işleri — sınırlı okuma (sayfa başına tek render, polling yok).
+  const [trials, purchases, subs, quotes, webhooks, failedWebhooks] = await Promise.all([
+    listSaasTrialRequests(50).catch(() => []),
+    listSaasPurchaseRequests(50).catch(() => []),
+    listSaasSubscriptions(100).catch(() => []),
+    listSaasQuoteRequests(50).catch(() => []),
+    listSaasWebhookEvents(8).catch(() => []),
+    listFailedWebhookEvents(100).catch(() => []),
+  ]);
+  const tenantName = new Map(tenants.map((t) => [t.tenantId, t.name]));
+  const weekAhead = Date.now() + 7 * 24 * 3600 * 1000;
+  const pendingTrials = trials.filter((r) => r.status === "pending");
+  const pendingPurchases = purchases.filter((r) => r.status === "pending");
+  const pendingQuotes = quotes.filter((r) => r.status === "pending");
+  const troubledSubs = subs.filter((s) => s.status === "past_due" || s.status === "suspended");
+  const trialsEnding = subs.filter(
+    (s) => s.status === "trialing" && s.trialEndsAt && new Date(s.trialEndsAt).getTime() <= weekAhead
+  );
+
   const buckets = await dashboardLifecycleBuckets();
   return ok({
     totals: {
@@ -127,8 +148,58 @@ export async function getPlatformDashboard(ctx: ServiceContext) {
     featureDistribution: featureDist,
     problemIntegrations,
     recentAudit: audit,
+    tenantNames: Object.fromEntries(tenantName),
     health,
     provisioningCapable: isDbMode,
+    billing: {
+      activeSubs: subs.filter((s) => s.status === "active").length,
+      trialingSubs: subs.filter((s) => s.status === "trialing").length,
+      pendingTrials: pendingTrials.map((r) => ({
+        id: r.id,
+        institutionName: r.institutionName,
+        ownerName: r.ownerName,
+        createdAt: r.createdAt,
+      })),
+      pendingTrialsTotal: pendingTrials.length,
+      pendingPurchases: pendingPurchases.map((r) => ({
+        id: r.id,
+        institutionName: r.institutionName,
+        planKey: r.planKey,
+        interval: r.interval,
+        createdAt: r.createdAt,
+      })),
+      pendingPurchasesTotal: pendingPurchases.length,
+      pendingQuotes: pendingQuotes.map((r) => ({
+        id: r.id,
+        institutionName: r.institutionName,
+        ownerName: r.ownerName,
+        createdAt: r.createdAt,
+      })),
+      pendingQuotesTotal: pendingQuotes.length,
+      paymentEvents: webhooks.map((w) => ({
+        id: w.id,
+        provider: w.provider,
+        tenant: w.tenantId ? (tenantName.get(w.tenantId) ?? w.tenantId) : null,
+        status: w.status,
+        createdAt: w.createdAt,
+      })),
+      failedPaymentsTotal: failedWebhooks.length,
+      troubledSubs: troubledSubs.slice(0, 8).map((s) => ({
+        id: s.id,
+        tenantId: s.tenantId,
+        tenant: tenantName.get(s.tenantId) ?? s.tenantId,
+        status: s.status,
+        planKey: s.planKey,
+      })),
+      troubledSubsTotal: troubledSubs.length,
+      trialsEnding: trialsEnding.slice(0, 8).map((s) => ({
+        id: s.id,
+        tenantId: s.tenantId,
+        tenant: tenantName.get(s.tenantId) ?? s.tenantId,
+        trialEndsAt: s.trialEndsAt,
+      })),
+      trialsEndingTotal: trialsEnding.length,
+    },
   });
 }
 
@@ -807,14 +878,36 @@ export async function testIntegrationForScope(
 export async function getPlatformAuditLog(
   ctx: ServiceContext,
   targetTenantId?: string,
-  filter?: { action?: string; actorUserId?: string }
+  filter?: {
+    action?: string;
+    actorUserId?: string;
+    outcome?: string;
+    entityType?: string;
+    after?: string;
+    before?: string;
+    page?: number;
+    pageSize?: number;
+  }
 ) {
   const gate = requireHyperAdmin(ctx);
   if (!gate.ok) return gate;
-  let events = await listPlatformAudit({ targetTenantId, limit: 500 });
-  if (filter?.action) events = events.filter((e) => e.action.startsWith(filter.action!));
-  if (filter?.actorUserId) events = events.filter((e) => e.actorUserId === filter.actorUserId);
-  return ok({ events: redactSecrets(events.slice(0, 200)) });
+  // Tarih seçiciler gün verir; bitiş günü sonuna kadar dahil edilir.
+  const endOfDay = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T23:59:59.999Z` : d);
+  const events = await listPlatformAudit({
+    targetTenantId,
+    limit: 500,
+    actionPrefix: filter?.action || undefined,
+    actorUserId: filter?.actorUserId || undefined,
+    outcome: filter?.outcome || undefined,
+    entityType: filter?.entityType || undefined,
+    after: filter?.after || undefined,
+    before: filter?.before ? endOfDay(filter.before) : undefined,
+  });
+  const pageSize = [10, 25, 50, 100].includes(filter?.pageSize ?? 0) ? filter!.pageSize! : 25;
+  const pages = Math.max(1, Math.ceil(events.length / pageSize));
+  const page = Math.min(Math.max(1, filter?.page ?? 1), pages);
+  const slice = events.slice((page - 1) * pageSize, page * pageSize);
+  return ok({ events: redactSecrets(slice), total: events.length, page, pages, pageSize });
 }
 
 /** Paket, entitlement, limit ve kullanım özeti (limit aşımı veri silmez — yalnız yeni işlem kısıtlanır). */

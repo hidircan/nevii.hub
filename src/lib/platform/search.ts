@@ -41,6 +41,7 @@ export async function platformSearch(ctx: ServiceContext, rawQuery: string) {
     SCREEN_REGISTRY.filter((s) => s.area === "platform" && canAccessScreen({ grants }, s) && hit(s.label, ...(s.keywords ?? []))).map((s) => ({
       group: "",
       label: s.label,
+      detail: s.navGroup ?? "Genel Bakış",
       href: s.path,
     }))
   );

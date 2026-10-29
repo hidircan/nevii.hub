@@ -15,7 +15,8 @@
  * belirler (bkz. acceptAccountInvitation).
  */
 import { createPasswordResetToken } from "./password-reset";
-import { getAppBaseUrl, getMobileAppLinks, sendEmail, type EmailSendResult } from "../email";
+import { getAppBaseUrl, sendEmail, type EmailSendResult } from "../email";
+import { resolveMobileAppLinks } from "../platform/site-mobile-apps";
 import { renderTransactionalEmail, type RenderValues } from "../email-templates/engine";
 import type { EmailTemplateKey } from "../email-templates/keys";
 
@@ -53,7 +54,7 @@ export type SendInvitationInput = {
  * için ayrı, role uygun karşılama metni kullanır. Web portal linki AÇIK
  * metin olarak da gösterilir (yalnızca buton değil — bazı e-posta
  * istemcileri/görme engelli kullanıcılar için). Mobil app linkleri
- * SADECE `getMobileAppLinks()` gerçek bir URL döndürüyorsa (uygulama
+ * SADECE `resolveMobileAppLinks()` gerçek bir URL döndürüyorsa (uygulama
  * yayınlandıktan sonra) gösterilir — yayınlanmamış bir uygulamaya kırık
  * bir mağaza linki ASLA gösterilmez.
  *
@@ -67,7 +68,7 @@ export type InvitationSendResult = EmailSendResult & { activationLink: string };
 export async function sendAccountInvitationEmail(input: SendInvitationInput): Promise<InvitationSendResult> {
   const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS, "invitation");
   const activationLink = `${getAppBaseUrl()}/hesap-aktivasyon?token=${encodeURIComponent(raw)}`;
-  const { appStoreUrl, playStoreUrl } = getMobileAppLinks();
+  const { appStoreUrl, playStoreUrl } = await resolveMobileAppLinks();
 
   // 10. tur iş #2 — içerik şablon motorundan gelir: kurumun yayınlanmış özel
   // şablonu varsa o, yoksa varsayılan profesyonel metin. Logo, e-posta

@@ -74,7 +74,7 @@ export function NewTenantForm({ plans }: { plans: PlanOption[] }) {
         <h2 className="mb-3 text-sm font-semibold">1 · Kurum</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Kurum adı</span><Input value={f.name} onChange={(e) => set("name", e.target.value)} /></label>
-          <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Slug (boşsa addan üretilir)</span><Input value={f.slug} onChange={(e) => set("slug", e.target.value)} /></label>
+          <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Kısa adres (boşsa addan üretilir)</span><Input value={f.slug} onChange={(e) => set("slug", e.target.value)} /></label>
           <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">İletişim e-postası</span><Input type="email" value={f.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} /></label>
           <label className="block"><span className="mb-1 block text-xs font-medium text-[var(--color-text-muted)]">Telefon</span><Input value={f.phone} onChange={(e) => set("phone", e.target.value)} /></label>
           <div>

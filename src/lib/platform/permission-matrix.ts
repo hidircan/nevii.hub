@@ -35,6 +35,7 @@ export const PERM_RESOURCES = {
   appearance: "Appearance",
   integrations: "Entegrasyonlar",
   packages: "Paketler",
+  saas_billing: "SaaS abonelik tahsilatı",
   entitlements: "Entitlement",
   feature_flags: "Feature flag",
   audit: "Audit",
@@ -57,6 +58,7 @@ export type Grant = { resource: PermResource; action: PermAction; scope: PermSco
 /** Yalnız platform kapsamında anlamlı kaynaklar — tenant rolleri/özel roller alamaz. */
 export const PLATFORM_ONLY_RESOURCES: readonly PermResource[] = [
   "packages",
+  "saas_billing",
   "entitlements",
   "feature_flags",
   "support_access",
@@ -77,14 +79,14 @@ export const SYSTEM_ROLE_KEYS = [
 export type SystemRoleKey = (typeof SYSTEM_ROLE_KEYS)[number];
 
 export const SYSTEM_ROLE_META: Record<SystemRoleKey, { label: string; loginRole: string; note: string }> = {
-  HYPER_ADMIN: { label: "Platform Sahibi", loginRole: "HYPER_ADMIN", note: "NeviiOS sahibi. Normal ekrandan atanamaz; temel izinleri düşürülemez." },
-  SUPER_ADMIN: { label: "Kurum Sahibi", loginRole: "SUPER_ADMIN", note: "Yalnız kendi kurumu. Platform izni yok." },
-  BRANCH_MANAGER: { label: "Şube Müdürü", loginRole: "BRANCH_MANAGER", note: "Yalnız atanmış şubeler; atama yoksa fail-closed." },
-  SCHOOL_ADMIN: { label: "Kurum Yöneticisi (legacy)", loginRole: "SCHOOL_ADMIN", note: "Geçiş rolü; otomatik şube müdürüne dönüşmez." },
-  STAFF: { label: "Personel", loginRole: "—", note: "V1'de giriş rolü değil (tool katmanı hazır olunca açılır)." },
-  TEACHER: { label: "Öğretmen", loginRole: "TEACHER", note: "Yalnız kendisine atanmış öğrenci/dersler." },
-  STUDENT: { label: "Öğrenci", loginRole: "STUDENT (SELF)", note: "Yalnız kendi kaydı." },
-  PARENT: { label: "Veli", loginRole: "STUDENT (GUARDIAN)", note: "Karma Öğrenci Portalı: STUDENT girişi + GUARDIAN erişimi." },
+  HYPER_ADMIN: { label: "Platform Sahibi", loginRole: "Platform girişi", note: "NeviiOS sahibi. Normal ekrandan atanamaz; temel izinleri düşürülemez." },
+  SUPER_ADMIN: { label: "Kurum Sahibi", loginRole: "Kurum girişi", note: "Yalnız kendi kurumu. Platform izni yok." },
+  BRANCH_MANAGER: { label: "Şube Müdürü", loginRole: "Kurum girişi", note: "Yalnız atanmış şubeler; atama yoksa erişim kapalıdır." },
+  SCHOOL_ADMIN: { label: "Kurum Yöneticisi (eski)", loginRole: "Kurum girişi", note: "Eski geçiş rolü; kendiliğinden Şube Müdürü olmaz." },
+  STAFF: { label: "Personel", loginRole: "—", note: "Henüz giriş için kullanılmıyor; hazır olunca açılır." },
+  TEACHER: { label: "Öğretmen", loginRole: "Kurum girişi", note: "Yalnız kendisine atanmış öğrenci ve dersler." },
+  STUDENT: { label: "Öğrenci", loginRole: "Öğrenci girişi", note: "Yalnız kendi kaydı." },
+  PARENT: { label: "Veli", loginRole: "Veli girişi", note: "Öğrenci girişi üzerinden veli erişimi." },
 };
 
 function g(scope: PermScope, spec: Partial<Record<PermResource, PermAction[]>>): Grant[] {
@@ -227,6 +229,8 @@ export type ScreenDef = {
   feature?: FeatureFlagKey;
   /** Menüde gösterilmez (ör. yalnız aksiyonla açılan sayfa). */
   hiddenInNav?: boolean;
+  /** Menü grup başlığı (örn. "Satış ve Abonelik"); yoksa grupsuz listelenir. */
+  navGroup?: string;
   keywords?: string[];
 };
 
@@ -235,8 +239,10 @@ const B = (resource: PermResource, action: PermAction = "read"): Grant => ({ res
 const K = (resource: PermResource, action: PermAction = "read"): Grant => ({ resource, action, scope: "tenant" });
 
 export const SCREEN_REGISTRY: ScreenDef[] = [
+  // ── Genel Bakış (grupsuz, ilk) ──
   { id: "platform.overview", label: "Özet", area: "platform", path: "/platform", requires: P("audit"), keywords: ["dashboard", "özet"] },
-  { id: "platform.tenants", label: "Kurumlar", area: "platform", path: "/platform/kurumlar", requires: P("institution_settings"), keywords: ["kurum", "tenant", "portföy"] },
+  // ── Kurumlar ve Erişim ──
+  { id: "platform.tenants", label: "Kurumlar", area: "platform", path: "/platform/kurumlar", requires: P("institution_settings"), navGroup: "Kurumlar ve Erişim", keywords: ["kurum", "tenant", "portföy"] },
   {
     id: "platform.tenants.new",
     label: "Yeni kurum oluştur",
@@ -244,21 +250,33 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
     path: "/platform/kurumlar/yeni",
     requires: P("institution_settings", "create"),
     hiddenInNav: true,
+    navGroup: "Kurumlar ve Erişim",
     keywords: ["kurum oluştur", "onboarding"],
   },
-  { id: "platform.users", label: "Kullanıcılar", area: "platform", path: "/platform/kullanicilar", requires: P("users", "manage"), keywords: ["kullanıcı", "davet", "pasif"] },
-  { id: "platform.roles", label: "Roller ve izinler", area: "platform", path: "/platform/roller", requires: P("roles", "manage"), keywords: ["rol", "permission", "yetki", "matris"] },
-  { id: "platform.settings", label: "Platform varsayılanları", area: "platform", path: "/platform/ayarlar", requires: P("institution_settings", "configure"), keywords: ["ayar", "varsayılan"] },
-  { id: "platform.branding", label: "Platform markası", area: "platform", path: "/platform/marka", requires: P("platform_branding", "configure"), keywords: ["logo", "marka"] },
-  { id: "platform.integrations", label: "Entegrasyonlar", area: "platform", path: "/platform/entegrasyonlar", requires: P("integrations", "configure"), keywords: ["sms", "smtp", "iyzico"] },
-  { id: "platform.audit", label: "Denetim", area: "platform", path: "/platform/denetim", requires: P("audit"), keywords: ["audit", "log", "denetim"] },
-  { id: "platform.health", label: "Sistem sağlığı", area: "platform", path: "/platform/sistem-sagligi", requires: P("audit"), keywords: ["sağlık", "health"] },
-  { id: "platform.ops.sessions", label: "Canlı operasyon", area: "platform", path: "/platform/operasyon/aktif-oturumlar", requires: P("users", "manage"), keywords: ["oturum", "session", "canlı", "aktif"] },
-  { id: "platform.ops.retention", label: "Log saklama", area: "platform", path: "/platform/operasyon/log-politikasi", requires: P("audit", "configure"), keywords: ["log", "retention", "temizlik"] },
-  { id: "platform.packages", label: "Paketler ve fiyat", area: "platform", path: "/platform/paketler", requires: P("packages", "manage"), keywords: ["paket", "fiyat", "addon", "modül"] },
-  { id: "platform.release", label: "Release merkezi", area: "platform", path: "/platform/release-merkezi", requires: P("audit"), keywords: ["release", "sürüm", "deploy"] },
-  { id: "platform.release.versions", label: "Sürümler", area: "platform", path: "/platform/surumler", requires: P("audit"), hiddenInNav: true, keywords: ["sürüm", "version", "commit"] },
-  { id: "platform.release.deployments", label: "Deploymentlar", area: "platform", path: "/platform/deploymentlar", requires: P("audit"), hiddenInNav: true, keywords: ["deployment", "vercel"] },
+  { id: "platform.users", label: "Kullanıcılar", area: "platform", path: "/platform/kullanicilar", requires: P("users", "manage"), navGroup: "Kurumlar ve Erişim", keywords: ["kullanıcı", "davet", "pasif"] },
+  { id: "platform.roles", label: "Roller ve izinler", area: "platform", path: "/platform/roller", requires: P("roles", "manage"), navGroup: "Kurumlar ve Erişim", keywords: ["rol", "permission", "yetki", "matris"] },
+  { id: "platform.settings", label: "Platform varsayılanları", area: "platform", path: "/platform/ayarlar", requires: P("institution_settings", "configure"), navGroup: "Kurumlar ve Erişim", keywords: ["ayar", "varsayılan"] },
+  // ── Satış ve Abonelik ──
+  { id: "platform.packages", label: "Paketler ve Fiyatlar", area: "platform", path: "/platform/paketler", requires: P("packages", "manage"), navGroup: "Satış ve Abonelik", keywords: ["paket", "fiyat", "addon", "modül"] },
+  { id: "platform.packages.new", label: "Yeni paket", area: "platform", path: "/platform/paketler/yeni", requires: P("packages", "manage"), hiddenInNav: true, navGroup: "Satış ve Abonelik", keywords: ["paket oluştur", "paket düzenle"] },
+  { id: "platform.billing", label: "Kurum Abonelikleri", area: "platform", path: "/platform/fatura", requires: P("saas_billing", "manage"), navGroup: "Satış ve Abonelik", keywords: ["abonelik", "tahsilat", "fatura", "deneme", "kampanya", "webhook"] },
+  { id: "platform.billing.requests", label: "Başvurular ve Teklif Talepleri", area: "platform", path: "/platform/basvurular", requires: P("saas_billing", "manage"), navGroup: "Satış ve Abonelik", keywords: ["başvuru", "deneme başvurusu", "teklif", "davet"] },
+  { id: "platform.billing.campaigns", label: "Kampanyalar", area: "platform", path: "/platform/fatura#kampanyalar", requires: P("saas_billing", "manage"), navGroup: "Satış ve Abonelik", keywords: ["kampanya", "indirim", "pilot", "kupon"] },
+  { id: "platform.billing.edocs", label: "Faturalar / e-Belgeler", area: "platform", path: "/platform/fatura/e-belgeler", requires: P("saas_billing", "manage"), navGroup: "Satış ve Abonelik", keywords: ["e-fatura", "e-arşiv", "belge", "fatura", "sipariş"] },
+  // ── Marka ve Site ──
+  { id: "platform.branding", label: "Platform markası", area: "platform", path: "/platform/marka", requires: P("platform_branding", "configure"), navGroup: "Marka ve Site", keywords: ["logo", "marka"] },
+  { id: "platform.site", label: "Site ayarları", area: "platform", path: "/platform/site-ayarlari", requires: P("platform_branding", "configure"), navGroup: "Marka ve Site", keywords: ["site", "sosyal medya", "anasayfa", "mobil uygulama", "mağaza"] },
+  // ── Entegrasyonlar (ödeme + diğer, tek girişler) ──
+  { id: "platform.billing.providers", label: "Ödeme Sağlayıcıları", area: "platform", path: "/platform/odeme-saglayicilari", requires: P("saas_billing", "manage"), navGroup: "Entegrasyonlar", keywords: ["paytr", "iyzico", "sağlayıcı", "merchant", "callback", "webhook", "kart"] },
+  { id: "platform.integrations", label: "Mesajlaşma ve servisler", area: "platform", path: "/platform/entegrasyonlar", requires: P("integrations", "configure"), navGroup: "Entegrasyonlar", keywords: ["sms", "smtp", "e-posta", "whatsapp", "ai"] },
+  // ── Güvenlik ve Operasyon ──
+  { id: "platform.audit", label: "Denetim", area: "platform", path: "/platform/denetim", requires: P("audit"), navGroup: "Güvenlik ve Operasyon", keywords: ["audit", "log", "denetim"] },
+  { id: "platform.health", label: "Sistem sağlığı", area: "platform", path: "/platform/sistem-sagligi", requires: P("audit"), navGroup: "Güvenlik ve Operasyon", keywords: ["sağlık", "health"] },
+  { id: "platform.ops.sessions", label: "Canlı operasyon", area: "platform", path: "/platform/operasyon/aktif-oturumlar", requires: P("users", "manage"), navGroup: "Güvenlik ve Operasyon", keywords: ["oturum", "session", "canlı", "aktif"] },
+  { id: "platform.ops.retention", label: "Log saklama", area: "platform", path: "/platform/operasyon/log-politikasi", requires: P("audit", "configure"), navGroup: "Güvenlik ve Operasyon", keywords: ["log", "retention", "temizlik"] },
+  { id: "platform.release", label: "Release merkezi", area: "platform", path: "/platform/release-merkezi", requires: P("audit"), navGroup: "Güvenlik ve Operasyon", keywords: ["release", "sürüm", "deploy"] },
+  { id: "platform.release.versions", label: "Sürümler", area: "platform", path: "/platform/surumler", requires: P("audit"), hiddenInNav: true, navGroup: "Güvenlik ve Operasyon", keywords: ["sürüm", "version", "commit"] },
+  { id: "platform.release.deployments", label: "Deploymentlar", area: "platform", path: "/platform/deploymentlar", requires: P("audit"), hiddenInNav: true, navGroup: "Güvenlik ve Operasyon", keywords: ["deployment", "vercel"] },
   { id: "sube.overview", label: "Şube paneli", area: "sube", path: "/sube", requires: B("students"), keywords: ["şube"] },
   { id: "sube.attendance", label: "Yoklama", area: "sube", path: "/sube#yoklama", requires: B("attendance", "update"), keywords: ["yoklama"] },
   { id: "sube.announcements", label: "Duyurular", area: "sube", path: "/sube#duyuru", requires: B("announcements", "create"), feature: "announcements", keywords: ["duyuru"] },

@@ -6,6 +6,7 @@ import { FEATURE_CATALOG, PLAN_FEATURE_DEFAULTS, isFeatureFlagKey } from "./feat
 import { PLAN_CATALOG } from "./entitlements";
 import { appendPlatformAudit, getPlatformTenant, listPlatformTenants, upsertPlatformTenant } from "./store";
 import { listPolicyVersions, newPolicyVersionId, savePolicyVersion } from "./store-ext";
+import { resolveSetting } from "./resolve";
 import { COMMERCIAL_CATALOG_KEY, PLATFORM_SCOPE_ID } from "./policy-version-log";
 import {
   FEATURE_FLAGS,
@@ -18,6 +19,12 @@ import {
   type PolicyVersion,
   type SubscriptionSnapshot,
 } from "./types";
+import {
+  listSaasInvitations,
+  listSaasPendingOrders,
+  listSaasPurchaseRequests,
+  listSaasSubscriptions,
+} from "../saas-billing/store";
 
 /**
  * NeviiOS paket + modül + fiyat kataloğu.
@@ -32,11 +39,12 @@ import {
  * Snapshot'ı olmayan eski kurumlar koddaki yerleşik paket tanımıyla çözülür
  * (davranış değişmez).
  *
- * Para: TRY, kuruş cinsinden tam sayı (`*Minor`). KDV/vergi V1'de
- * HESAPLANMAZ — tutarlar "KDV hariç" etiketlidir.
+ * Para: TRY, kuruş cinsinden tam sayı (`*Minor`). Liste fiyatları KDV
+ * HARİÇ tutulur ve "+ KDV" ile gösterilir. Oran `saas-billing/tax.ts`
+ * üzerinden gelir; oran doğrulanmadan gerçek checkout kapalıdır.
  */
 
-export const TAX_NOTE = "Tutarlar KDV hariçtir; vergi hesaplaması V1 kapsamında yapılmaz.";
+export const TAX_NOTE = "Tutarlar KDV hariçtir (+ KDV).";
 
 export type CatalogModule = {
   key: FeatureFlagKey;
@@ -113,8 +121,10 @@ export function validateCatalog(value: unknown): ServiceResult<CommercialCatalog
   if (new Set(keys).size !== keys.length) return fail("VALIDATION_ERROR", "Paket anahtarları tekil olmalı.");
   for (const k of PLAN_KEYS) {
     const p = c.plans.find((x) => x.key === k);
-    if (!p) return fail("VALIDATION_ERROR", `Yerleşik paket "${k}" silinemez; pasifleştirin.`);
-    if (!p.builtin) return fail("VALIDATION_ERROR", `"${k}" yerleşik paket olarak kalmalı.`);
+    // Yerleşik ESKİ (legacy) paket kullanım yoksa katalogdan kaldırılabilir;
+    // güncel yerleşik paketler korunur.
+    if (!p && !PLAN_CATALOG[k]?.legacy) return fail("VALIDATION_ERROR", `Yerleşik paket "${k}" silinemez; satıştan kaldırın.`);
+    if (p && !p.builtin) return fail("VALIDATION_ERROR", `"${k}" yerleşik paket olarak kalmalı.`);
   }
   if (c.plans.some((p) => p.builtin && !(PLAN_KEYS as readonly string[]).includes(p.key))) {
     return fail("VALIDATION_ERROR", "Yeni paket 'yerleşik' işaretlenemez.");
@@ -178,6 +188,20 @@ export async function getPublishedCatalog(): Promise<{ catalog: CommercialCatalo
 
 async function getDraftVersion(): Promise<PolicyVersion | null> {
   return (await versions()).find((v) => v.status === "draft") ?? null;
+}
+
+/**
+ * Yayındaki katalogdan paket anahtarı → görünen ad eşlemesi.
+ * Kurum/abonelik/başvuru listeleri bu kaynaktan ad çözer; yayında olmayan
+ * anahtar için senkron `planLabel` yedeği kullanılır.
+ */
+export async function getPlanNameMap(): Promise<Map<string, string>> {
+  try {
+    const { catalog } = await getPublishedCatalog();
+    return new Map(catalog.plans.map((p) => [p.key, p.label]));
+  } catch {
+    return new Map();
+  }
 }
 
 /** Aktif abonelik sayısı = paketi kullanan, arşivlenmemiş kurum. */
@@ -418,25 +442,129 @@ export async function setCatalogPlanStatus(ctx: ServiceContext, input: unknown) 
   });
 }
 
-/** Yalnız kullanılmayan, yerleşik olmayan paket silinir. Aktif abonelik → önce pasifleştir / taşıma planı. */
+/**
+ * Kalıcı silme — YALNIZ canlı kaydı olmayan paket: özel paketler her zaman
+ * adaydır; yerleşik ESKİ (legacy) paketler de kullanım yoksa silinebilir.
+ * Yerleşik güncel paketler korunur (plan anahtarları kod varsayılanlarında
+ * ve sağlayıcı eşleşmelerinde kullanılır).
+ */
 export async function deleteCatalogPlan(ctx: ServiceContext, input: unknown) {
   const parsed = z.object({ key: z.string().min(1), reason: reasonField }).safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Geçersiz istek");
-  const usage = await planUsage();
-  const inUse = usage[parsed.data.key] ?? 0;
+  const refs = await planReferences(parsed.data.key);
+  const blocked =
+    refs.tenants +
+    refs.subscriptions +
+    refs.pendingInvitations +
+    refs.awaitingOrders +
+    refs.pendingPurchaseRequests +
+    refs.trialSetting;
+  if (blocked > 0) {
+    const parts = [
+      refs.tenants ? `${refs.tenants} kurum` : "",
+      refs.subscriptions ? `${refs.subscriptions} abonelik` : "",
+      refs.pendingInvitations ? `${refs.pendingInvitations} bekleyen davet` : "",
+      refs.awaitingOrders ? `${refs.awaitingOrders} ödeme bekleyen sipariş` : "",
+      refs.pendingPurchaseRequests ? `${refs.pendingPurchaseRequests} bekleyen başvuru` : "",
+      refs.trialSetting ? "deneme paketi ayarı" : "",
+    ].filter(Boolean);
+    return fail(
+      "FORBIDDEN",
+      `Bu paket kullanımda (${parts.join(", ")}); kalıcı silinemez. Önce satıştan kaldırın ve kayıtları başka pakete taşıyın.`,
+      // activeSubscriptions: eski adla korunan kurum sayısı (geriye uyumluluk).
+      { activeSubscriptions: refs.tenants, references: refs }
+    );
+  }
   return mutateDraft(ctx, "platform.catalog.plan_delete", parsed.data.key, parsed.data.reason, (c) => {
     const plan = c.plans.find((x) => x.key === parsed.data.key);
     if (!plan) return fail("NOT_FOUND", "Paket bulunamadı");
-    if (plan.builtin) return fail("FORBIDDEN", "Yerleşik paket silinemez; pasifleştirin.");
-    if (inUse > 0) {
-      return fail(
-        "FORBIDDEN",
-        `Bu paketin ${inUse} aktif aboneliği var; kalıcı silinemez. Önce pasifleştirin ve kurumları başka pakete taşıyın (taşıma planı).`,
-        { activeSubscriptions: inUse }
-      );
-    }
+    if (plan.builtin && !plan.legacy) return fail("FORBIDDEN", "Yerleşik paket silinemez; satıştan kaldırın.");
     c.plans = c.plans.filter((x) => x.key !== plan.key);
     return ok({ before: plan, after: { deleted: true } });
+  });
+}
+
+export type PlanReferenceCounts = {
+  tenants: number;
+  subscriptions: number;
+  pendingInvitations: number;
+  awaitingOrders: number;
+  pendingPurchaseRequests: number;
+  trialSetting: number;
+};
+
+/**
+ * Paket anahtarını kullanan CANLI kayıtlar. Silme/anahtar değişimi öncesi
+ * engel kontrolü; geçmiş (tüketilmiş/süresi dolmuş) kayıtlar engel değildir
+ * çünkü tarihsel belgeler snapshot taşır.
+ */
+export async function planReferences(key: string): Promise<PlanReferenceCounts> {
+  const usage = await planUsage();
+  const [subs, invitations, orders, purchases, trial] = await Promise.all([
+    listSaasSubscriptions(200).catch(() => []),
+    listSaasInvitations(200).catch(() => []),
+    listSaasPendingOrders(200).catch(() => []),
+    listSaasPurchaseRequests(200).catch(() => []),
+    resolveSetting({ tenantId: "platform" }, "billing.trialPlanKey").catch(() => null),
+  ]);
+  return {
+    tenants: usage[key] ?? 0,
+    subscriptions: subs.filter((s) => s.planKey === key).length,
+    pendingInvitations: invitations.filter((i) => i.planKey === key && i.status === "pending").length,
+    awaitingOrders: orders.filter((o) => o.planKey === key && o.status === "awaiting_payment").length,
+    pendingPurchaseRequests: purchases.filter((r) => r.planKey === key && r.status === "pending").length,
+    trialSetting: trial?.effectiveValue === key ? 1 : 0,
+  };
+}
+
+const renameInputSchema = z.object({ key: z.string().min(1), newKey: z.string().regex(PLAN_KEY_PATTERN), reason: reasonField });
+
+/**
+ * Paket anahtarı değişimi — YALNIZ hiç kullanılmayan, yerleşik olmayan paket.
+ * Anahtar; kurum, abonelik, davet, sipariş ve sağlayıcı eşleşmelerinin teknik
+ * kimliğidir: kullanımdayken değişirse geçmiş kayıtlar çözülemez. Görünen
+ * paket adı (label) her zaman serbestçe değiştirilebilir; anahtar değişimi
+ * bu güvenli sınır içinde yapılır.
+ */
+export async function renameCatalogPlan(ctx: ServiceContext, input: unknown) {
+  const parsed = renameInputSchema.safeParse(input);
+  if (!parsed.success) return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Geçersiz istek");
+  const { key, newKey, reason } = parsed.data;
+  if (key === newKey) return fail("VALIDATION_ERROR", "Yeni anahtar eskisiyle aynı.");
+  const refs = await planReferences(key);
+  const blocked =
+    refs.tenants +
+    refs.subscriptions +
+    refs.pendingInvitations +
+    refs.awaitingOrders +
+    refs.pendingPurchaseRequests +
+    refs.trialSetting;
+  if (blocked > 0) {
+    const parts = [
+      refs.tenants ? `${refs.tenants} kurum` : "",
+      refs.subscriptions ? `${refs.subscriptions} abonelik` : "",
+      refs.pendingInvitations ? `${refs.pendingInvitations} bekleyen davet` : "",
+      refs.awaitingOrders ? `${refs.awaitingOrders} ödeme bekleyen sipariş` : "",
+      refs.pendingPurchaseRequests ? `${refs.pendingPurchaseRequests} bekleyen başvuru` : "",
+      refs.trialSetting ? "deneme paketi ayarı" : "",
+    ].filter(Boolean);
+    return fail(
+      "FORBIDDEN",
+      `Bu anahtar kullanımda (${parts.join(", ")}); değiştirilemez. Görünen paket adını değiştirebilirsiniz.`,
+      { references: refs }
+    );
+  }
+  return mutateDraft(ctx, "platform.catalog.plan_rename", key, reason, (c) => {
+    const plan = c.plans.find((x) => x.key === key);
+    if (!plan) return fail("NOT_FOUND", "Paket bulunamadı");
+    if (plan.builtin)
+      return fail(
+        "FORBIDDEN",
+        "Yerleşik paketin anahtarı sistemin sabit kimliğidir (katalog bütünlüğü, deneme ve kurulum varsayılanları); değişmez. Müşterinin gördüğü paket adını değiştirip yayınlayabilirsiniz — anasayfaya yansır."
+      );
+    if (c.plans.some((x) => x.key === newKey)) return fail("CONFLICT", "Bu anahtar başka pakette kullanılıyor.");
+    plan.key = newKey;
+    return ok({ before: { key }, after: { key: newKey } });
   });
 }
 
