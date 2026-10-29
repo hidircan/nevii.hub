@@ -1285,3 +1285,14 @@ a[href],
 @media (prefers-reduced-motion: reduce) {
   .nh-rise, .nh-pulse, .nh-drift { animation: none !important; }
 }
+/* Giriş vitrini: 3 sahne × 4 sn çapraz geçiş. */
+@keyframes nh-cycle {
+  0% { opacity: 0; transform: translateY(6px); }
+  4%, 30% { opacity: 1; transform: none; }
+  34%, 100% { opacity: 0; transform: translateY(-4px); }
+}
+.nh-cycle { opacity: 0; animation: nh-cycle 12s ease-in-out infinite both; animation-delay: var(--nh-cycle-delay, 0s); }
+@media (prefers-reduced-motion: reduce) {
+  .nh-cycle { animation: none !important; }
+  .nh-cycle:first-child { opacity: 1; }
+}

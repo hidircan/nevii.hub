@@ -11,6 +11,47 @@ import { resolveSafeLoginNext } from "@/lib/auth/role-routes";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Giriş panelindeki dönen vitrin (yalnız CSS; JS/sunucu isteği yok). Örnekler
+ * sektörden bağımsızdır ve ürünün gerçek ekranlarındaki durum adlarını kullanır.
+ */
+const SHOWCASE: {
+  title: string;
+  meta: string;
+  rows: { lead: string; main: string; sub: string; status: string; focus?: boolean }[];
+}[] = [
+  {
+    title: "Bugünkü dersler",
+    meta: "Ders programı",
+    rows: [
+      { lead: "10:00", main: "Piyano", sub: "Elif K.", status: "Tamamlandı" },
+      { lead: "13:30", main: "Yoga", sub: "Grup dersi", status: "Tamamlandı" },
+      { lead: "16:00", main: "Keman", sub: "Can D.", status: "Derste", focus: true },
+      { lead: "18:15", main: "İngilizce", sub: "B2 sınıfı", status: "Sıradaki" },
+    ],
+  },
+  {
+    title: "Telafi talepleri",
+    meta: "Telafi merkezi",
+    rows: [
+      { lead: "Per", main: "Keman", sub: "Can D.", status: "Onaylandı" },
+      { lead: "Cum", main: "Gitar", sub: "Deniz A.", status: "Yeni talep", focus: true },
+      { lead: "Cmt", main: "Bale", sub: "Zeynep T.", status: "Planlandı" },
+      { lead: "Paz", main: "Resim", sub: "Ali R.", status: "Planlandı" },
+    ],
+  },
+  {
+    title: "Kasım tahsilatı",
+    meta: "Ödemeler",
+    rows: [
+      { lead: "1 Kas", main: "Piyano", sub: "Elif K.", status: "Ödendi" },
+      { lead: "3 Kas", main: "Yoga", sub: "Selin B.", status: "Ödendi" },
+      { lead: "5 Kas", main: "Keman", sub: "Can D.", status: "Vadesi bugün", focus: true },
+      { lead: "8 Kas", main: "Gitar", sub: "Deniz A.", status: "Bekliyor" },
+    ],
+  },
+];
+
 export default async function LoginPage({
   searchParams,
 }: {
@@ -89,44 +130,46 @@ export default async function LoginPage({
             Ders programı, yoklama, telafi ve tahsilat; müzik okulundan yoga stüdyosuna her eğitim kurumu için.
           </p>
 
-          <div aria-hidden className="nh-rise mt-10 rounded-2xl bg-white/[0.07] p-5 ring-1 ring-white/15 backdrop-blur-sm" style={{ "--nh-delay": "120ms" } as React.CSSProperties}>
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm font-semibold text-white">Bugün</span>
-              <span className="text-xs text-white/60">4 ders</span>
-            </div>
-            <ul className="mt-4 space-y-2.5 text-sm">
-              {[
-                { time: "10:00", lesson: "Piyano", who: "Elif K.", status: "Yoklandı", tone: "done" },
-                { time: "13:30", lesson: "Yoga, grup", who: "8 kişi", status: "7 geldi", tone: "done" },
-                { time: "16:00", lesson: "Keman", who: "Can D.", status: "Telafi", tone: "makeup" },
-                { time: "18:15", lesson: "İngilizce", who: "B2 sınıfı", status: "Sırada", tone: "next" },
-              ].map((r, i) => (
-                <li
-                  key={r.time}
-                  style={{ "--nh-delay": `${260 + i * 110}ms` } as React.CSSProperties}
-                  className={`nh-rise grid grid-cols-[3.25rem_1fr_auto] items-center gap-3 rounded-xl px-3 py-2.5 ${
-                    r.tone === "next" ? "bg-white text-[var(--color-text)]" : "bg-white/[0.06]"
-                  }`}
-                >
-                  <span className={`tabular-nums ${r.tone === "next" ? "font-semibold" : "text-white/70"}`}>{r.time}</span>
-                  <span className="min-w-0 truncate">
-                    <span className="font-medium">{r.lesson}</span>
-                    <span className={r.tone === "next" ? "text-[var(--color-text-muted)]" : "text-white/60"}> {r.who}</span>
-                  </span>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      r.tone === "next"
-                        ? "nh-pulse bg-[var(--color-primary)] text-white"
-                        : r.tone === "makeup"
-                          ? "bg-[var(--color-trial-soft)] text-[var(--color-trial)]"
-                          : "bg-white/15 text-white"
-                    }`}
-                  >
-                    {r.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          <div
+            aria-hidden
+            className="nh-rise relative mt-10 h-[17.5rem] rounded-2xl bg-white/[0.07] ring-1 ring-white/15 backdrop-blur-sm"
+            style={{ "--nh-delay": "120ms" } as React.CSSProperties}
+          >
+            {SHOWCASE.map((scene, si) => (
+              <div
+                key={scene.title}
+                className="nh-cycle absolute inset-0 p-5"
+                style={{ "--nh-cycle-delay": `${si * 4}s` } as React.CSSProperties}
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-semibold text-white">{scene.title}</span>
+                  <span className="text-xs text-white/60">{scene.meta}</span>
+                </div>
+                <ul className="mt-4 space-y-2.5 text-sm">
+                  {scene.rows.map((r) => (
+                    <li
+                      key={r.lead + r.main}
+                      className={`grid grid-cols-[3.5rem_1fr_auto] items-center gap-3 rounded-xl px-3 py-2.5 ${
+                        r.focus ? "bg-white text-[var(--color-text)]" : "bg-white/[0.06]"
+                      }`}
+                    >
+                      <span className={`tabular-nums ${r.focus ? "font-semibold" : "text-white/70"}`}>{r.lead}</span>
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium">{r.main}</span>
+                        <span className={r.focus ? "text-[var(--color-text-muted)]" : "text-white/60"}> {r.sub}</span>
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                          r.focus ? "nh-pulse bg-[var(--color-primary)] text-white" : "bg-white/15 text-white"
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         </div>
 
