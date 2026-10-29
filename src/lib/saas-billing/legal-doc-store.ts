@@ -18,6 +18,7 @@ import { z } from "zod";
 import { fail, ok, type ServiceResult } from "../services/result";
 import type { ServiceContext } from "../services/context";
 import { LEGAL_DOCS } from "./legal-documents";
+import { LEGAL_TEMPLATES, renderLegalText } from "./legal-templates";
 
 export type DocReviewState = "bekliyor" | "onaylandi" | "reddedildi";
 
@@ -60,23 +61,44 @@ function stateOf(states: LegalDocState[], docId: string): LegalDocState {
   );
 }
 
-/** Yürürlükteki belge görünümü: temel kayıt + yayınlanmış metin (varsa). */
+/**
+ * Yürürlükteki belge görünümü: temel kayıt + yayınlanmış metin; yayın yoksa
+ * hazır taslak (`draft: true`, onaysız). Metin satıcı profiliyle doldurulur.
+ */
 export async function getEffectiveDocs(): Promise<
-  { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null; approved: boolean }[]
+  {
+    id: string;
+    title: string;
+    version: string;
+    scope: string;
+    about: string;
+    bodyText: string | null;
+    approved: boolean;
+    draft: boolean;
+  }[]
 > {
   const { listLegalDocStates } = await import("./store");
-  const states = await listLegalDocStates();
+  const { getEffectiveSeller } = await import("./seller-profile");
+  const [states, seller] = await Promise.all([listLegalDocStates(), getEffectiveSeller()]);
+  const sellerFields = {
+    ...seller.snapshot,
+    mersisNo: seller.stored?.mersisNo ?? null,
+    kepAddress: seller.stored?.kepAddress ?? null,
+    phone: seller.stored?.phone ?? null,
+  };
   return LEGAL_DOCS.filter((d) => d.appliesB2B).map((d) => {
     const st = stateOf(states, d.id);
     const pub = st.publishedVersion ? st.revisions.find((r) => r.version === st.publishedVersion) : undefined;
+    const raw = pub?.bodyText ?? LEGAL_TEMPLATES[d.id] ?? null;
     return {
       id: d.id,
       title: d.title,
       version: pub?.version ?? d.version,
       scope: d.scope,
       about: d.about,
-      bodyText: pub?.bodyText ?? null,
+      bodyText: raw ? renderLegalText(raw, sellerFields) : null,
       approved: Boolean(pub),
+      draft: !pub,
     };
   });
 }

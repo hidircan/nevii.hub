@@ -16,6 +16,8 @@ export type CheckoutDocItem = {
   scope: string;
   about: string;
   bodyText: string | null;
+  /** Yayınlanmamış hazır taslak (müşteriye "taslak" diye gösterilir). */
+  draft?: boolean;
 };
 
 export function OrderPayForm({
@@ -199,8 +201,11 @@ export function OrderPayForm({
       <label className="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-4 ring-1 ring-transparent has-checked:border-amber-400 has-checked:ring-amber-200">
         <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-amber-600" />
         <span className="text-sm leading-relaxed">
-          {docLink("saas-service-terms", "Hizmet Sözleşmesi")} ile{" "}
-          {docLink("renewal-cancel-refund", "Yenileme ve İptal Koşulları")}’nı okudum,
+          {docLink("saas-service-terms", "Abonelik ve Hizmet Sözleşmesi")}’ni ve eklerini (
+          {docLink("renewal-cancel-refund", "Yenileme, İptal ve İade Koşulları")},{" "}
+          {docLink("dpa-note", "Veri İşleme Sözleşmesi")},{" "}
+          {docLink("sla-note", "Hizmet Seviyesi ve Destek Esasları")},{" "}
+          {docLink("distance-sales-note", "Ön Bilgilendirme Formu")}) okudum; kurumum adına
           kabul ediyorum. <span className="text-slate-600">{termsText}</span>
         </span>
       </label>
@@ -278,9 +283,12 @@ export function OrderPayForm({
       </div>
       {openDoc ? (
         <div role="dialog" aria-modal="true" aria-labelledby="doc-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
             <h3 id="doc-modal-title" className="text-lg font-semibold text-slate-900">{openDoc.title}</h3>
-            <p className="mt-1 text-xs text-slate-500">Sürüm {openDoc.version} · kabul kaydında saklanır</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Sürüm {openDoc.version} · kabul kaydında saklanır
+              {openDoc.draft ? " · Taslak: hukuki incelemesi sürüyor" : ""}
+            </p>
             {openDoc.bodyText ? (
               <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{openDoc.bodyText}</p>
             ) : (
@@ -292,22 +300,40 @@ export function OrderPayForm({
                 </p>
               </>
             )}
-            <button
-              type="button"
-              onClick={() => setOpenDoc(null)}
-              autoFocus
-              className="mt-4 w-full rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
-            >
-              Kapat
-            </button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              {openDoc.bodyText ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([`${openDoc.title}\nSürüm ${openDoc.version}\n\n${openDoc.bodyText}`], { type: "text/plain;charset=utf-8" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${openDoc.id}-${openDoc.version}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="w-full rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+                >
+                  Metni indir
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setOpenDoc(null)}
+                autoFocus
+                className="w-full rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Kapat
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
       <label className="flex cursor-pointer gap-3 rounded-2xl border border-slate-200 bg-white p-4">
         <input type="checkbox" checked={marketing} onChange={(e) => setMarketing(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-amber-600" />
         <span className="text-sm leading-relaxed text-slate-600">
-          Yenilik ve kampanyalardan e-postayla haberdar olmak istiyorum (isteğe bağlı; dilediğimde
-          geri alabilirim).
+          {docLink("marketing-consent", "Ticari elektronik ileti")} kapsamında yenilik ve kampanyalardan
+          e-postayla haberdar olmak istiyorum (isteğe bağlı; dilediğimde geri alabilirim).
         </span>
       </label>
       {error ? <p role="alert" className="text-sm font-medium text-red-700">{error}</p> : null}

@@ -3,6 +3,7 @@ import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getEffectiveDocs } from "@/lib/saas-billing/legal-doc-store";
 import { listLegalDocStates } from "@/lib/saas-billing/store";
 import { LegalDocsManager } from "@/components/platform/legal-docs-manager";
+import { LEGAL_TEMPLATES } from "@/lib/saas-billing/legal-templates";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,16 @@ export default async function LegalDocsPage() {
     <div>
       <PageHeader
         title="Hukuki Belgeler"
-        description="Müşteriye sunulan sözleşme ve bilgilendirme metinlerinin tek yönetim yeri. Taslak hazırlama NeviiAds'te kalır; burası yürürlükteki sürümü seçer ve yayımlar. Yayınlanan sürüm yerinde değişmez."
+        description="Müşteriye sunulan sözleşme ve bilgilendirme metinlerinin tek yönetim yeri. Her belge için hazır taslak var: Yönet → Hazır taslağı yükle → Taslağı kaydet → hukuki ve ticari onay → Yayınla. Yayınlanan sürüm yerinde değişmez."
       />
       <p className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-2.5 text-sm text-[var(--color-warning)]">
-        Bu tur yalnız local sentetik sürümlerle demo; gerçek public yayın ve hukuki uygunluk iddiası yok.
+        Hazır taslaklar kodun gerçek davranışına göre yazıldı; yayından önce bir avukata okutun. Satıcı kimliği
+        (unvan, vergi no, adres, MERSİS, KEP) Fatura › E-belgeler › Satıcı profili ekranından metne otomatik yerleşir.
+        Zorunlu sözleşmeler yayınlanmadan gerçek satış kapalı kalır.
       </p>
-      <LegalDocsManager docs={docs.map((d) => ({ ...d, state: byId.get(d.id) ?? null }))} />
+      <LegalDocsManager
+        docs={docs.map((d) => ({ ...d, state: byId.get(d.id) ?? null, template: LEGAL_TEMPLATES[d.id] ?? null }))}
+      />
     </div>
   );
 }

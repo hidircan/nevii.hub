@@ -73,6 +73,17 @@ export function isValidTcknFormat(v: string): boolean {
   return true;
 }
 
+/**
+ * Şahıs işletmesinin vergi numarası T.C. kimlik numarasıdır (11 hane);
+ * şirketlerde 10 haneli VKN. Satıcı ve şahıs alıcı ikisini de kabul eder.
+ */
+export function isValidTaxIdFormat(v: string): boolean {
+  return isValidVknFormat(v) || isValidTcknFormat(v);
+}
+
+export const TAX_ID_FORMAT_ERROR =
+  "Vergi numarası şirketlerde 10 haneli VKN, şahıs işletmelerinde 11 haneli T.C. kimlik numarası olmalıdır.";
+
 const baseSchema = z.object({
   displayName: z.string().trim().min(2).max(120),
   recipientType: z.enum(BILLING_RECIPIENT_TYPES),
@@ -107,7 +118,12 @@ export function validateBillingProfile(input: unknown):
   const nationalId = v.nationalId?.trim() ? v.nationalId.trim() : null;
   if (v.recipientType === "corporate" || v.recipientType === "sole_trader") {
     if (!taxId) return { ok: false, error: "Vergi kimlik numarası (VKN) zorunludur." };
-    if (!isValidVknFormat(taxId)) return { ok: false, error: "VKN 10 basamak sayı olmalıdır." };
+    if (v.recipientType === "sole_trader" ? !isValidTaxIdFormat(taxId) : !isValidVknFormat(taxId)) {
+      return {
+        ok: false,
+        error: v.recipientType === "sole_trader" ? TAX_ID_FORMAT_ERROR : "Şirket VKN'si 10 basamak sayı olmalıdır.",
+      };
+    }
     if (nationalId && !isValidTcknFormat(nationalId)) {
       return { ok: false, error: "T.C. kimlik numarası biçimi geçersiz." };
     }

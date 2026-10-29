@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPage, LegalSection } from "@/components/legal/legal-page";
-import { getSiteConfig } from "@/lib/site-config";
+import { getSiteConfig, orgDisplayName } from "@/lib/site-config";
 
 export const dynamic = "force-static";
 
@@ -108,6 +108,16 @@ export default async function PrivacyPage() {
           Veriler şifreli bağlantılarla taşınır, rol bazlı yetkilendirme uygulanır ve her kurumun verisi diğer
           kurumlardan yalıtılır. Olası bir ihlalde ilgili kullanıcılar ve gerektiğinde yetkili kurumlar
           bilgilendirilir.
+        </p>
+      </LegalSection>
+      <LegalSection heading="9. Veri sorumlusu kim?">
+        <p>
+          Kurumunuzun {cfg.appName}&apos;e girdiği öğrenci, veli ve öğretmen verileri bakımından{" "}
+          <strong>veri sorumlusu kurumunuzdur</strong>; {orgDisplayName(cfg)} bu verileri yalnızca kurum adına ve
+          kurumla yapılan Veri İşleme Sözleşmesi çerçevesinde <strong>veri işleyen</strong> olarak işler. KVKK
+          kapsamındaki başvurularınızı öncelikle kurumunuza iletin; {cfg.appName} başvurunun yanıtlanması için
+          kurumunuza teknik destek verir. Kurumların {cfg.appName}&apos;i satın alırken kabul ettiği sözleşme,
+          aydınlatma ve veri işleme metinleri satın alma ekranında sunulur.
         </p>
       </LegalSection>
     </LegalPage>

@@ -135,7 +135,64 @@ async function readState(): Promise<SaasBillingFile> {
     if (!memoryState) memoryState = clone(EMPTY);
     return memoryState;
   }
+  if (isDbMode) return readDbRecordState();
   return readFile();
+}
+
+/**
+ * Prisma modeli OLMAYAN koleksiyonlar db modunda `SettingOverride`
+ * satırlarında tutulur (kayıt başına bir satır; migration gerekmez).
+ *
+ * Neden (2026-10-30 P0): bu koleksiyonlar db modunda da JSON dosyasına
+ * yazılıyordu; Vercel'de dosya `/tmp` = örnek başına geçici → bekleyen
+ * sipariş başka örnekte "bulunamadı", talepler/hukuki belge yayınları
+ * soğuk başlangıçta kayboluyordu.
+ * ponytail: tüm koleksiyon satırları her okumada yüklenir (bugün onlarca
+ * kayıt); hacim büyürse kendi tablolarına migration ile taşı.
+ */
+export const SAAS_RECORD_SCOPE_PREFIX = "saas_billing:";
+const RECORD_COLLECTIONS = [
+  "quotes",
+  "purchaseRequests",
+  "pendingOrders",
+  "billingProfiles",
+  "invoiceOrders",
+  "eDocuments",
+  "legalDocs",
+  "sellerProfile",
+] as const;
+type RecordCollection = (typeof RECORD_COLLECTIONS)[number];
+
+async function readDbRecordState(): Promise<SaasBillingFile> {
+  const state = clone(EMPTY);
+  try {
+    const rows = await prisma.settingOverride.findMany({
+      where: { scopeType: { in: RECORD_COLLECTIONS.map((c) => SAAS_RECORD_SCOPE_PREFIX + c) } },
+      select: { scopeType: true, value: true },
+    });
+    for (const row of rows) {
+      const c = row.scopeType.slice(SAAS_RECORD_SCOPE_PREFIX.length) as RecordCollection;
+      if (c === "sellerProfile") state.sellerProfile = row.value as unknown as SaasBillingFile["sellerProfile"];
+      else (state[c] as unknown[]).push(row.value);
+    }
+  } catch (e) {
+    dbFailClosed(e);
+  }
+  return state;
+}
+
+async function putDbRecord(collection: RecordCollection, recordId: string, value: unknown): Promise<void> {
+  const scopeType = SAAS_RECORD_SCOPE_PREFIX + collection;
+  const json = clone(value) as object;
+  try {
+    await prisma.settingOverride.upsert({
+      where: { scopeType_scopeId_key: { scopeType, scopeId: recordId, key: "record" } },
+      create: { id: `${scopeType}:${recordId}`, scopeType, scopeId: recordId, key: "record", value: json, updatedBy: "saas-billing" },
+      update: { value: json, updatedBy: "saas-billing" },
+    });
+  } catch (e) {
+    dbFailClosed(e);
+  }
 }
 
 async function writeState(next: SaasBillingFile): Promise<void> {
@@ -1108,6 +1165,10 @@ export async function getSaasQuoteRequest(
 export async function saveSaasQuoteRequest(
   r: import("./quotes").SaasQuoteRequestRecord
 ): Promise<import("./quotes").SaasQuoteRequestRecord> {
+  if (isDbMode) {
+    await putDbRecord("quotes", r.id, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.quotes.findIndex((x) => x.id === r.id);
@@ -1137,6 +1198,10 @@ export async function getSaasPurchaseRequest(
 export async function saveSaasPurchaseRequest(
   r: import("./types").SaasPurchaseRequestRecord
 ): Promise<import("./types").SaasPurchaseRequestRecord> {
+  if (isDbMode) {
+    await putDbRecord("purchaseRequests", r.id, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.purchaseRequests.findIndex((x) => x.id === r.id);
@@ -1195,6 +1260,10 @@ export async function listSaasPendingOrdersByEmail(
 export async function saveSaasPendingOrder(
   r: import("./types").SaasPendingOrderRecord
 ): Promise<import("./types").SaasPendingOrderRecord> {
+  if (isDbMode) {
+    await putDbRecord("pendingOrders", r.id, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.pendingOrders.findIndex((x) => x.id === r.id);
@@ -1227,6 +1296,10 @@ export async function getBillingProfile(
 export async function saveBillingProfile(
   r: import("./invoicing-profile").BillingProfileRecord
 ): Promise<import("./invoicing-profile").BillingProfileRecord> {
+  if (isDbMode) {
+    await putDbRecord("billingProfiles", r.tenantId, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.billingProfiles.findIndex((x) => x.tenantId === r.tenantId);
@@ -1246,6 +1319,10 @@ export async function getSellerProfile(): Promise<import("./seller-profile").Sel
 export async function saveSellerProfile(
   r: import("./seller-profile").SellerProfileRecord
 ): Promise<import("./seller-profile").SellerProfileRecord> {
+  if (isDbMode) {
+    await putDbRecord("sellerProfile", "seller", r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   next.sellerProfile = clone(r);
@@ -1263,6 +1340,10 @@ export async function listLegalDocStates(): Promise<import("./legal-doc-store").
 export async function saveLegalDocState(
   r: import("./legal-doc-store").LegalDocState
 ): Promise<import("./legal-doc-store").LegalDocState> {
+  if (isDbMode) {
+    await putDbRecord("legalDocs", r.docId, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.legalDocs.findIndex((x) => x.docId === r.docId);
@@ -1289,6 +1370,10 @@ export async function getInvoiceOrderByAttempt(
 export async function saveInvoiceOrder(
   r: import("./invoicing-orders").InvoiceOrderRecord
 ): Promise<import("./invoicing-orders").InvoiceOrderRecord> {
+  if (isDbMode) {
+    await putDbRecord("invoiceOrders", r.id, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.invoiceOrders.findIndex((x) => x.id === r.id);
@@ -1335,6 +1420,10 @@ export async function getEDocumentByOrder(
 export async function saveEDocument(
   r: import("./invoicing-orders").EDocumentRecord
 ): Promise<import("./invoicing-orders").EDocumentRecord> {
+  if (isDbMode) {
+    await putDbRecord("eDocuments", r.id, r);
+    return r;
+  }
   const s = await readState();
   const next = clone(s);
   const idx = next.eDocuments.findIndex((x) => x.id === r.id);

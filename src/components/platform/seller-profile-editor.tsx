@@ -12,6 +12,9 @@ type SellerView = {
   country: string;
   invoiceEmail: string;
   verified: boolean;
+  mersisNo?: string | null;
+  kepAddress?: string | null;
+  phone?: string | null;
 };
 
 const SOURCE_TR: Record<string, string> = { kayitli: "kayıtlı profil", env: "sunucu ayarı", eksik: "eksik" };
@@ -39,6 +42,9 @@ export function SellerProfileEditor({
     city: seller.city ?? "",
     country: seller.country,
     invoiceEmail: seller.invoiceEmail,
+    mersisNo: seller.mersisNo ?? "",
+    kepAddress: seller.kepAddress ?? "",
+    phone: seller.phone ?? "",
   };
   const [form, setForm] = useState(start);
   const dirty = JSON.stringify(form) !== JSON.stringify(start);
@@ -138,7 +144,7 @@ export function SellerProfileEditor({
               <input id="seller-title" value={form.legalTitle} onChange={(e) => setForm({ ...form, legalTitle: e.target.value })} className={input} />
             </div>
             <div>
-              <label className={inputLabel} htmlFor="seller-taxid">Vergi kimlik no (VKN, 10 basamak)</label>
+              <label className={inputLabel} htmlFor="seller-taxid">Vergi no (şirket VKN 10 hane / şahıs işletmesi T.C. kimlik no 11 hane)</label>
               <input id="seller-taxid" inputMode="numeric" value={form.taxId} onChange={(e) => setForm({ ...form, taxId: e.target.value })} className={input} />
             </div>
             <div>
@@ -161,7 +167,22 @@ export function SellerProfileEditor({
               <label className={inputLabel} htmlFor="seller-country">Ülke</label>
               <input id="seller-country" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} className={input} />
             </div>
+            <div>
+              <label className={inputLabel} htmlFor="seller-mersis">MERSİS no (şirketler)</label>
+              <input id="seller-mersis" inputMode="numeric" value={form.mersisNo} onChange={(e) => setForm({ ...form, mersisNo: e.target.value })} className={input} />
+            </div>
+            <div>
+              <label className={inputLabel} htmlFor="seller-kep">KEP adresi</label>
+              <input id="seller-kep" value={form.kepAddress} onChange={(e) => setForm({ ...form, kepAddress: e.target.value })} className={input} />
+            </div>
+            <div>
+              <label className={inputLabel} htmlFor="seller-phone">Destek telefonu</label>
+              <input id="seller-phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={input} />
+            </div>
           </div>
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+            Bu bilgiler sözleşme, KVKK ve ön bilgilendirme metinlerindeki satıcı kimliğine otomatik yerleşir.
+          </p>
           {dirty && !busy ? <p className="mt-2 text-xs text-[var(--color-text-muted)]">Kaydedilmemiş değişiklik var; sayfadan ayrılırsanız kaybolur.</p> : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -185,8 +206,8 @@ export function SellerProfileEditor({
             </button>
           </div>
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            Bu kayıt yeni belgelerde kullanılır; eski belge satıcı kayıtları değişmez. Sunucusuz üretim
-            ortamında kalıcı değer için ayrıca sunucu ayarına (SAAS_SELLER_*) işlenmelidir.
+            Bu kayıt yeni belgelerde kullanılır; eski belge satıcı kayıtları değişmez. Kayıt veritabanında
+            kalıcıdır; SAAS_SELLER_* sunucu ayarları yalnız boş alanlar için yedek değerdir.
           </p>
         </div>
       )}

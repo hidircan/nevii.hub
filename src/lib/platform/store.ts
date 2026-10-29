@@ -486,7 +486,10 @@ export async function listSettingOverrides(filter?: OverrideScopeFilter): Promis
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      const rows = await prisma.settingOverride.findMany(pairs ? { where: { OR: pairs } } : undefined);
+      // saas_billing:* satırları ayar değil, satın alma kayıtlarıdır (saas-billing/store.ts).
+      const rows = await prisma.settingOverride.findMany({
+        where: pairs ? { OR: pairs } : { NOT: { scopeType: { startsWith: "saas_billing:" } } },
+      });
       return rows.map((r) => ({
         scopeType: r.scopeType as SettingScope,
         scopeId: r.scopeId,

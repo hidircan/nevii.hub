@@ -70,7 +70,7 @@ describe("hukuki belge yönetimi (§6)", () => {
   });
 
   it("kabul doğrulaması yürürlükteki sürümü ister", async () => {
-    const before = await validateDocAcceptanceAsync({ "saas-service-terms": "2026-10-29-d1", "renewal-cancel-refund": "2026-10-29-d1" });
+    const before = await validateDocAcceptanceAsync({ "saas-service-terms": "2026-10-30-d2", "renewal-cancel-refund": "2026-10-30-d2" });
     expect(before.ok).toBe(true);
     const r = await createDocRevision(hyper, { docId: "saas-service-terms", bodyText: TEXT, source: "neviios" });
     if (!r.ok) return;
@@ -78,7 +78,7 @@ describe("hukuki belge yönetimi (§6)", () => {
     await setDocReview(hyper, { docId: "saas-service-terms", version: r.data.version, field: "commercial", value: "onaylandi" });
     await publishDocRevision(hyper, { docId: "saas-service-terms", version: r.data.version });
     // Eski sürüm artık bayat
-    const stale = await validateDocAcceptanceAsync({ "saas-service-terms": "2026-10-29-d1", "renewal-cancel-refund": "2026-10-29-d1" });
+    const stale = await validateDocAcceptanceAsync({ "saas-service-terms": "2026-10-30-d2", "renewal-cancel-refund": "2026-10-30-d2" });
     expect(stale.ok).toBe(false);
     // Kilit yalnız 2 sözleşme yayındayken açılır (diğeri hâlâ taslak)
     const status = await getDocsApprovalStatusAsync();

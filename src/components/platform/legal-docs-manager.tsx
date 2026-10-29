@@ -30,6 +30,8 @@ export type LegalDocRow = {
   about: string;
   approved: boolean;
   state: DocState | null;
+  /** Hazır taslak ({{SATICI_*}} yer tutuculu; gösterimde satıcı profiliyle dolar). */
+  template: string | null;
 };
 
 const REVIEW_TR: Record<string, string> = { bekliyor: "Bekliyor", onaylandi: "Onaylandı", reddedildi: "Reddedildi" };
@@ -101,7 +103,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                   {st?.publishedVersion ? (
                     <>Yayında: sürüm {st.publishedVersion} · {d.approved ? "müşteriye sunuluyor" : ""}</>
                   ) : (
-                    <>Yayın yok — müşteriye sunulan metin yok (ödeme öncesi taslak notu görünür).</>
+                    <>Yayın yok — müşteriye hazır taslak &quot;taslak&quot; etiketiyle gösteriliyor.</>
                   )}
                   {d.scope === "required" && !d.approved ? " Gerçek satış bu belge yüzünden kapalı." : ""}
                 </p>
@@ -182,7 +184,10 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-[var(--color-text-muted)]">Henüz taslak revizyon yok. Aşağıdan oluşturun (metin boş başlar).</p>
+                  <p className="text-sm text-[var(--color-text-muted)]">
+                    Henüz revizyon yok; müşteriye hazır taslak &quot;taslak&quot; etiketiyle gösteriliyor. Aşağıdan
+                    &quot;Yeni taslak revizyon&quot; → &quot;Hazır taslağı yükle&quot; ile başlayın.
+                  </p>
                 )}
 
                 {draft?.docId === d.id ? (
@@ -206,7 +211,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                           className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 py-1 text-xs"
                         >
                           <option value="neviios">NeviiOS taslağı</option>
-                          <option value="neviiads-aktarim">NeviiAds'ten aktarıldı</option>
+                          <option value="neviiads-aktarim">NeviiAds&apos;ten aktarıldı</option>
                         </select>
                       </label>
                       <button
@@ -218,6 +223,15 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                       >
                         Taslağı kaydet
                       </button>
+                      {d.template ? (
+                        <button
+                          disabled={busy}
+                          className={btnGhost}
+                          onClick={() => setDraft({ ...draft, bodyText: d.template ?? "" })}
+                        >
+                          Hazır taslağı yükle
+                        </button>
+                      ) : null}
                       <button disabled={busy} className={btnGhost} onClick={() => setDraft(null)}>Vazgeç</button>
                     </div>
                   </div>
@@ -236,7 +250,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
         <div role="dialog" aria-modal="true" aria-labelledby="legal-preview-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] p-6 shadow-xl">
             <h3 id="legal-preview-title" className="text-base font-semibold">Önizleme — sürüm {preview.version}</h3>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">{SOURCE_TR[preview.source]} · düz metin önizlemesi</p>
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">{SOURCE_TR[preview.source]} · ham metin ({"{{SATICI_*}}"} alanları müşteri ekranında satıcı profiliyle dolar)</p>
             <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{preview.bodyText}</p>
             <button type="button" onClick={() => setPreview(null)} autoFocus className={`${btn} mt-4`}>
               Kapat

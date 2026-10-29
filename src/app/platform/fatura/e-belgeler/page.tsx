@@ -22,7 +22,8 @@ export default async function EDocsPage({
 }) {
   await requireHyperAdminPage("/platform/fatura/e-belgeler");
   const { tenant } = await searchParams;
-  const { snapshot: seller, sources } = await getEffectiveSeller();
+  const { snapshot, sources, stored } = await getEffectiveSeller();
+  const seller = { ...snapshot, mersisNo: stored?.mersisNo ?? null, kepAddress: stored?.kepAddress ?? null, phone: stored?.phone ?? null };
   const orders = await listAllInvoiceOrders(100).catch(() => null);
   if (!orders) {
     return <EmptyState title="Belgeler yüklenemedi" description="Kayıtlar okunamadı." />;

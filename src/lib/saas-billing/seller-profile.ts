@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { fail, ok, type ServiceResult } from "../services/result";
 import type { ServiceContext } from "../services/context";
-import { isValidVknFormat } from "./invoicing-profile";
+import { isValidTaxIdFormat, TAX_ID_FORMAT_ERROR } from "./invoicing-profile";
 import type { SellerSnapshot } from "./invoicing-orders";
 
 export type SellerProfileRecord = {
@@ -23,6 +23,10 @@ export type SellerProfileRecord = {
   city: string | null;
   country: string;
   invoiceEmail: string;
+  /** Sözleşme/ön bilgilendirme kimlik alanları (6563 s. Kanun; boşsa metinde "doldurulacak"). */
+  mersisNo?: string | null;
+  kepAddress?: string | null;
+  phone?: string | null;
   updatedBy: string;
   updatedAt: string;
 };
@@ -35,6 +39,9 @@ const inputSchema = z.object({
   city: z.string().trim().max(100).nullable().optional(),
   country: z.string().trim().max(100).nullable().optional(),
   invoiceEmail: z.string().trim().email().max(150),
+  mersisNo: z.string().trim().max(20).nullable().optional(),
+  kepAddress: z.string().trim().max(150).nullable().optional(),
+  phone: z.string().trim().max(30).nullable().optional(),
 });
 
 export type SellerFieldSource = "kayitli" | "env" | "eksik";
@@ -92,8 +99,8 @@ export async function saveSellerProfile(
   }
   const v = parsed.data;
   const taxId = v.taxId?.trim() ? v.taxId.trim() : null;
-  if (taxId && !isValidVknFormat(taxId)) {
-    return fail("VALIDATION_ERROR", "VKN 10 basamak sayı olmalıdır.");
+  if (taxId && !isValidTaxIdFormat(taxId)) {
+    return fail("VALIDATION_ERROR", TAX_ID_FORMAT_ERROR);
   }
   const now = new Date().toISOString();
   const record: SellerProfileRecord = {
@@ -104,6 +111,9 @@ export async function saveSellerProfile(
     city: v.city?.trim() || null,
     country: v.country?.trim() || "Türkiye",
     invoiceEmail: v.invoiceEmail.trim().toLowerCase(),
+    mersisNo: v.mersisNo?.trim() || null,
+    kepAddress: v.kepAddress?.trim() || null,
+    phone: v.phone?.trim() || null,
     updatedBy: ctx.userId,
     updatedAt: now,
   };

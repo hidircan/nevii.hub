@@ -915,7 +915,7 @@ export async function getOrderPublicView(args: {
  * sağlayıcının görünen kimliği. Belge METNİ içermez (taslak üstverisi).
  */
 export async function getCheckoutDocContext(): Promise<{
-  documents: { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null }[];
+  documents: { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null; draft: boolean }[];
   provider: { id: string; displayName: string; termsUrl: string | null };
   acceptedVersions: Record<string, string>;
   docsApproved: boolean;
@@ -926,7 +926,7 @@ export async function getCheckoutDocContext(): Promise<{
   const info = getProviderDisplayInfo(providerId);
   const docs = await getEffectiveDocs();
   return {
-    documents: docs.map((d) => ({ id: d.id, title: d.title, version: d.version, scope: d.scope, about: d.about, bodyText: d.bodyText })),
+    documents: docs.map((d) => ({ id: d.id, title: d.title, version: d.version, scope: d.scope, about: d.about, bodyText: d.bodyText, draft: d.draft })),
     provider: { id: providerId, displayName: info.displayName, termsUrl: info.termsUrl },
     acceptedVersions: Object.fromEntries(docs.filter((d) => d.scope === "required").map((d) => [d.id, d.version])),
     docsApproved: (await getDocsApprovalStatusAsync()).allApproved,
