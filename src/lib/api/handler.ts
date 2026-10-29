@@ -13,7 +13,7 @@ import { fromServiceResult, jsonFail, readJsonBody } from "./http";
 import { buildServiceContext } from "./context";
 import type { ServiceResult } from "../services/result";
 import { authenticateRequest } from "../auth/authenticate";
-import { isCrossSiteMutation } from "./csrf-guard";
+import { CROSS_SITE_REJECTED_MESSAGE, isCrossSiteMutation } from "./csrf-guard";
 import { assertPermission, type Permission } from "../auth/rbac";
 import { auditLog } from "../auth/audit";
 import { runWithTenantAsync } from "../tenant-context";
@@ -117,7 +117,7 @@ export function withApiHandler(handler: ApiHandler, options: ApiHandlerOptions =
             method: request.method,
             outcome: "denied",
           });
-          return finish(jsonFail("FORBIDDEN", "Cross-origin request rejected"), () => -1);
+          return finish(jsonFail("FORBIDDEN", CROSS_SITE_REJECTED_MESSAGE), () => -1);
         }
 
         if (auth.user.role === "BRANCH_MANAGER" && !options.allowBranchManager) {

@@ -3,7 +3,7 @@ import { withApiHandler } from "@/lib/api/handler";
 import { ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies, parseCookieHeader } from "@/lib/auth/cookies";
 import { auditLog } from "@/lib/auth";
 import { jsonFail } from "@/lib/api/http";
-import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
+import { CROSS_SITE_REJECTED_MESSAGE, isCrossSiteMutation } from "@/lib/api/csrf-guard";
 import { verifyRefreshToken } from "@/lib/auth/jwt";
 import { revokeUserSession } from "@/lib/auth/session-registry";
 
@@ -24,7 +24,7 @@ export const POST = withApiHandler(
         requestId: ctx.requestId || "unknown",
         outcome: "denied",
       });
-      return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+      return jsonFail("FORBIDDEN", CROSS_SITE_REJECTED_MESSAGE);
     }
     // NeviiOS: oturum kaydını kapat (refresh cookie'deki sid). İmza doğrulanmadan sid'e güvenilmez.
     // Mobil (çerezsiz) istemci refresh token'ı gövdede gönderir — /auth/refresh ile aynı sözleşme.

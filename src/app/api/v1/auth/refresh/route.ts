@@ -16,7 +16,7 @@ import {
   applyAuthCookies,
   parseCookieHeader,
 } from "@/lib/auth/cookies";
-import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
+import { CROSS_SITE_REJECTED_MESSAGE, isCrossSiteMutation } from "@/lib/api/csrf-guard";
 import { IDLE_LOGOUT_MESSAGE, isIdleExpired, nowSec } from "@/lib/session-policy";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +54,7 @@ export const POST = withApiHandler(
         requestId: ctx.requestId || "unknown",
         outcome: "denied",
       });
-      return jsonFail("FORBIDDEN", "Cross-origin request rejected");
+      return jsonFail("FORBIDDEN", CROSS_SITE_REJECTED_MESSAGE);
     }
 
     try {

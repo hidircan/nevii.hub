@@ -55,3 +55,7 @@ export function isCrossSiteMutation(request: Request): boolean {
 
   return true;
 }
+
+/** Kullanıcıya görünen CSRF reddi (açık Türkçe neden + çözüm). */
+export const CROSS_SITE_REJECTED_MESSAGE =
+  "Bu istek başka bir siteden gönderildiği için güvenlik nedeniyle reddedildi. Sayfayı NeviiHub adresinden yenileyip işlemi tekrar deneyin.";

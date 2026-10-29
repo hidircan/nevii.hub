@@ -5,7 +5,7 @@ import { assertPermission } from "@/lib/auth/rbac";
 import { buildServiceContext } from "@/lib/api/context";
 import { runWithTenantAsync } from "@/lib/tenant-context";
 import { consumeRateLimit } from "@/lib/rate-limit";
-import { isCrossSiteMutation } from "@/lib/api/csrf-guard";
+import { CROSS_SITE_REJECTED_MESSAGE, isCrossSiteMutation } from "@/lib/api/csrf-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     return new Response(
       JSON.stringify({
         ok: false,
-        error: { code: "FORBIDDEN", message: "Cross-origin request rejected" },
+        error: { code: "FORBIDDEN", message: CROSS_SITE_REJECTED_MESSAGE },
       }),
       { status: 403, headers: { "Content-Type": "application/json" } }
     );
