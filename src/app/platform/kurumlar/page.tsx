@@ -4,6 +4,7 @@ import { requireHyperAdminPage } from "@/lib/platform/session";
 import { listInstitutions } from "@/lib/platform/service";
 import { LIFECYCLE_LABELS } from "@/lib/platform/lifecycle";
 import { planLabel } from "@/lib/platform/entitlements";
+import { getPlanNameMap } from "@/lib/platform/commercial-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -18,19 +19,21 @@ export default async function PlatformKurumlarPage({
   if (!result.ok) {
     return <EmptyState title="Kurumlar yüklenemedi" description={result.error.message} />;
   }
+  const planNames = await getPlanNameMap();
+  const nameOf = (key: string) => planNames.get(key) ?? planLabel(key);
 
   return (
     <div>
       <PageHeader
         title="Kurum portföyü"
-        description="Tüm kiracı kurumlar. İşlemler her zaman açık hedef tenant ile yapılır."
+        description="Tüm kurumlar. İşlemler her zaman seçili kurum üzerinde yapılır."
       />
       <div className="mb-6 flex flex-wrap items-center gap-2">
         <form method="get" className="flex flex-1 gap-2">
           <input
             name="q"
             defaultValue={q ?? ""}
-            placeholder="Kurum ara (ad, slug, tenantId)"
+            placeholder="Kurum adı ile ara"
             aria-label="Kurum ara"
             className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm"
           />
@@ -45,7 +48,7 @@ export default async function PlatformKurumlarPage({
           + Yeni kurum oluştur
         </Link>
       </div>
-      {plan ? <p className="mb-3 text-sm text-[var(--color-text-muted)]">Paket filtresi: {planLabel(plan)}</p> : null}
+      {plan ? <p className="mb-3 text-sm text-[var(--color-text-muted)]">Paket filtresi: {nameOf(plan)}</p> : null}
       {result.data.tenants.length === 0 ? (
         <EmptyState title="Kurum bulunamadı" />
       ) : (
@@ -73,7 +76,7 @@ export default async function PlatformKurumlarPage({
                     <Badge>{LIFECYCLE_LABELS[t.lifecycle]}</Badge>
                     {t.provisionError ? <p className="mt-1 text-xs text-[var(--color-danger)]">Kurulum hatası</p> : null}
                   </td>
-                  <td className="px-4 py-2">{planLabel(t.planKey)}</td>
+                  <td className="px-4 py-2">{nameOf(t.planKey)}</td>
                   <td className="px-4 py-2 text-xs text-[var(--color-text-muted)]">{t.contactEmail || "henüz yapılandırılmadı"}</td>
                   <td className="px-4 py-2 text-xs text-[var(--color-text-muted)]">{new Date(t.createdAt).toLocaleDateString("tr-TR")}</td>
                 </tr>

@@ -13,7 +13,7 @@ export default async function NewTenantPage() {
     <div>
       <PageHeader
         title="Yeni kurum"
-        description="Taslak → kurulum (STORE_MODE=db: tenant + okul + ilk şube + ayarlar + sahip daveti, idempotent) → aktif."
+        description="Taslak kayıttan kurulum: kurum + okul + ilk şube + ayarlar + sahip daveti, ardından aktif."
       />
       <NewTenantForm plans={plans} />
     </div>

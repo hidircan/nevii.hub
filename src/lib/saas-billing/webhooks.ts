@@ -200,6 +200,33 @@ export async function applyNormalizedPaymentEvent(args: {
       nowIso: now,
     });
     if (!applied.ok) return failEvent(applied.error.message);
+    // Doğrulanmış tahsilat → sipariş snapshot + e-belge akışı. Duplicate
+    // olayda yeniden belge AÇILMAZ (attempt tekilliği); hata ödeme kaydını
+    // SİLMEZ, erişimi kapatmaz — belge kuyrukta görünür kalır.
+    if (!applied.data.duplicate) {
+      try {
+        const { ensureInvoiceOrderForAttempt, requestDocument } = await import("./invoicing-orders");
+        const att = await findAttemptByProviderRef(e.provider, e.providerRef);
+        if (att && att.status === "succeeded") {
+          const fresh = await getSaasSubscription(tenantId);
+          if (fresh) {
+            const ensured = await ensureInvoiceOrderForAttempt({
+              attempt: att,
+              subscriptionId: fresh.id,
+              tenantId,
+              priceSnapshot: fresh.priceSnapshot,
+              planLabel: fresh.priceSnapshot.planLabel,
+              nowIso: now,
+            });
+            if (ensured.ok && ensured.data.created) {
+              await requestDocument(ensured.data.order.id, now);
+            }
+          }
+        }
+      } catch {
+        // Belge hattı ödeme hattını DÜŞÜRMEZ; NeviiOS kuyruğunda görülür.
+      }
+    }
     await updateSaasWebhookEvent(record.id, {
       status: "processed",
       processedAt: now,
@@ -324,7 +351,9 @@ export async function processPaytrCallback(args: {
   // Deneme kaydı üzerinden tenant + beklenen tutar çözülür.
   const attempt = await findAttemptByProviderRef("paytr", d.merchantOid);
   const sub = attempt ? await getSaasSubscription(attempt.tenantId) : null;
-  const expectedMinor = attempt?.amountMinor ?? sub?.priceSnapshot.amountMinor ?? 0;
+  // Beklenen = KDV dahil toplam (deneme kaydı, yoksa snapshot'taki toplam).
+  const expectedMinor =
+    attempt?.amountMinor ?? sub?.priceSnapshot.totalWithTaxMinor ?? sub?.priceSnapshot.amountMinor ?? 0;
   if (d.status === "success" && expectedMinor > 0 && d.totalAmountMinor !== expectedMinor) {
     // Tutar uyuşmazlığı: uygulaMA, görünür kıl.
     const { record } = await insertSaasWebhookEvent({

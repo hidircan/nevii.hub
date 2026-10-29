@@ -28,16 +28,20 @@ import { getSaasProvider, type SaasBillingProvider } from "./provider-adapter";
 import { hasCapability } from "./providers";
 import {
   applyCollectionFailure,
+  applyCollectionUncertain,
   debtKeyFor,
   extendSubscriptionForPaidPeriod,
   resolveUncertainAttempt,
   transitionSubscriptionPastDue,
   withDebtLock,
 } from "./collections";
+import { validateRenewalCampaign } from "./campaigns";
+import { getPricedPlan } from "./catalog";
 import { addPeriodInTz } from "./periods";
 import {
   claimChargeAttempt,
   expireStaleClaim,
+  getSaasCampaignByCode,
   getSaasSubscription,
   listMerchantScheduledDue,
   listSaasAttempts,
@@ -106,6 +110,55 @@ export async function collectDueSubscriptions(args?: {
   return ok(result);
 }
 
+/**
+ * Yenileme kampanya kapısı. "ok" dönerse çekime devam edilir; değilse
+ * sağlayıcıya HİÇBİR istek gitmeden REVIEW ("uncertain") veya bekleme
+ * sonucu döner. İlk tahsilat bu sayıya dahil değildir.
+ */
+async function gateRenewalCampaign(
+  fresh: SaasSubscriptionRecord,
+  attempts: SaasCollectionAttemptRecord[],
+  now: string
+): Promise<"ok" | "uncertain" | string> {
+  const code = fresh.priceSnapshot.campaignCode;
+  if (!code) return "ok";
+  const succeededRenewals = attempts.filter(
+    (a) => a.kind === "charge" && a.status === "succeeded"
+  ).length;
+  const list = await getPricedPlan(fresh.planKey, fresh.billingInterval);
+  const val = await validateRenewalCampaign({
+    code,
+    tenantId: fresh.tenantId,
+    interval: fresh.billingInterval,
+    listAmountMinor: list?.amountMinor ?? fresh.priceSnapshot.amountMinor,
+    succeededRenewals,
+    nowIso: now,
+  });
+  if (val.ok) return "ok";
+  // Kampanya tükenmesi abonelik düzeyindedir (tüm yenilemeler için geçerli);
+  // dönem eşleşmesi aranmaz.
+  const already = attempts.some(
+    (a) => a.status === "uncertain" && (a.error ?? "").startsWith("CAMPAIGN_REVIEW")
+  );
+  if (already) return "kampanya incelemesi bekleniyor (otomatik çekim durdu)";
+  const campaign = await getSaasCampaignByCode(code);
+  const maxInfo =
+    campaign?.maxRenewals === null || campaign?.maxRenewals === undefined
+      ? "süre/koşul doldu"
+      : `${succeededRenewals} başarılı yenileme / en fazla ${campaign.maxRenewals}`;
+  await applyCollectionUncertain({
+    tenantId: fresh.tenantId,
+    error: `CAMPAIGN_REVIEW: ${val.error} (${maxInfo}); liste fiyatıyla devam için operatör onayı gerekli — otomatik çekim yapılmadı.`,
+    providerEventId: `campaign_${fresh.id}`,
+    idempotencyKey: `campaign_review_${fresh.id}`,
+    provider: fresh.provider,
+    merchantAccount: fresh.merchantAccount,
+    providerRef: null,
+    nowIso: now,
+  });
+  return "uncertain";
+}
+
 async function collectOneDue(
   sub: SaasSubscriptionRecord,
   now: string
@@ -134,6 +187,15 @@ async function collectOneDue(
     const attempts = await listSaasAttempts(fresh.id, 200);
     const debtAttempts = debtOf(attempts);
     if (debtAttempts.some((a) => a.status === "succeeded")) return "dönem zaten ödendi";
+    // Açık kampanya incelemesi varken yeni deneme/uzlaştırma YOK
+    // (tükenme abonelik düzeyindedir; dönem eşleşmesi aranmaz).
+    if (
+      attempts.some(
+        (a) => a.status === "uncertain" && (a.error ?? "").startsWith("CAMPAIGN_REVIEW")
+      )
+    ) {
+      return "kampanya incelemesi bekleniyor (otomatik çekim durdu)";
+    }
 
     // 1. Açık denemeler: taze ise bekle, bayat ise uzlaştır/expire et.
     //    YENİ çekim, açıklar kapanmadan başlamaz.
@@ -161,6 +223,15 @@ async function collectOneDue(
       !hasNewerCardLink(fresh, latestFailed.createdAt)
     ) {
       return "tekrar denenemez sonuç; kart güncellemesi gerekli";
+    }
+
+    // 2b. Kampanya yenileme denetimi — SAĞLAYICIYA GİDİLMEDEN ÖNCE.
+    //     Hak tükenmişse çekim YOK; REVIEW kaydı açılır (sessiz liste-fiyat
+    //     geçişi veya bayat indirimle çekim YOK). Tekrar koşularda yeni satır
+    //     yazılmaz; açık REVIEW varken beklenir.
+    if (fresh.priceSnapshot.campaignCode) {
+      const gate = await gateRenewalCampaign(fresh, attempts, now);
+      if (gate !== "ok") return gate;
     }
 
     // 3. Kart çözümü: kayıtlı cardRef yoksa listeden çöz (tek + CVV'siz kart).
@@ -214,7 +285,8 @@ async function collectOneDue(
       periodStart,
       periodEnd,
       debtKey,
-      amountMinor: fresh.priceSnapshot.amountMinor,
+      // Yenileme de kabuldeki KDV dahil toplamdan çekilir.
+      amountMinor: fresh.priceSnapshot.totalWithTaxMinor ?? fresh.priceSnapshot.amountMinor,
       currency: fresh.currency,
       attemptNo: current.length + 1,
       idempotencyKey: dueIdempotencyKey(fresh.id, periodStart, current.length + 1),
@@ -232,7 +304,7 @@ async function collectOneDue(
       merchantOid,
       email: fresh.billingEmail,
       userIp: fresh.billingUserIp || "127.0.0.1",
-      amountMinor: fresh.priceSnapshot.amountMinor,
+      amountMinor: fresh.priceSnapshot.totalWithTaxMinor ?? fresh.priceSnapshot.amountMinor,
       currency: fresh.currency,
       customerRef: fresh.providerCustomerRef ?? "",
       cardRef,

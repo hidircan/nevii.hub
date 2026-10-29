@@ -5,6 +5,12 @@
  *   kurum aynı özel fiyata erişemez (tenantId bağı zorunlu).
  * - Ömür boyu indirim varsayılmaz: maxRenewals + validTo + postCampaignNote
  *   ile süre/yenileme sayısı ve sonrası fiyat her zaman bellidir.
+ * - YENİLEME SAYIMI SÖZLEŞMESİ: ilk tahsilat (checkout) HER ZAMAN kampanyalıdır
+ *   (checkout anında doğrulanır). maxRenewals = ilk tahsilattan SONRA kampanyalı
+ *   çekilecek YENİLEME sayısıdır. Örnek: maxRenewals=3 → 1. tahsilat + 3 yenileme
+ *   kampanyalı (toplam 4 indirimli tahsilat). Hak tükenince otomatik çekim DURUR;
+ *   liste fiyatıyla devam operatör onayıyla ve yeni kabulle olur (sessiz geçiş
+ *   YOK) — yenileme anında `validateRenewalCampaign` ile denetlenir.
  * - Sabit fiyat veya indirim; aylık/yıllık kapsam (intervalScope);
  *   kullanım sayısı (maxRedemptions/redeemedCount) ile sınırlı.
  */
@@ -20,6 +26,8 @@ const campaignInputSchema = z.object({
   tenantId: z.string().min(1, "Pilot kurum bağı zorunlu."),
   discountType: z.enum(["fixed_minor", "percent"]),
   amountMinor: z.number().int().min(0).nullable().optional(),
+  /** TL girişi (₺) — sunucu kuruşa çevirir; amountMinor ile ikisi birden verilemez. */
+  amountTl: z.union([z.string(), z.number()]).nullable().optional(),
   percent: z.number().int().min(1).max(100).nullable().optional(),
   intervalScope: z.enum(["monthly", "yearly", "both"]).default("both"),
   validFrom: z.iso.datetime().nullable().optional(),
@@ -44,7 +52,14 @@ export async function createPilotCampaign(args: {
     return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Geçersiz kampanya.");
   }
   const v = parsed.data;
-  if (v.discountType === "fixed_minor" && (v.amountMinor === null || v.amountMinor === undefined)) {
+  let amountMinor = v.amountMinor ?? null;
+  if (v.amountTl !== null && v.amountTl !== undefined && String(v.amountTl).trim() !== "") {
+    if (amountMinor !== null) return fail("VALIDATION_ERROR", "Tutar yalnız bir biçimde verilmeli.");
+    const n = Number(String(v.amountTl).trim().replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(n) || n < 0) return fail("VALIDATION_ERROR", "Geçersiz TL tutarı.");
+    amountMinor = Math.round(n * 100);
+  }
+  if (v.discountType === "fixed_minor" && amountMinor === null) {
     return fail("VALIDATION_ERROR", "Sabit indirim tutarı zorunlu.");
   }
   if (v.discountType === "percent" && (v.percent === null || v.percent === undefined)) {
@@ -57,7 +72,7 @@ export async function createPilotCampaign(args: {
     tenantId: v.tenantId,
     code: `pilot_${uid("c").replace(/^c_/, "")}`,
     discountType: v.discountType,
-    amountMinor: v.amountMinor ?? null,
+    amountMinor,
     percent: v.percent ?? null,
     intervalScope: v.intervalScope,
     validFrom: v.validFrom ?? null,
@@ -118,6 +133,71 @@ export async function validateCampaignForTenant(args: {
     amountMinor,
     note: `${c.name}: ${c.postCampaignNote}`,
   };
+}
+
+/**
+ * Yenileme anı kampanya denetimi: başarılı YENİLEME çekim sayısına göre
+ * kampanya hâlâ geçerli mi? İlk tahsilat (checkout) bu sayıya DAHİL DEĞİL —
+ * yalnızca scheduler'daki başarılı `charge` denemeleri sayılır.
+ *
+ * Geçersizse otomatik çekim YAPILMAZ; çağrıcı REVIEW kaydı açar (sessiz
+ * liste-fiyat geçişi veya bayat indirimle çekim YOK).
+ */
+export async function validateRenewalCampaign(args: {
+  code: string;
+  tenantId: string;
+  interval: SaasBillingInterval;
+  listAmountMinor: number;
+  succeededRenewals: number;
+  nowIso?: string;
+}): Promise<CampaignValidation> {
+  return validateCampaignForTenant({
+    code: args.code,
+    tenantId: args.tenantId,
+    interval: args.interval,
+    listAmountMinor: args.listAmountMinor,
+    renewalsUsed: args.succeededRenewals,
+    nowIso: args.nowIso,
+  });
+}
+
+/**
+ * Ödeme takvimi açıklaması — davet/onay/abonelik ekranlarında AYNI metin.
+ * Dönem adları göreli ("1. yıl", "2. ay") verilir; mutlak tarih uydurulmaz
+ * (gerçek dönemler abonelik kaydından oluşur).
+ */
+export function describeCampaignSchedule(args: {
+  maxRenewals: number | null;
+  validTo: string | null;
+}): { headline: string; lines: string[] } {
+  const lines: string[] = [];
+  lines.push(`1. tahsilat (bugün): kampanyalı.`);
+  if (args.maxRenewals === null) {
+    lines.push(
+      `Sonraki yenilemeler kampanya aktif kaldıkça kampanyalı (süre sınırı varsa aşağıda).`
+    );
+  } else if (args.maxRenewals === 0) {
+    lines.push(`Yenilemeler kampanyasızdır; sonraki dönem liste fiyatıyla ve onayınızla devam eder.`);
+  } else {
+    lines.push(
+      `Sonraki ${args.maxRenewals} yenileme kampanyalı (toplam ${args.maxRenewals + 1} indirimli tahsilat).`
+    );
+    lines.push(
+      `Hak bitince otomatik çekim durur; liste fiyatıyla devam için onayınız istenir.`
+    );
+  }
+  if (args.validTo) {
+    lines.push(
+      `Kampanya bitişi: ${new Date(args.validTo).toLocaleDateString("tr-TR")}.`
+    );
+  }
+  const headline =
+    args.maxRenewals === null
+      ? `İlk tahsilat ve aktif kaldıkça yenilemeler kampanyalı`
+      : args.maxRenewals === 0
+        ? `Yalnızca ilk tahsilat kampanyalı`
+        : `İlk tahsilat dahil toplam ${args.maxRenewals + 1} tahsilat kampanyalı`;
+  return { headline, lines };
 }
 
 /** Başarılı kullanım sonrası sayaç artırımı (idempotent değil — çağrıcı tek çağırır). */

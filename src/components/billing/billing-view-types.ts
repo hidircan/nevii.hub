@@ -19,6 +19,13 @@ export type SubscriptionView = {
   paymentOnFile: boolean;
   provider: string;
   executionModel: string | null;
+  /** Kampanya bilgisi (yoksa null) — davet ekranıyla aynı dilde gösterilir. */
+  campaign: {
+    name: string;
+    scheduleHeadline: string;
+    scheduleLines: string[];
+    afterNote: string;
+  } | null;
 };
 
 export type AttemptView = {
@@ -49,6 +56,8 @@ export type BillingPlanPriceView = {
 export type BillingPlanOption = {
   key: string;
   label: string;
+  /** Paket açıklaması (örn. "ÖRNEK FİYAT" işareti) — varsa kartta gösterilir. */
+  description: string | null;
   monthly: BillingPlanPriceView;
   yearly: BillingPlanPriceView;
 };

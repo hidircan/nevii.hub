@@ -141,15 +141,18 @@ export function RetentionManager({ policies, jobs, storeMode }: { policies: Poli
         ) : null}
       </Card>
       <Card>
-        <h2 className="text-sm font-semibold">Zamanlanmış iş sözleşmesi</h2>
-        <p className="text-xs text-[var(--color-text-muted)]">Gerçek cron bu sürümde kurulmadı; deploy’da Vercel Cron veya harici zamanlayıcı bu tanımla çağırır.</p>
-        <ul className="mt-2 space-y-1 text-sm">
-          {jobs.map((j) => (
-            <li key={j.id}>
-              <code>{j.id}</code> · <code>{j.schedule}</code> · {j.method} <code>{j.endpoint}</code> · Bearer ${j.secretEnv} · varsayılan {j.defaultDryRun ? "dry-run (?apply=1 ile sil)" : "uygula"}
-            </li>
-          ))}
-        </ul>
+        <h2 className="text-sm font-semibold">Otomatik temizlik zamanlaması</h2>
+        <p className="text-xs text-[var(--color-text-muted)]">Zamanlanmış temizlik bu sürümde kurulmadı; yayında Vercel zamanlayıcı veya harici zamanlayıcı aşağıdaki tanımla çağırır. Varsayılan: yalnız önizleme (silme yok).</p>
+        <details className="mt-2 text-xs">
+          <summary className="cursor-pointer text-[var(--color-text-muted)] hover:underline">Teknik tanım</summary>
+          <ul className="mt-1 space-y-1 font-mono text-[11px] text-[var(--color-text-muted)]">
+            {jobs.map((j) => (
+              <li key={j.id}>
+                {j.id} · {j.schedule} · {j.method} {j.endpoint} · gizli anahtar: {j.secretEnv} · {j.defaultDryRun ? "önizleme (?apply=1 ile sil)" : "uygula"}
+              </li>
+            ))}
+          </ul>
+        </details>
       </Card>
     </div>
   );

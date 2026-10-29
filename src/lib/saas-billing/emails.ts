@@ -135,6 +135,37 @@ export async function sendRenewalReceiptEmail(args: {
   });
 }
 
+/**
+ * Belge hazır bildirimi — SADECE düzenlenmiş belge için çağrılır.
+ * E-posta iletimi resmî iletimle AYNI başarı sayılmaz; ileti metni
+ * dekont/fatura ayrımını korur. Demo önizlemelerde konu açıkça demo yazar.
+ */
+export async function sendInvoiceReadyEmail(args: {
+  to: string;
+  planLabel: string;
+  totalMinor: number;
+  periodStart: string;
+  periodEnd: string;
+  detailUrl: string;
+  demo: boolean;
+}): Promise<SaasEmailResult> {
+  const total = formatMinorTR(args.totalMinor);
+  const period = `${new Date(args.periodStart).toLocaleDateString("tr-TR")} – ${new Date(args.periodEnd).toLocaleDateString("tr-TR")}`;
+  return sendSaasEmail({
+    to: args.to,
+    subject: args.demo ? "[DEMO] NeviiHub belge önizlemeniz hazır" : "NeviiHub abonelik belgeniz hazır",
+    htmlBody: layout(
+      args.demo ? "Demo belge önizlemesi (mali belge değildir)" : "Belgeniz hazır",
+      args.demo
+        ? `<p><strong>${args.planLabel}</strong> (${total}, ${period}) için DEMO belge önizlemesi hazırdır. Bu önizleme mali belge değildir; resmî belge numarası içermez.</p>\n<p><a href="${args.detailUrl}">Önizlemeyi görüntüleyin</a></p>`
+        : `<p><strong>${args.planLabel}</strong> (${total}, ${period}) aboneliğinize ait belgeniz hazırdır.</p>\n<p><a href="${args.detailUrl}">Belgeyi görüntüleyin</a></p>\n<p><em>Resmî iletim durumu hesabınızdaki belge detayında ayrıca gösterilir.</em></p>`
+    ),
+    textBody: args.demo
+      ? `DEMO önizleme (mali belge değildir): ${args.planLabel} ${total} ${period} ${args.detailUrl}`
+      : `Belgeniz hazır: ${args.planLabel} ${total} ${period} ${args.detailUrl}`,
+  });
+}
+
 export async function sendCheckoutInvitationEmail(args: {
   to: string;
   planLabel: string;

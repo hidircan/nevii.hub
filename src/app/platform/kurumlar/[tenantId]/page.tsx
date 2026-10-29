@@ -4,6 +4,7 @@ import { requireHyperAdminPage } from "@/lib/platform/session";
 import { getInstitutionOverview, getProvisionHistory, getTenantSettings } from "@/lib/platform/service";
 import { LIFECYCLE_LABELS } from "@/lib/platform/lifecycle";
 import { planLabel } from "@/lib/platform/entitlements";
+import { getPlanNameMap } from "@/lib/platform/commercial-catalog";
 import { roleLabelTr } from "@/lib/auth/role-labels";
 import type { AppRole } from "@/lib/auth/types";
 import { LifecycleControl, ProvisionPanel } from "@/components/platform/tenant-admin-controls";
@@ -33,6 +34,8 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
   if (!result.ok) {
     return <EmptyState title="Kurum yüklenemedi" description={result.error.message} />;
   }
+  const planNames = await getPlanNameMap();
+  const nameOf = (key: string) => planNames.get(key) ?? planLabel(key);
   const { tenant, school, features, branches, users, audit } = result.data;
   const locale = tenant.language === "en" ? "en" : "tr";
   const nameDiffers = school ? institutionNameMismatch(tenant.name, school.name) : false;
@@ -45,10 +48,14 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="lg:col-span-2">
         <h2 className="text-sm font-semibold">Kayıtlı kurum verisi</h2>
-        <p className="mt-1 text-xs text-[var(--color-text-muted)]">Tenant {tenant.tenantId}. Boş alanlar doldurulmaz.</p>
+        <p className="mt-1 text-xs text-[var(--color-text-muted)]">Boş alanlar doldurulmaz.</p>
+        <details className="mt-1 text-xs">
+          <summary className="cursor-pointer text-[var(--color-text-muted)] hover:underline">Teknik ayrıntı</summary>
+          <p className="mt-1 font-mono text-[11px] text-[var(--color-text-muted)]">Kurum kodu: {tenant.tenantId}</p>
+        </details>
         {nameDiffers && school ? (
           <p role="status" className="mt-2 text-sm text-[var(--color-warning)]">
-            Tenant adı ile okul kaydı adı farklı: “{tenant.name}” / “{school.name}”. Otomatik düzeltilmedi.
+            Kurum adı ile okul kaydı adı farklı: “{tenant.name}” / “{school.name}”. Otomatik düzeltilmedi.
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-4">
@@ -57,13 +64,13 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
             const versioned = safe ? (withLogoVersion(safe, logoUrlStamp(safe)) ?? safe) : null;
             return versioned ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={versioned} alt="" className="h-16 w-auto max-w-[200px] rounded bg-white object-contain p-1" />
+              <img src={versioned} alt="" className="h-16 w-auto max-w-[200px] rounded bg-[var(--color-surface)] object-contain p-1" />
             ) : (
               <p className="text-sm text-[var(--color-text-muted)]">Logo {blank}</p>
             );
           })()}
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-            <dt className="text-[var(--color-text-muted)]">Tenant adı</dt>
+            <dt className="text-[var(--color-text-muted)]">Kurum adı</dt>
             <dd>{tenant.name || blank}</dd>
             <dt className="text-[var(--color-text-muted)]">Okul kaydı</dt>
             <dd>{school?.name || blank}</dd>
@@ -78,7 +85,7 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
             <dt className="text-[var(--color-text-muted)]">Dil / saat / para</dt>
             <dd>{locale} · {tenant.timezone || blank} · {tenant.currency || school?.currency || blank}</dd>
             <dt className="text-[var(--color-text-muted)]">Paket / durum</dt>
-            <dd>{planLabel(tenant.planKey)} · {LIFECYCLE_LABELS[tenant.lifecycle]} · {tenant.active ? "aktif" : "pasif"}</dd>
+            <dd>{nameOf(tenant.planKey)} · {LIFECYCLE_LABELS[tenant.lifecycle]} · {tenant.active ? "Aktif" : "Pasif"}</dd>
             <dt className="text-[var(--color-text-muted)]">Güncelleme</dt>
             <dd>{formatInLocale(tenant.updatedAt, locale, tenant.timezone)}</dd>
           </dl>
@@ -92,7 +99,7 @@ export default async function TenantOverviewPage({ params }: { params: Promise<{
           <dt className="text-[var(--color-text-muted)]">Tür</dt>
           <dd>{TYPE_LABEL[type] ?? "henüz yapılandırılmadı"}</dd>
           <dt className="text-[var(--color-text-muted)]">Paket</dt>
-          <dd>{planLabel(tenant.planKey)}</dd>
+          <dd>{nameOf(tenant.planKey)}</dd>
           <dt className="text-[var(--color-text-muted)]">İletişim</dt>
           <dd>{tenant.contactEmail || "henüz yapılandırılmadı"}</dd>
           <dt className="text-[var(--color-text-muted)]">Bölge</dt>

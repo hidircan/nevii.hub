@@ -335,9 +335,14 @@ Tarayıcı → PayTR → callback → uygulama:
    sipariş alanları (`merchant_id/user_ip/merchant_oid/email/amount/...`).
    Kart alanı YOK; `merchant_key/salt` sunucuda kalır.
 2. **Tarayıcı doğrudan PayTR'ye POST eder** (`billing-dashboard.tsx` /
-   `invitation-checkout.tsx` → `https://www.paytr.com/odeme`): kart,
-   PayTR-hosted sayfada yazılır. PAN/CVV bizim DOM'umuza, backend'imize,
-   DB'mize, logumuza GİRMEZ (sayfalarımızda kart input'u yoktur).
+   `invitation-checkout.tsx` → `https://www.paytr.com/odeme`): PayTR Direct
+   API akışında kart alanları bizim sayfadaki `form_post` formunda yazılır
+   ve tarayıcıdan DOĞRUDAN PayTR'ye gönderilir. PAN/CVV backend'imize,
+   DB'ye, log'a GİRMEZ (POST hedefi `paytr.com`'dur); ancak yazım anında
+   bizim sayfanın DOM'unda bulunur. Bu yüzden sayfada üçüncü-taraf
+   analytics/session-replay/error-tracking kodu YOKTUR (doğrulandı) ve onay
+   metni "kart numaram sunucularda saklanmaz" der; "kartı yalnızca
+   sağlayıcı sayfasında yazarsınız" İDDİA EDİLMEZ.
 3. **PayTR yönlendirir** (`merchant_ok/fail_url` → `/abonelik/sonuc`):
    YALNIZCA UX; ödeme kanıtı DEĞİL (kodda statü değiştirmez).
 4. **PayTR sunucudan sunucuya bildirir** (Bildirim URL →

@@ -109,9 +109,9 @@ export function IntegrationList({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-[var(--color-text)]">{row.label}</h3>
-                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                  Durum: {row.status}
-                  {row.envConfigured ? " · env yapılandırılmış" : " · env yok"}
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]" title={row.status}>
+                  Durum: {row.status === "connected" ? "Bağlı" : row.status === "error" ? "Hatalı" : "Yapılandırılmadı"}
+                  {row.envConfigured ? " · ortam ayarı var" : " · ortam ayarı yok"}
                   {row.secretLast4 ? ` · ****${row.secretLast4}` : ""}
                   {row.lastVerifiedAt ? ` · son doğrulama ${row.lastVerifiedAt}` : ""}
                 </p>

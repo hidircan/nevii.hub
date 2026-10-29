@@ -16,7 +16,7 @@ export default async function ReleasesPage() {
   const name = new Map(tenants.map((t) => [t.tenantId, t.name]));
   return (
     <div className="space-y-4">
-      <PageHeader title="Sürümler" description="Release kayıtları (ReleaseManifest). Her Git commit'i release değildir; release açıkça kaydedilir." />
+      <PageHeader title="Sürümler" description="Yayınlanan sürüm kayıtları. Her kod değişikliği sürüm değildir; sürüm açıkça kaydedilir." />
       {res.data.releases.length === 0 ? <p className="text-sm text-[var(--color-text-muted)]">Henüz release kaydı yok.</p> : null}
       {res.data.releases.map((r) => (
         <Card key={r.id} className="space-y-1 text-sm">

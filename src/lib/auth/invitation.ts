@@ -15,7 +15,8 @@
  * belirler (bkz. acceptAccountInvitation).
  */
 import { createPasswordResetToken } from "./password-reset";
-import { getAppBaseUrl, getMobileAppLinks, sendEmail, type EmailSendResult } from "../email";
+import { getAppBaseUrl, sendEmail, type EmailSendResult } from "../email";
+import { resolveMobileAppLinks } from "../platform/site-mobile-apps";
 import { institutionLogoHtml } from "../institution-logo";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 gün — davet e-postası hemen açılmayabilir.
@@ -56,7 +57,7 @@ export type SendInvitationInput = {
  * için ayrı, role uygun karşılama metni kullanır. Web portal linki AÇIK
  * metin olarak da gösterilir (yalnızca buton değil — bazı e-posta
  * istemcileri/görme engelli kullanıcılar için). Mobil app linkleri
- * SADECE `getMobileAppLinks()` gerçek bir URL döndürüyorsa (uygulama
+ * SADECE `resolveMobileAppLinks()` gerçek bir URL döndürüyorsa (uygulama
  * yayınlandıktan sonra) gösterilir — yayınlanmamış bir uygulamaya kırık
  * bir mağaza linki ASLA gösterilmez.
  *
@@ -71,7 +72,7 @@ export async function sendAccountInvitationEmail(input: SendInvitationInput): Pr
   const raw = await createPasswordResetToken(input.tenantId, input.userId, INVITATION_TTL_MS);
   const activationLink = `${getAppBaseUrl()}/hesap-aktivasyon?token=${encodeURIComponent(raw)}`;
   const webPortalLink = getAppBaseUrl();
-  const { appStoreUrl, playStoreUrl } = getMobileAppLinks();
+  const { appStoreUrl, playStoreUrl } = await resolveMobileAppLinks();
   const expiryText = "7 gün";
 
   const institution = escapeHtml(input.institutionName);

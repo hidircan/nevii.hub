@@ -13,7 +13,7 @@ export default async function RetentionPage() {
     <div>
       <PageHeader
         title="Log saklama politikası"
-        description="Finans, sözleşme, tahsilat, rol ve destek erişimi audit'leri otomatik silinmez. Presence/telemetri kısa süreli tutulur."
+        description="Finans, sözleşme, tahsilat, rol ve destek erişimi denetim kayıtları otomatik silinmez. Çevrimiçi durumu ve kullanım ölçümleri kısa süreli tutulur."
       />
       <RetentionManager policies={res.data.policies} jobs={res.data.jobs} storeMode={res.data.storeMode} />
     </div>

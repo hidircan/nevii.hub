@@ -24,30 +24,13 @@ const toMinor = (v: string) => Math.max(0, Math.round((Number(v.replace(",", "."
 const limitText = (n: number | null) => (n === null ? "özel" : n.toLocaleString("tr-TR"));
 const parseLimit = (v: string) => (v.trim() === "" ? null : Math.max(0, Math.floor(Number(v) || 0)));
 
-type PlanForm = Omit<CatalogPlan, "builtin" | "legacy"> & { isNew: boolean; reason: string };
-
-function emptyPlan(): PlanForm {
-  return {
-    isNew: true,
-    key: "",
-    label: "",
-    description: "",
-    status: "active",
-    limits: { students: 100, users: 3, branches: 1 },
-    includedModules: [],
-    pricing: "list",
-    basePriceMonthlyMinor: 0,
-    basePriceYearlyMinor: 0,
-    pricePublished: false,
-    reason: "",
-  };
-}
+type PlanConfirm = { key: string; label: string; action: "status" | "delete"; toActive: boolean; usage: number; reason: string } | null;
 
 export function PackagesManager({ data }: { data: CatalogOverviewData }) {
   const router = useRouter();
   const working = data.draft ?? data.published;
   const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  const [plan, setPlan] = useState<PlanForm | null>(null);
+  const [confirm, setConfirm] = useState<PlanConfirm>(null);
   const [mod, setMod] = useState<(CatalogModule & { reason: string }) | null>(null);
   const [preview, setPreview] = useState<{ notes: string[]; blockers: string[]; changedKeys: string[] } | null>(null);
   const [quoteIn, setQuoteIn] = useState({ source: data.draft ? "draft" : "published", planKey: working.plans[0]?.key ?? "", cycle: "monthly", addons: [] as string[], adjType: "", adjValue: "", adjReason: "" });
@@ -82,10 +65,10 @@ export function PackagesManager({ data }: { data: CatalogOverviewData }) {
         <div className="text-sm">
           <p>
             Yayındaki katalog: <strong>{data.publishedVersion ? `v${data.publishedVersion}` : "yerleşik (henüz yayın yok)"}</strong>
-            {data.draft ? <> · Taslak: <strong>v{data.draftVersion}</strong> (internal — kullanıcıya görünmez)</> : " · Taslak yok"}
+            {data.draft ? <> · Taslak: <strong>v{data.draftVersion}</strong> (yalnız siz görürsünüz; müşteriye yansımadı)</> : " · Taslak yok"}
           </p>
           <p className="text-xs text-[var(--color-text-muted)]">
-            Düzenlemeler taslakta birikir. Yayın yalnız yeni aboneliklere uygulanır; mevcut kurumlar abonelik snapshot’ı ile korunur. {data.taxNote}
+            Düzenlemeler taslakta birikir; anasayfaya yansıması için yayın gerekir. Yayın yalnız yeni satışlara uygulanır; mevcut kurumlar kabul ettikleri fiyat ve koşullarla sürer. {data.taxNote}
           </p>
         </div>
         {data.draftId ? (
@@ -109,59 +92,76 @@ export function PackagesManager({ data }: { data: CatalogOverviewData }) {
       <Card className="overflow-x-auto p-0">
         <div className="flex items-center justify-between px-4 pt-3">
           <h2 className="text-sm font-semibold">Paketler {data.draft ? "(taslak)" : ""}</h2>
-          <Button variant="secondary" onClick={() => setPlan(emptyPlan())}>
+          <a
+            href="/platform/paketler/yeni"
+            className="rounded-lg bg-[var(--color-primary-soft)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-soft-text)] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-2"
+          >
             Yeni paket
-          </Button>
+          </a>
         </div>
-        <table className="mt-2 w-full min-w-[1000px] text-left text-sm">
+        <table className="mt-2 w-full min-w-[760px] text-left text-sm">
           <thead>
             <tr className="border-b text-xs text-[var(--color-text-muted)]" style={{ borderColor: "var(--color-border)" }}>
-              <th className="px-4 py-2">Paket</th>
-              <th>Durum</th>
-              <th>Öğrenci / kullanıcı / şube</th>
-              <th>Modül</th>
-              <th>Temel (ay / yıl)</th>
-              <th>Fiyat</th>
-              <th>Aktif abonelik</th>
-              <th className="px-4">İşlem</th>
+              <th className="max-w-[220px] px-4 py-2">Paket</th>
+              <th className="whitespace-nowrap py-2 pr-4">Satış durumu</th>
+              <th className="whitespace-nowrap py-2 pr-4 text-right">Aylık / yıllık (+KDV)</th>
+              <th className="whitespace-nowrap py-2 pr-4">Limit özeti</th>
+              <th className="whitespace-nowrap py-2 pr-4 text-right">Kullanan kurum</th>
+              <th className="px-4 py-2">İşlem</th>
             </tr>
           </thead>
           <tbody>
             {working.plans.map((p) => (
               <tr key={p.key} className="border-b align-top" style={{ borderColor: "var(--color-border)" }}>
-                <td className="px-4 py-2">
-                  <strong>{p.label}</strong> <code className="text-xs">{p.key}</code>
-                  {p.legacy ? <span className="ml-1 text-xs text-[var(--color-text-muted)]">eski · yeni kurumda seçilemez</span> : null}
-                  {p.builtin ? <span className="ml-1 text-xs text-[var(--color-text-muted)]">yerleşik</span> : null}
+                <td className="max-w-[220px] px-4 py-2">
+                  <strong className="block truncate" title={p.label}>{p.label}</strong>
+                  <span className="block truncate text-xs text-[var(--color-text-muted)]" title={p.key}><code>{p.key}</code></span>
+                  {p.legacy ? <span className="mt-0.5 inline-block text-xs text-[var(--color-text-muted)]">eski sürüm · satışta yok</span> : null}
+                  {p.builtin && !p.legacy ? <span className="mt-0.5 inline-block text-xs text-[var(--color-text-muted)]">yerleşik</span> : null}
                 </td>
-                <td>{p.status === "active" ? "Aktif" : "Pasif"}</td>
-                <td>
-                  {limitText(p.limits.students)} / {limitText(p.limits.users)} / {limitText(p.limits.branches)}
+                <td className="whitespace-nowrap py-2 pr-4">
+                  {p.legacy ? "Arşivde" : p.status === "active" ? "Satışta" : "Satışta gizli"}
                 </td>
-                <td>{p.includedModules.length}</td>
-                <td>{p.pricing === "custom_quote" ? "Özel teklif" : `${tl(p.basePriceMonthlyMinor)} / ${tl(p.basePriceYearlyMinor)}`}</td>
-                <td>{p.pricePublished ? "Yayınlanmış" : "Internal"}</td>
-                <td>{data.usage[p.key] ?? 0}</td>
+                <td className="whitespace-nowrap py-2 pr-4 text-right tabular-nums">
+                  {p.pricing === "custom_quote" ? (
+                    "Özel teklif"
+                  ) : (
+                    <>
+                      {tl(p.basePriceMonthlyMinor)} / {tl(p.basePriceYearlyMinor)}
+                      {!p.pricePublished ? <span className="block text-xs font-normal text-[var(--color-text-muted)]">iç fiyat · müşteriye gizli</span> : null}
+                    </>
+                  )}
+                </td>
+                <td className="whitespace-nowrap py-2 pr-4 text-xs">
+                  {limitText(p.limits.students)} öğrenci · {limitText(p.limits.users)} kullanıcı · {limitText(p.limits.branches)} şube
+                  <span className="block text-[var(--color-text-muted)]">{p.includedModules.length} modül dahil</span>
+                </td>
+                <td className="py-2 pr-4 text-right tabular-nums">{data.usage[p.key] ?? 0}</td>
                 <td className="px-4 py-2">
                   <span className="flex flex-wrap gap-1">
-                    <Button variant="secondary" onClick={() => setPlan({ ...p, isNew: false, reason: "" })}>
-                      Düzenle
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        const reason = window.prompt("Gerekçe (en az 5 karakter)") ?? "";
-                        if (reason) void op({ op: "plan_status", key: p.key, status: p.status === "active" ? "inactive" : "active", reason }, "Taslak güncellendi.");
-                      }}
+                    <a
+                      href={`/platform/paketler/${encodeURIComponent(p.key)}/duzenle`}
+                      className="rounded-lg bg-[var(--color-primary-soft)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-soft-text)] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] focus-visible:ring-offset-2"
                     >
-                      {p.status === "active" ? "Pasifleştir" : "Aktifleştir"}
-                    </Button>
-                    {!p.builtin ? (
+                      Düzenle
+                    </a>
+                    {!p.legacy ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setMsg(null);
+                          setConfirm({ key: p.key, label: p.label, action: "status", toActive: p.status !== "active", usage: data.usage[p.key] ?? 0, reason: "" });
+                        }}
+                      >
+                        {p.status === "active" ? "Satıştan kaldır" : "Satışa al"}
+                      </Button>
+                    ) : null}
+                    {!p.builtin || p.legacy ? (
                       <Button
                         variant="danger"
                         onClick={() => {
-                          const reason = window.prompt(`"${p.label}" taslaktan silinsin mi? Gerekçe (en az 5 karakter)`) ?? "";
-                          if (reason) void op({ op: "plan_delete", key: p.key, reason }, "Paket taslaktan kaldırıldı.");
+                          setMsg(null);
+                          setConfirm({ key: p.key, label: p.label, action: "delete", toActive: false, usage: data.usage[p.key] ?? 0, reason: "" });
                         }}
                       >
                         Sil
@@ -175,75 +175,52 @@ export function PackagesManager({ data }: { data: CatalogOverviewData }) {
         </table>
       </Card>
 
-      {plan ? (
-        <Card className="space-y-3">
-          <h2 className="text-sm font-semibold">{plan.isNew ? "Yeni paket (taslağa)" : `Paketi düzenle: ${plan.label}`}</h2>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Input aria-label="Anahtar" placeholder="anahtar (ör. studio)" value={plan.key} disabled={!plan.isNew} onChange={(e) => setPlan({ ...plan, key: e.target.value })} />
-            <Input aria-label="Paket adı" placeholder="Paket adı" value={plan.label} onChange={(e) => setPlan({ ...plan, label: e.target.value })} />
-            <Select aria-label="Fiyatlama" value={plan.pricing} onChange={(e) => setPlan({ ...plan, pricing: e.target.value as PlanForm["pricing"] })}>
-              <option value="list">Liste fiyatı</option>
-              <option value="custom_quote">Özel teklif</option>
-            </Select>
-          </div>
-          <Input aria-label="Açıklama" placeholder="Açıklama" value={plan.description} onChange={(e) => setPlan({ ...plan, description: e.target.value })} />
-          <div className="grid gap-2 sm:grid-cols-5">
-            {(["students", "users", "branches"] as const).map((k) => (
-              <label key={k} className="text-xs text-[var(--color-text-muted)]">
-                {k === "students" ? "Aktif öğrenci" : k === "users" ? "Operasyon kullanıcısı" : "Şube"} (boş = özel)
-                <Input type="number" min={0} value={plan.limits[k] ?? ""} onChange={(e) => setPlan({ ...plan, limits: { ...plan.limits, [k]: parseLimit(e.target.value) } })} />
-              </label>
-            ))}
-            <label className="text-xs text-[var(--color-text-muted)]">
-              Temel aylık (₺)
-              <Input type="number" min={0} step="0.01" value={plan.basePriceMonthlyMinor / 100} onChange={(e) => setPlan({ ...plan, basePriceMonthlyMinor: toMinor(e.target.value) })} />
-            </label>
-            <label className="text-xs text-[var(--color-text-muted)]">
-              Temel yıllık (₺)
-              <Input type="number" min={0} step="0.01" value={plan.basePriceYearlyMinor / 100} onChange={(e) => setPlan({ ...plan, basePriceYearlyMinor: toMinor(e.target.value) })} />
-            </label>
-          </div>
-          <p className="text-xs text-[var(--color-text-muted)]">Operasyon kullanıcısı = kurum sahibi, yönetici, şube müdürü, öğretmen. Öğrenci/veli portal hesapları sayılmaz.</p>
-          <fieldset>
-            <legend className="text-xs font-medium">Pakete dahil modüller</legend>
-            <div className="mt-1 grid gap-1 text-sm sm:grid-cols-3">
-              {working.modules.map((m) => (
-                <label key={m.key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={plan.includedModules.includes(m.key)}
-                    onChange={(e) =>
-                      setPlan({ ...plan, includedModules: e.target.checked ? [...plan.includedModules, m.key] : plan.includedModules.filter((x) => x !== m.key) })
-                    }
-                  />
-                  {m.label}
-                  {!m.active ? <span className="text-[10px] text-[var(--color-text-muted)]">pasif</span> : null}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={plan.pricePublished} onChange={(e) => setPlan({ ...plan, pricePublished: e.target.checked })} />
-              Fiyatı kullanıcıya göster (yayında)
-            </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={plan.status === "active"} onChange={(e) => setPlan({ ...plan, status: e.target.checked ? "active" : "inactive" })} />
-              Aktif (yeni kurumda seçilebilir)
-            </label>
-          </div>
+      {confirm ? (
+        <Card className="space-y-3 border-[var(--color-warning)]">
+          <h2 className="text-sm font-semibold">
+            {confirm.action === "status"
+              ? confirm.toActive ? `"${confirm.label}" satışa alınacak` : `"${confirm.label}" satıştan kaldırılacak`
+              : `"${confirm.label}" kalıcı silinecek`}
+          </h2>
+          {confirm.action === "status" ? (
+            <p className="text-sm text-[var(--color-text-muted)]">
+              {confirm.toActive
+                ? "Paket yeni satışta görünür. Mevcut abonelikler değişmez."
+                : `Paket yeni satışta gizlenir (arşivlenir). ${confirm.usage > 0 ? `${confirm.usage} kurum kabul ettiği koşullarla sürer; ` : "Kullanan kurum yok. "}Geçmiş teklif, sipariş ve belgeler korunur.`}
+            </p>
+          ) : confirm.usage > 0 ? (
+            <p role="alert" className="text-sm text-[var(--color-danger)]">
+              Bu paketi {confirm.usage} kurum kullanıyor; kalıcı silinemez. Önce “Satıştan kaldır”ın ve kurumları başka pakete taşıyın.
+            </p>
+          ) : (
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Kullanan kurum yok; taslaktan kalıcı kaldırılır. Geçmiş kayıtlar (teklif, sipariş, belge) silinmez.
+            </p>
+          )}
           <div className="grid gap-2 sm:grid-cols-[2fr_auto_auto]">
-            <Input aria-label="Gerekçe" placeholder="Gerekçe (en az 5 karakter)" value={plan.reason} onChange={(e) => setPlan({ ...plan, reason: e.target.value })} />
+            <Input
+              aria-label="Gerekçe"
+              placeholder="Gerekçe (en az 5 karakter, denetim kaydı için zorunlu)"
+              value={confirm.reason}
+              onChange={(e) => setConfirm({ ...confirm, reason: e.target.value })}
+            />
             <Button
+              variant={confirm.action === "delete" ? "danger" : "secondary"}
+              disabled={confirm.action === "delete" && confirm.usage > 0}
               onClick={async () => {
-                // isNew sunucu şemasında yok; zod bilinmeyen alanı atar.
-                if (await op({ op: "plan_upsert", ...plan }, "Paket taslağa kaydedildi; denetim kaydı yazıldı.")) setPlan(null);
+                const c = confirm;
+                setConfirm(null);
+                if (c.action === "status") {
+                  await op({ op: "plan_status", key: c.key, status: c.toActive ? "active" : "inactive", reason: c.reason }, "Taslak güncellendi.");
+                } else {
+                  await op({ op: "plan_delete", key: c.key, reason: c.reason }, "Paket taslaktan kaldırıldı.");
+                }
               }}
             >
-              Taslağa kaydet
+              Onayla
             </Button>
-            <Button variant="secondary" onClick={() => setPlan(null)}>
-              Kapat
+            <Button variant="ghost" onClick={() => setConfirm(null)}>
+              Vazgeç
             </Button>
           </div>
         </Card>

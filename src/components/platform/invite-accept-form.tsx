@@ -6,7 +6,16 @@ import { Button, Card, Input } from "@/components/ui";
 import { callApi } from "@/components/platform/api";
 
 /** Public davet kabulü — token URL'den gelir; sunucu hash, süre, tek kullanım ve parola politikasını doğrular. */
-export function InviteAcceptForm({ inviteId, token }: { inviteId: string; token: string }) {
+export function InviteAcceptForm({
+  inviteId,
+  token,
+  continueHref,
+}: {
+  inviteId: string;
+  token: string;
+  /** Kabul sonrası giriş hedefi (örn. satın alma seçimi); yoksa düz giriş. */
+  continueHref?: string | null;
+}) {
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,10 +33,16 @@ export function InviteAcceptForm({ inviteId, token }: { inviteId: string; token:
   }
 
   if (done) {
+    const loginHref = continueHref ? `/login?next=${encodeURIComponent(continueHref)}` : "/login";
     return (
       <Card>
         <p className="text-sm">Hesabınız oluşturuldu: <strong>{done}</strong></p>
-        <Link href="/login" className="mt-3 inline-block text-sm text-[var(--color-primary)] hover:underline">Giriş yap</Link>
+        {continueHref ? (
+          <p className="mt-2 text-sm text-[var(--color-text-muted)]">
+            Giriş yaptıktan sonra satın alma seçiminizle devam edeceksiniz.
+          </p>
+        ) : null}
+        <Link href={loginHref} className="mt-3 inline-block text-sm text-[var(--color-primary)] hover:underline">Giriş yap</Link>
       </Card>
     );
   }

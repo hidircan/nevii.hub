@@ -19,7 +19,7 @@ export default async function ReleaseCenterPage() {
     <div className="space-y-4">
       <PageHeader
         title="Release & operasyon merkezi"
-        description="Commit, release ve deployment ayrı kavramlardır. Canlı GitHub/Vercel verisi bu sürümde bağlı değil — gösterilen her kayıt kaynağıyla etiketlidir."
+        description="Kod değişikliği, sürüm ve yayın ayrı kavramlardır. Canlı GitHub/Vercel verisi bu sürümde bağlı değil — gösterilen her kayıt kaynağıyla etiketlidir."
         actions={
           <span className="flex gap-2 text-sm">
             <Link className="underline" href="/platform/surumler">Sürümler</Link>

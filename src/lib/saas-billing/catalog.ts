@@ -18,6 +18,7 @@ import {
   type SaasBillingInterval,
   type SaasPriceSnapshot,
 } from "./types";
+import { formatExVat, type TaxBreakdown } from "./tax";
 
 export const SAAS_TAX_NOTE = TAX_NOTE;
 export const SAAS_SANDBOX_NOTE = "SANDBOX test tutarıdır; gerçek ticari fiyat değildir.";
@@ -81,9 +82,9 @@ export async function getPricedPlan(
     usdAmountMinor: null,
     amountMinor,
     monthlyEquivalentMinor,
-    displayTotal: formatMinorTR(amountMinor),
+    displayTotal: formatExVat(amountMinor),
     displayMonthlyEquivalent:
-      monthlyEquivalentMinor === null ? null : formatMinorTR(monthlyEquivalentMinor),
+      monthlyEquivalentMinor === null ? null : formatExVat(monthlyEquivalentMinor),
     renewalNote: renewalNoteFor(interval),
     taxNote: SAAS_TAX_NOTE,
     pricePublished: plan.pricePublished,
@@ -143,6 +144,8 @@ export function buildPriceSnapshot(args: {
   postCampaignNote: string | null;
   acceptedBy: string;
   nowIso?: string;
+  /** Kabul anındaki vergi kırılımı (checkout/trial hesaplar; yoksa null kalır). */
+  tax?: TaxBreakdown | null;
 }): SaasPriceSnapshot {
   return {
     planKey: args.plan.planKey,
@@ -151,10 +154,19 @@ export function buildPriceSnapshot(args: {
     billingInterval: args.plan.billingInterval,
     currency: args.plan.currency,
     amountMinor: args.plan.amountMinor,
-    monthlyEquivalentMinor: args.plan.monthlyEquivalentMinor,
+    // Eşdeğer, HER ZAMAN yürürlükteki tutardan türetilir: kampanya
+    // indirimi monthlyEquivalentMinor'ı liste değerinde bırakmamalı.
+    monthlyEquivalentMinor:
+      args.plan.billingInterval === "yearly"
+        ? monthlyEquivalentOfYearly(args.plan.amountMinor)
+        : null,
     campaignCode: args.campaignCode,
     campaignNote: args.campaignNote,
     postCampaignNote: args.postCampaignNote,
+    taxRateBps: args.tax?.rateBps ?? null,
+    taxAmountMinor: args.tax?.taxMinor ?? null,
+    totalWithTaxMinor: args.tax?.totalMinor ?? null,
+    taxDemo: args.tax?.demo ?? false,
     limits: args.limits,
     includedModules: args.includedModules,
     taxNote: args.plan.taxNote,

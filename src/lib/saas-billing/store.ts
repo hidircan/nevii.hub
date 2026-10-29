@@ -59,23 +59,35 @@ export function boundedPayload(payload: Record<string, unknown>): Record<string,
 }
 
 type SaasBillingFile = {
-  version: 1;
+  version: 2;
   subscriptions: SaasSubscriptionRecord[];
   attempts: SaasCollectionAttemptRecord[];
   webhookEvents: SaasWebhookEventRecord[];
   campaigns: SaasCampaignRecord[];
   invitations: SaasCheckoutInvitationRecord[];
   trialRequests: SaasTrialRequestRecord[];
+  purchaseRequests: import("./types").SaasPurchaseRequestRecord[];
+  pendingOrders: import("./types").SaasPendingOrderRecord[];
+  quotes: import("./quotes").SaasQuoteRequestRecord[];
+  billingProfiles: import("./invoicing-profile").BillingProfileRecord[];
+  invoiceOrders: import("./invoicing-orders").InvoiceOrderRecord[];
+  eDocuments: import("./invoicing-orders").EDocumentRecord[];
 };
 
 const EMPTY: SaasBillingFile = {
-  version: 1,
+  version: 2,
   subscriptions: [],
   attempts: [],
   webhookEvents: [],
   campaigns: [],
   invitations: [],
   trialRequests: [],
+  purchaseRequests: [],
+  pendingOrders: [],
+  quotes: [],
+  billingProfiles: [],
+  invoiceOrders: [],
+  eDocuments: [],
 };
 
 let memoryState: SaasBillingFile | null = null;
@@ -89,13 +101,19 @@ async function readFile(): Promise<SaasBillingFile> {
     const raw = await fs.readFile(SAAS_BILLING_STORE_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<SaasBillingFile>;
     return {
-      version: 1,
+      version: 2,
       subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
       attempts: Array.isArray(parsed.attempts) ? parsed.attempts : [],
       webhookEvents: Array.isArray(parsed.webhookEvents) ? parsed.webhookEvents : [],
       campaigns: Array.isArray(parsed.campaigns) ? parsed.campaigns : [],
       invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [],
       trialRequests: Array.isArray(parsed.trialRequests) ? parsed.trialRequests : [],
+      purchaseRequests: Array.isArray(parsed.purchaseRequests) ? parsed.purchaseRequests : [],
+      pendingOrders: Array.isArray(parsed.pendingOrders) ? parsed.pendingOrders : [],
+      quotes: Array.isArray(parsed.quotes) ? parsed.quotes : [],
+      billingProfiles: Array.isArray(parsed.billingProfiles) ? parsed.billingProfiles : [],
+      invoiceOrders: Array.isArray(parsed.invoiceOrders) ? parsed.invoiceOrders : [],
+      eDocuments: Array.isArray(parsed.eDocuments) ? parsed.eDocuments : [],
     };
   } catch (e) {
     if ((e as NodeJS.ErrnoException)?.code === "ENOENT") return clone(EMPTY);
@@ -926,6 +944,20 @@ export async function getSaasInvitationByTokenHash(
   return s.invitations.find((x) => x.tokenHash === tokenHash) ?? null;
 }
 
+export async function listSaasInvitations(limit = 100): Promise<SaasCheckoutInvitationRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  if (isDbMode) {
+    try {
+      const rows = await prisma.saasCheckoutInvitation.findMany({ take: n, orderBy: { createdAt: "desc" } });
+      return rows as unknown as SaasCheckoutInvitationRecord[];
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const s = await readState();
+  return [...s.invitations].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
+}
+
 export async function findSaasInvitationByProposal(
   proposalId: string,
   proposalVersion: number
@@ -1037,6 +1069,217 @@ export async function saveSaasTrialRequest(
   else next.trialRequests.push(clone(r));
   await writeState(next);
   return r;
+}
+
+export async function getSaasQuoteRequest(
+  id: string
+): Promise<import("./quotes").SaasQuoteRequestRecord | null> {
+  const s = await readState();
+  return s.quotes.find((x) => x.id === id) ?? null;
+}
+
+export async function saveSaasQuoteRequest(
+  r: import("./quotes").SaasQuoteRequestRecord
+): Promise<import("./quotes").SaasQuoteRequestRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.quotes.findIndex((x) => x.id === r.id);
+  if (idx >= 0) next.quotes[idx] = clone(r);
+  else next.quotes.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function listSaasQuoteRequests(
+  limit = 50
+): Promise<import("./quotes").SaasQuoteRequestRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return [...s.quotes].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
+}
+
+// ── Purchase requests (JSON/memory; quotes emsali — migration yok) ──
+
+export async function getSaasPurchaseRequest(
+  id: string
+): Promise<import("./types").SaasPurchaseRequestRecord | null> {
+  const s = await readState();
+  return s.purchaseRequests.find((x) => x.id === id) ?? null;
+}
+
+export async function saveSaasPurchaseRequest(
+  r: import("./types").SaasPurchaseRequestRecord
+): Promise<import("./types").SaasPurchaseRequestRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.purchaseRequests.findIndex((x) => x.id === r.id);
+  if (idx >= 0) next.purchaseRequests[idx] = clone(r);
+  else next.purchaseRequests.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function listSaasPurchaseRequests(
+  limit = 50
+): Promise<import("./types").SaasPurchaseRequestRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return [...s.purchaseRequests].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
+}
+
+// ── Pending orders (JSON/memory; loginless huni — migration yok) ──
+
+export async function getSaasPendingOrder(
+  id: string
+): Promise<import("./types").SaasPendingOrderRecord | null> {
+  const s = await readState();
+  return s.pendingOrders.find((x) => x.id === id) ?? null;
+}
+
+export async function getSaasPendingOrderByTokenHash(
+  tokenHash: string
+): Promise<import("./types").SaasPendingOrderRecord | null> {
+  const s = await readState();
+  return s.pendingOrders.find((x) => x.accessTokenHash === tokenHash) ?? null;
+}
+
+export async function getSaasPendingOrderByIdempotencyKey(
+  key: string
+): Promise<import("./types").SaasPendingOrderRecord | null> {
+  const s = await readState();
+  return s.pendingOrders.find((x) => x.idempotencyKey === key) ?? null;
+}
+
+export async function listSaasPendingOrdersByEmail(
+  email: string
+): Promise<import("./types").SaasPendingOrderRecord[]> {
+  const s = await readState();
+  const e = email.trim().toLowerCase();
+  return s.pendingOrders.filter((x) => x.ownerEmail === e);
+}
+
+export async function saveSaasPendingOrder(
+  r: import("./types").SaasPendingOrderRecord
+): Promise<import("./types").SaasPendingOrderRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.pendingOrders.findIndex((x) => x.id === r.id);
+  if (idx >= 0) next.pendingOrders[idx] = clone(r);
+  else next.pendingOrders.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function listSaasPendingOrders(
+  limit = 50
+): Promise<import("./types").SaasPendingOrderRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return [...s.pendingOrders].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
+}
+
+/**
+ * Fatura profili + sipariş snapshot + e-belge kayıtları — JSON/memory
+ * deposundadır (quotes emsali). Prisma kalıcılığı için ayrı migration
+ * gerekir (BU TURDA migration YOK — bkz. görev sınırı).
+ */
+export async function getBillingProfile(
+  tenantId: string
+): Promise<import("./invoicing-profile").BillingProfileRecord | null> {
+  const s = await readState();
+  return s.billingProfiles.find((x) => x.tenantId === tenantId) ?? null;
+}
+
+export async function saveBillingProfile(
+  r: import("./invoicing-profile").BillingProfileRecord
+): Promise<import("./invoicing-profile").BillingProfileRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.billingProfiles.findIndex((x) => x.tenantId === r.tenantId);
+  if (idx >= 0) next.billingProfiles[idx] = clone(r);
+  else next.billingProfiles.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function getInvoiceOrder(
+  id: string
+): Promise<import("./invoicing-orders").InvoiceOrderRecord | null> {
+  const s = await readState();
+  return s.invoiceOrders.find((x) => x.id === id) ?? null;
+}
+
+export async function getInvoiceOrderByAttempt(
+  attemptId: string
+): Promise<import("./invoicing-orders").InvoiceOrderRecord | null> {
+  const s = await readState();
+  return s.invoiceOrders.find((x) => x.attemptId === attemptId) ?? null;
+}
+
+export async function saveInvoiceOrder(
+  r: import("./invoicing-orders").InvoiceOrderRecord
+): Promise<import("./invoicing-orders").InvoiceOrderRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.invoiceOrders.findIndex((x) => x.id === r.id);
+  if (idx >= 0) next.invoiceOrders[idx] = clone(r);
+  else next.invoiceOrders.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function listTenantInvoiceOrders(
+  tenantId: string,
+  limit = 50
+): Promise<import("./invoicing-orders").InvoiceOrderRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return s.invoiceOrders
+    .filter((x) => x.tenantId === tenantId)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+    .slice(0, n);
+}
+
+export async function listAllInvoiceOrders(
+  limit = 100
+): Promise<import("./invoicing-orders").InvoiceOrderRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return [...s.invoiceOrders].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
+}
+
+export async function getEDocument(
+  id: string
+): Promise<import("./invoicing-orders").EDocumentRecord | null> {
+  const s = await readState();
+  return s.eDocuments.find((x) => x.id === id) ?? null;
+}
+
+export async function getEDocumentByOrder(
+  orderId: string
+): Promise<import("./invoicing-orders").EDocumentRecord | null> {
+  const s = await readState();
+  return s.eDocuments.find((x) => x.orderId === orderId) ?? null;
+}
+
+export async function saveEDocument(
+  r: import("./invoicing-orders").EDocumentRecord
+): Promise<import("./invoicing-orders").EDocumentRecord> {
+  const s = await readState();
+  const next = clone(s);
+  const idx = next.eDocuments.findIndex((x) => x.id === r.id);
+  if (idx >= 0) next.eDocuments[idx] = clone(r);
+  else next.eDocuments.push(clone(r));
+  await writeState(next);
+  return r;
+}
+
+export async function listAllEDocuments(
+  limit = 100
+): Promise<import("./invoicing-orders").EDocumentRecord[]> {
+  const n = Math.min(Math.max(limit, 1), 200);
+  const s = await readState();
+  return [...s.eDocuments].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, n);
 }
 
 export async function listSaasTrialRequests(limit = 50): Promise<SaasTrialRequestRecord[]> {

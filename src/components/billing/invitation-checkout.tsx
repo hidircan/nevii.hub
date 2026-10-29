@@ -19,6 +19,7 @@ export function InvitationCheckout({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutHtml, setCheckoutHtml] = useState<string | null>(null);
+  const [isMock, setIsMock] = useState(false);
   const [formPost, setFormPost] = useState<{ postUrl: string; fields: Record<string, string> } | null>(null);
   const [customer, setCustomer] = useState({
     name: "",
@@ -59,6 +60,7 @@ export function InvitationCheckout({
         return;
       }
       setCheckoutHtml(json.data.checkoutFormContent);
+      setIsMock(json.data.mock === true);
     } catch {
       setBusy(false);
       setError("Bağlantı hatası.");
@@ -95,8 +97,8 @@ export function InvitationCheckout({
         <input type="checkbox" checked={acceptedRecurring} onChange={(e) => setAcceptedRecurring(e.target.checked)} className="mt-1" required />
         <span>
           Kartımın güvenli saklanmasını ve her dönem başında otomatik tahsilatı
-          kabul ediyorum. Kart bilgilerim yalnızca ödeme sağlayıcısının güvenli
-          sayfasında alınır.
+          kabul ediyorum. Kart numaram NeviiHub sunucularında saklanmaz;
+          ödeme adımında doğrudan sağlayıcıya iletilir.
         </span>
       </label>
       {error ? (
@@ -110,6 +112,11 @@ export function InvitationCheckout({
     </form>
       {checkoutHtml ? (
         <div className="mt-4 rounded-lg ring-1 ring-slate-200">
+          {isMock ? (
+            <p className="rounded-t-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 ring-1 ring-amber-200" role="note">
+              MOCK ödeme alanı (gerçek tahsilat değildir). Bu demo alanına gerçek kart bilgisi girmeyin.
+            </p>
+          ) : null}
           <div dangerouslySetInnerHTML={{ __html: checkoutHtml }} />
         </div>
       ) : null}

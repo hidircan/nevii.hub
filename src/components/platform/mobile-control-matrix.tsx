@@ -5,7 +5,7 @@ import { MOBILE_BINARY_REQUIRED } from "@/lib/platform/mobile-policy";
 const ENTITLEMENT_LABEL: Record<string, string> = {
   plan: "pakette",
   addon: "eklenti",
-  override: "platform override",
+  override: "platform özel izni",
   none: "pakette yok",
 };
 
@@ -25,9 +25,9 @@ function fmtValue(v: unknown): string {
 export function MobileControlMatrix({ rows }: { rows: MobileControlRow[] }) {
   return (
     <Card>
-      <h2 className="text-sm font-semibold text-[var(--color-text)]">Kontrol matrisi: hak · ayar · efektif · istemci</h2>
+      <h2 className="text-sm font-semibold text-[var(--color-text)]">Kontrol özeti: hak, ayar, sonuç, telefona yansıma</h2>
       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-        Efektif sonuç = paket hakkı <em>ve</em> ayar. Hak yoksa anahtar açılsa bile erişim verilmez — sunucu reddeder.
+        Sonuç = paket hakkı <em>ve</em> ayar birlikte. Hak yoksa düğme açık olsa bile erişim verilmez; sunucu reddeder.
       </p>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
@@ -35,9 +35,9 @@ export function MobileControlMatrix({ rows }: { rows: MobileControlRow[] }) {
             <tr className="border-b text-xs text-[var(--color-text-muted)]" style={{ borderColor: "var(--color-border)" }}>
               <th scope="col" className="py-2 pr-3 font-medium">Kontrol</th>
               <th scope="col" className="py-2 pr-3 font-medium">Paket hakkı</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Ayar (kaynak)</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Efektif</th>
-              <th scope="col" className="py-2 font-medium">İstemciye yansıma</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Ayar ve kaynağı</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Sonuç</th>
+              <th scope="col" className="py-2 font-medium">Telefona yansıma</th>
             </tr>
           </thead>
           <tbody>
@@ -76,8 +76,8 @@ export function MobileControlMatrix({ rows }: { rows: MobileControlRow[] }) {
       </div>
       <h3 className="mt-4 text-xs font-semibold text-[var(--color-text)]">Uzaktan değişir / yeni sürüm ister</h3>
       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-        Yukarıdaki tüm kontroller snapshot + policy pull ile uzaktan değişir (uygulama yeniden açıldığında uygulanır).
-        Aşağıdakiler yeni mobil sürüm gerektirir — canlı değişiyormuş gibi vaat edilmez:
+        Yukarıdaki tüm kontroller uzaktan değişir (uygulama yeniden açıldığında uygulanır).
+        Aşağıdakiler yeni mobil sürüm gerektirir:
       </p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-[var(--color-text-muted)]">
         {MOBILE_BINARY_REQUIRED.map((b) => (

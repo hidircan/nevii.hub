@@ -57,15 +57,7 @@ export function getPublicAppBaseUrl(): string {
 }
 
 /**
- * P0 (2026-08-31, hoşgeldin e-postası) — mobil app mağaza linkleri. Uygulama
- * henüz YAYINLANMADI (bkz. apps/mobile — iskelet/geliştirme aşamasında);
- * env değişkeni set EDİLMEDİKÇE `undefined` döner ve e-posta şablonu bu
- * bölümü TAMAMEN GİZLER — asla kırık/sahte bir mağaza linki gösterilmez.
- * Uygulama yayınlandığında yalnızca bu iki env değişkenini set etmek yeterli.
+ * Mağaza bağlantılarının tek etkin kaynağı `resolveMobileAppLinks`
+ * (`lib/platform/site-mobile-apps.ts`): site ayarı > env. Bu dosyada
+ * ikinci bir okuma tutulmaz.
  */
-export function getMobileAppLinks(): { appStoreUrl?: string; playStoreUrl?: string } {
-  return {
-    appStoreUrl: process.env.APP_STORE_URL || undefined,
-    playStoreUrl: process.env.PLAY_STORE_URL || undefined,
-  };
-}

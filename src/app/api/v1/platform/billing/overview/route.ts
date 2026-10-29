@@ -6,6 +6,8 @@ import { appendPlatformAudit } from "@/lib/platform/store";
 import { getBillingOverview } from "@/lib/saas-billing/overview";
 import { reconcileSubscriptions } from "@/lib/saas-billing/webhooks";
 import { decideTrialRequest } from "@/lib/saas-billing/trial";
+import { decideQuoteRequest } from "@/lib/saas-billing/quotes";
+import { decidePurchaseRequest } from "@/lib/saas-billing/purchase";
 import { approveManualPayment } from "@/lib/saas-billing/manual";
 import { getSaasAttemptById, releaseStuckClaim } from "@/lib/saas-billing/store";
 
@@ -42,7 +44,7 @@ const exceptionSchema = z.object({
 export const POST = withApiHandler(
   async ({ ctx, body }) => {
     const parsed = z
-      .object({ action: z.enum(["exception", "enforcement", "reconcile", "trial_decide", "manual_approve", "release_claim"]) })
+      .object({ action: z.enum(["exception", "enforcement", "reconcile", "trial_decide", "quote_decide", "purchase_decide", "manual_approve", "release_claim"]) })
       .passthrough()
       .safeParse(body);
     if (!parsed.success) return fail("VALIDATION_ERROR", "Geçersiz işlem.");
@@ -71,6 +73,65 @@ export const POST = withApiHandler(
         targetTenantId: v.data.tenantId ?? null,
         action: v.data.approve ? "billing.trial.approve" : "billing.trial.reject",
         entityType: "saas_trial_request",
+        entityId: v.data.requestId,
+        before: null,
+        after: { status: res.data.status, tenantId: res.data.tenantId },
+        requestId: ctx.requestId ?? "-",
+        outcome: "success",
+      });
+      return ok({ requestId: v.data.requestId, status: res.data.status });
+    }
+
+    if (action === "quote_decide") {
+      const v = z
+        .object({ requestId: z.string().min(1), approve: z.boolean() })
+        .safeParse(body);
+      if (!v.success) return fail("VALIDATION_ERROR", "Geçersiz teklif kararı.");
+      const res = await decideQuoteRequest({
+        id: v.data.requestId,
+        approve: v.data.approve,
+        decidedBy: ctx.userId,
+      });
+      if (!res.ok) return res;
+      await appendPlatformAudit({
+        actorUserId: ctx.userId,
+        actorRole: ctx.role,
+        actorTenantId: ctx.tenantId,
+        targetTenantId: null,
+        action: v.data.approve ? "billing.quote.contacted" : "billing.quote.closed",
+        entityType: "saas_quote_request",
+        entityId: v.data.requestId,
+        before: null,
+        after: { status: res.data.status },
+        requestId: ctx.requestId ?? "-",
+        outcome: "success",
+      });
+      return ok({ requestId: v.data.requestId, status: res.data.status });
+    }
+
+    if (action === "purchase_decide") {
+      const v = z
+        .object({
+          requestId: z.string().min(1),
+          approve: z.boolean(),
+          tenantId: z.string().min(1).optional(),
+        })
+        .safeParse(body);
+      if (!v.success) return fail("VALIDATION_ERROR", "Geçersiz satın alma kararı.");
+      const res = await decidePurchaseRequest({
+        requestId: v.data.requestId,
+        approve: v.data.approve,
+        tenantId: v.data.tenantId,
+        decidedBy: ctx.userId,
+      });
+      if (!res.ok) return res;
+      await appendPlatformAudit({
+        actorUserId: ctx.userId,
+        actorRole: ctx.role,
+        actorTenantId: ctx.tenantId,
+        targetTenantId: v.data.tenantId ?? null,
+        action: v.data.approve ? "billing.purchase.approve" : "billing.purchase.reject",
+        entityType: "saas_purchase_request",
         entityId: v.data.requestId,
         before: null,
         after: { status: res.data.status, tenantId: res.data.tenantId },

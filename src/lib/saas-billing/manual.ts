@@ -21,7 +21,10 @@ const manualInputSchema = z.object({
   tenantId: z.string().min(1),
   /** Banka/dekont referansı (tekil). */
   providerRef: z.string().trim().min(3).max(80),
-  amountMinor: z.number().int().positive(),
+  /** Dekonttaki toplam (KDV DAHİL) — snapshot'taki toplamla eşleşmeli. */
+  amountMinor: z.number().int().positive().optional(),
+  /** TL girişi (₺, ondalıklı) — sunucu kuruşa çevirir; amountMinor ile ikisi birden verilemez. */
+  amountTl: z.union([z.string(), z.number()]).optional(),
   currency: z.string().refine(isSaasCurrency, "Desteklenmeyen para birimi."),
   /** Paranın geçtiği tarih (ISO). */
   occurredAt: z.iso.datetime(),
@@ -41,10 +44,19 @@ export async function approveManualPayment(args: {
   const now = args.nowIso ?? new Date().toISOString();
   const sub = await getSaasSubscription(v.tenantId);
   if (!sub) return fail("NOT_FOUND", "Abonelik bulunamadı.");
+  // TL girişi → kuruş dönüşümü SUNUCUDA (Math.round; virgül ondalık ayracı da kabul edilir).
+  let amountMinor = v.amountMinor ?? null;
+  if (v.amountTl !== undefined && v.amountTl !== null && String(v.amountTl).trim() !== "") {
+    if (amountMinor !== null) return fail("VALIDATION_ERROR", "Tutar yalnız bir biçimde verilmeli.");
+    const n = Number(String(v.amountTl).trim().replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(n) || n <= 0) return fail("VALIDATION_ERROR", "Geçersiz TL tutarı.");
+    amountMinor = Math.round(n * 100);
+  }
+  if (amountMinor === null || amountMinor <= 0) return fail("VALIDATION_ERROR", "Tutar zorunlu.");
 
   const applied = await applyCollectionSuccess({
     tenantId: v.tenantId,
-    amountMinor: v.amountMinor,
+    amountMinor,
     currency: v.currency as import("./types").SaasCurrency,
     provider: "manual",
     merchantAccount: "manual",

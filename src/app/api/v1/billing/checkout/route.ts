@@ -14,6 +14,8 @@ import { getSaasSubscription, upsertSaasSubscription } from "@/lib/saas-billing/
 import { addProviderLink, buildPendingSubscription } from "@/lib/saas-billing/subscriptions";
 import { isSaasBillingInterval } from "@/lib/saas-billing/types";
 import type { SaasBillingInterval } from "@/lib/saas-billing/types";
+import { formatMinorTR, monthlyEquivalentOfYearly } from "@/lib/saas-billing/types";
+import { formatExVat, getTaxConfig, taxBreakdown } from "@/lib/saas-billing/tax";
 import { resolveTenantLimits } from "@/lib/platform/entitlements";
 import { getPublishedCatalog } from "@/lib/platform/commercial-catalog";
 import { getUserById } from "@/lib/auth/users";
@@ -111,6 +113,17 @@ export const POST = withApiHandler(
     const user = await getUserById(ctx.userId);
     if (!user?.email) return fail("UNAUTHORIZED", "Doğrulanmış kullanıcı e-postası bulunamadı.");
 
+    // Fatura profili ödeme ÖNCESİ zorunlu: alıcı bilgisi olmadan tahsilat
+    // başlatılmaz (belge hattı profilsiz sipariş üretmez).
+    const { getBillingProfile } = await import("@/lib/saas-billing/store");
+    const billingProfile = await getBillingProfile(ctx.tenantId);
+    if (!billingProfile) {
+      return fail(
+        "VALIDATION_ERROR",
+        "Önce Fatura Bilgilerim alanından fatura profilinizi tamamlayın."
+      );
+    }
+
     const existing = await getSaasSubscription(ctx.tenantId);
     // Mevcut abonelik kendi sağlayıcısında kalır; global varsayılan YALNIZCA
     // YENİ abonelikler içindir ve eskileri sessizce taşımaz.
@@ -121,6 +134,17 @@ export const POST = withApiHandler(
       const missing = provider.missingPreconditions()[0] ?? "Sağlayıcı yapılandırılmadı.";
       return fail("FORBIDDEN", `SaaS tahsilat sağlayıcısı (${providerId}) hazır değil: ${missing}`);
     }
+    // Vergi kapısı: liste KDV hariçtir; oran doğrulanmadan GERÇEK
+    // sağlayıcıda checkout kapalı. Mock/demo akışta örnek oran kullanılır
+    // ve HER yüzeyde örnek diye işaretlenir (snapshot'a taxDemo=true).
+    const tax = getTaxConfig();
+    if (providerId !== "mock" && !tax.verified) {
+      return fail(
+        "FORBIDDEN",
+        "KDV oranı doğrulanmadı; gerçek checkout kapalı. Oran mali müşavir onayıyla tanımlanmadan tahsilat başlatılamaz."
+      );
+    }
+    const taxLines = taxBreakdown(amountMinor, tax, plan.currency);
 
     const origin = new URL(request.url).origin;
     // Pending abonelik ÖNCE yazılır; conversationId abonelik kimliğini taşır
@@ -137,6 +161,7 @@ export const POST = withApiHandler(
       campaignNote,
       postCampaignNote: v.campaignCode ? campaignNote : "Liste fiyatı uygulanır.",
       acceptedBy: ctx.userId,
+      tax: taxLines,
     });
     const pendingSub = existing
       ? {
@@ -173,7 +198,8 @@ export const POST = withApiHandler(
       tenantId: ctx.tenantId,
       planKey: v.planKey,
       billingInterval: interval,
-      amountMinor,
+      // Karttan çekilen toplam = müşterinin onayladığı KDV dahil toplam.
+      amountMinor: taxLines.totalMinor,
       currency: pendingSub.currency,
       callbackUrl: `${origin}/api/v1/billing/checkout/callback`,
       okUrl: `${origin}/abonelik/sonuc?status=pending`,
@@ -227,7 +253,7 @@ export const POST = withApiHandler(
         periodStart: now,
         periodEnd: now,
         debtKey: debtKeyFor(pendingSub.id, now),
-        amountMinor,
+        amountMinor: taxLines.totalMinor,
         currency: pendingSub.currency,
         status: "pending",
         kind: "charge",
@@ -256,8 +282,36 @@ export const POST = withApiHandler(
       mock: init.mock,
       provider: providerId,
       executionModel: provider.executionModel,
-      summary: prePaymentSummary(plan),
+      // Kampanya varsa özet İNDİRİMLİ tutardan kurulur; liste fiyatı
+      // gösterimi müşteriye yanlış tutar kabul ettirirdi.
+      summary: v.campaignCode
+        ? {
+            ...prePaymentSummary(plan),
+            total: formatExVat(amountMinor, plan.currency),
+            period:
+              interval === "yearly"
+                ? `Yıllık (yılda tek tahsilat, aylık eşdeğer ${formatExVat(monthlyEquivalentOfYearly(amountMinor), plan.currency)})`
+                : "Aylık",
+          }
+        : prePaymentSummary(plan),
+      // Ödeme özeti: liste → indirim → KDV hariç ara toplam → KDV → toplam.
+      // Karttan çekilen = toplam (müşterinin onayladığı tutar).
+      breakdown: {
+        listMinor: plan.amountMinor,
+        discountedMinor: amountMinor,
+        campaignCode: v.campaignCode ?? null,
+        exclMinor: taxLines.exclMinor,
+        taxMinor: taxLines.taxMinor,
+        totalMinor: taxLines.totalMinor,
+        rateBps: taxLines.rateBps,
+        rateLabel: taxLines.rateLabel,
+        taxDemo: taxLines.demo,
+        displayExcl: taxLines.displayExcl,
+        displayTax: taxLines.displayTax,
+        displayTotal: taxLines.displayTotal,
+      },
       idempotencyKey,
+      billingProfileId: billingProfile.id,
     });
   },
   { permission: "billing:write" }

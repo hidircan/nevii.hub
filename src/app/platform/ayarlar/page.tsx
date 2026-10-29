@@ -15,7 +15,7 @@ export default async function PlatformSettingsPage() {
     <div>
       <PageHeader
         title="Platform varsayılanları"
-        description="Tüm kurumların üzerine binen varsayılan değerler. Kurum ve şube override'ları daha önceliklidir."
+        description="Tüm kurumlara uygulanan varsayılan değerler. Kurum ve şubeye özel ayarlar daha önceliklidir."
       />
       <SettingsEditor
         settings={result.data.settings}

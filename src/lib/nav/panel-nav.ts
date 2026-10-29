@@ -105,6 +105,10 @@ export const PANEL_AI_NAV: PanelNavItem[] = [
 ];
 
 export const PANEL_SYSTEM_NAV: PanelNavItem[] = [
+  /** Kurum sahibinin kendi NeviiHub aboneliği — /abonelik sayfaları (SUPER_ADMIN yazar, SCHOOL_ADMIN okur). */
+  { href: "/abonelik", label: "Aboneliğim", icon: RefreshCcw, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/abonelik/fatura-bilgilerim", label: "Fatura Bilgilerim", icon: FileText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
+  { href: "/abonelik/faturalar", label: "Faturalarım", icon: ScrollText, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/kurum", label: "Kurum Ayarları", icon: Settings, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/ozellikler", label: "Kurum Özellikleri", icon: ShieldCheck, roles: ["SUPER_ADMIN", "SCHOOL_ADMIN"] },
   { href: "/panel/ayarlar/entegrasyonlar", label: "Kurum Entegrasyonları", icon: Activity, roles: ["SUPER_ADMIN"] },

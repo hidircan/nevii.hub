@@ -4,7 +4,7 @@ import { useState } from "react";
 
 /**
  * Herkese açık deneme başvuru formu. Tenant açmaz, kart istemez;
- * başvuru NeviiOS'ta değerlendirilir, onay sonrası güvenli davet akışıyla
+ * başvuru platform ekibince değerlendirilir, onay sonrası güvenli davet akışıyla
  * (kurum sahibi daveti → tenant provision) ilerlenir.
  */
 export function TrialRequestForm() {

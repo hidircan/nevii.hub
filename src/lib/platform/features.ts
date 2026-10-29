@@ -280,14 +280,6 @@ export const PLAN_FEATURE_DEFAULTS: Record<PlanKey, Record<FeatureFlagKey, boole
   },
 };
 
-export const WIZARD_PLAN_LABELS: Record<"starter" | "core" | "pro" | "scale" | "enterprise", string> = {
-  starter: "Starter",
-  core: "Core",
-  pro: "Pro",
-  scale: "Scale",
-  enterprise: "Enterprise",
-};
-
 export function isFeatureFlagKey(value: string): value is FeatureFlagKey {
   return (FEATURE_FLAGS as readonly string[]).includes(value);
 }

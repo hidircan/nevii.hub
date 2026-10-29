@@ -110,10 +110,13 @@ export async function applyCollectionSuccess(
       `Para birimi uyuşmazlığı: beklenen ${sub.currency}, gelen ${args.currency}.`
     );
   }
-  if (args.amountMinor !== sub.priceSnapshot.amountMinor) {
+  // KDV dahil toplam snapshot'taki toplamla eşleşmeli (eski kayıtlarda
+  // toplam yoksa KDV hariç tutar — geriye uyumluluk).
+  const expectedTotal = sub.priceSnapshot.totalWithTaxMinor ?? sub.priceSnapshot.amountMinor;
+  if (args.amountMinor !== expectedTotal) {
     return fail(
       "VALIDATION_ERROR",
-      `Tutar uyuşmazlığı: beklenen ${sub.priceSnapshot.amountMinor}, gelen ${args.amountMinor}.`
+      `Tutar uyuşmazlığı: beklenen ${expectedTotal}, gelen ${args.amountMinor}.`
     );
   }
 

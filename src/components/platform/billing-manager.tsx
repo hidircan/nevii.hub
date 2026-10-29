@@ -5,7 +5,9 @@ import { useState } from "react";
 type Overview = {
   subscriptions: {
     tenantId: string;
+    tenantName: string | null;
     planKey: string;
+    planLabel: string;
     status: string;
     billingInterval: string;
     amountMinor: number;
@@ -25,21 +27,47 @@ type Overview = {
     exception: unknown;
     updatedAt: string;
   }[];
+  tenants: { tenantId: string; name: string }[];
   lastWebhooks: { id: string; provider: string; eventId: string; eventType: string; tenantId: string | null; status: string; error: string | null; createdAt: string }[];
   failedWebhooks: { id: string; eventId: string; eventType: string; error: string | null; createdAt: string }[];
-  trialRequests: { id: string; institutionName: string; ownerName: string; ownerEmail: string; ownerPhone: string | null; status: string; tenantId: string | null; createdAt: string }[];
 };
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("tr-TR") : "—");
 const fmtMinor = (minor: number) => `${(minor / 100).toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺`;
 
-/** NeviiOS abonelik yönetimi: enforcement, istisna, deneme kararı, mutabakat, kampanya. */
+/** Teknik durum kodları → kullanıcı dili (ham kod başlık ipucunda durur). */
+const SUBSCRIPTION_STATUS_TR: Record<string, string> = {
+  active: "Aktif",
+  trialing: "Denemede",
+  pending: "İlk ödeme bekleniyor",
+  incomplete: "Yarım kaldı",
+  past_due: "Ödeme gecikti",
+  suspended: "Kısıtlı (ödeme yok)",
+  canceled: "İptal edildi",
+  expired: "Süresi doldu",
+};
+
+const PROVIDER_TR: Record<string, string> = {
+  none: "—",
+  mock: "Test ödemesi",
+  iyzico: "iyzico",
+  paytr: "PayTR",
+  manual: "Banka transferi",
+};
+
+function executionTr(model: string | null): string | null {
+  if (model === "MERCHANT_SCHEDULED") return "yenilemeyi NeviiHub başlatır";
+  if (model === "PROVIDER_MANAGED") return "yenilemeyi sağlayıcı otomatik çeker";
+  return null;
+}
+
+/** NeviiOS abonelik yönetimi: erişim kontrolü, istisna, deneme kararı, ödeme karşılaştırma, kampanya. */
 export function BillingManager({ data }: { data: Overview }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [exc, setExc] = useState({ tenantId: "", until: "", reason: "" });
-  const [man, setMan] = useState({ tenantId: "", providerRef: "", amountMinor: "", currency: "TRY", occurredAt: "", note: "" });
-  const [cmp, setCmp] = useState({ name: "", tenantId: "", discountType: "percent", percent: "20", amountMinor: "", intervalScope: "both", validTo: "", maxRenewals: "12", postCampaignNote: "" });
+  const [man, setMan] = useState({ tenantId: "", providerRef: "", amountTl: "", currency: "TRY", occurredAt: "", note: "" });
+  const [cmp, setCmp] = useState({ name: "", tenantId: "", discountType: "percent", percent: "20", amountTl: "", intervalScope: "both", validTo: "", maxRenewals: "12", postCampaignNote: "" });
 
   async function post(path: string, body: unknown) {
     setBusy(true);
@@ -62,76 +90,100 @@ export function BillingManager({ data }: { data: Overview }) {
   }
 
   const refresh = () => window.location.reload();
-  const input = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-amber-600 focus:outline-none";
-  const btn = "rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60";
-  const btnGhost = "rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60";
+  const input = "w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
+  const btn = "rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60";
+  const btnGhost = "rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text)] hover:bg-[var(--color-surface-muted)] disabled:opacity-60";
+  const tenantOptions = (value: string, onChange: (v: string) => void, label: string) => (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={input}>
+      <option value="">Kurum seçin…</option>
+      {data.tenants.map((t) => (
+        <option key={t.tenantId} value={t.tenantId} title={t.tenantId}>
+          {t.name}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div className="space-y-6">
       {notice ? (
-        <p role={notice.kind === "error" ? "alert" : "status"} className={`rounded-xl px-4 py-2.5 text-sm ring-1 ${notice.kind === "error" ? "bg-red-50 text-red-800 ring-red-200" : "bg-emerald-50 text-emerald-800 ring-emerald-200"}`}>
+        <p role={notice.kind === "error" ? "alert" : "status"} className={`rounded-[var(--radius-md)] px-4 py-2.5 text-sm border ${notice.kind === "error" ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)] border-[var(--color-danger)]" : "bg-[var(--color-success-soft)] text-[var(--color-success)] border-[var(--color-success)]"}`}>
           {notice.text}
         </p>
       ) : null}
 
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">Abonelikler ({data.subscriptions.length})</h2>
-          <button disabled={busy} className={btnGhost} onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "reconcile", limit: 25 }); if (d) refresh(); }}>
-            Mutabakat çalıştır
+      <section id="abonelikler" className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-base font-semibold">Kurum abonelikleri ({data.subscriptions.length})</h2>
+          <button disabled={busy} className={btnGhost} title="Sağlayıcıdaki ödeme durumlarıyla yerel kayıtları karşılaştırır" onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "reconcile", limit: 25 }); if (d) refresh(); }}>
+            Ödeme durumlarını karşılaştır
           </button>
         </div>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Her satır bir kurumun aboneliğidir. Satırdaki bağlantılardan kurum detayına ve belgelerine geçilir.</p>
         {data.subscriptions.length === 0 ? (
-          <p className="text-sm text-slate-600">Kayıtlı abonelik yok.</p>
+          <p className="text-sm text-[var(--color-text-muted)]">Kayıtlı abonelik yok.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
                   <th className="py-2 pr-2 font-medium">Kurum</th>
                   <th className="py-2 pr-2 font-medium">Plan</th>
                   <th className="py-2 pr-2 font-medium">Durum</th>
-                  <th className="py-2 pr-2 font-medium">Sağlayıcı</th>
+                  <th className="py-2 pr-2 font-medium">Ödeme kanalı</th>
                   <th className="py-2 pr-2 font-medium">Tutar</th>
-                  <th className="py-2 pr-2 font-medium">Paid-through</th>
-                  <th className="py-2 pr-2 font-medium">Enforcement</th>
+                  <th className="py-2 pr-2 font-medium">Ödenmiş kullanım süresi</th>
+                  <th className="py-2 pr-2 font-medium" title="Ödeme durumuna göre erişim kontrolü">Erişim kontrolü</th>
                   <th className="py-2 font-medium">İşlem</th>
                 </tr>
               </thead>
               <tbody>
-                {data.subscriptions.map((s) => (
-                  <tr key={s.tenantId} className="border-b border-slate-100">
-                    <td className="py-2 pr-2 font-mono">{s.tenantId.slice(0, 12)}…</td>
-                    <td className="py-2 pr-2">{s.planKey} ({s.billingInterval === "yearly" ? "yıllık" : "aylık"})</td>
-                    <td className="py-2 pr-2">{s.status}</td>
-                    <td className="py-2 pr-2">{s.provider}{s.executionModel === "MERCHANT_SCHEDULED" ? " (M)" : s.executionModel === "PROVIDER_MANAGED" ? " (P)" : ""}</td>
-                    <td className="py-2 pr-2">{fmtMinor(s.amountMinor)}{s.sandbox ? " (SBX)" : ""}</td>
-                    <td className="py-2 pr-2">{fmtDate(s.paidThrough)}</td>
-                    <td className="py-2 pr-2">{s.enforcement ? "AÇIK" : "kapalı"}</td>
-                    <td className="py-2">
-                      <button
-                        disabled={busy}
-                        className={btnGhost}
-                        onClick={async () => {
-                          const d = await post("/api/v1/platform/billing/overview", { action: "enforcement", tenantId: s.tenantId, enabled: !s.enforcement });
-                          if (d) refresh();
-                        }}
-                      >
-                        {s.enforcement ? "Kapat" : "Aç"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {data.subscriptions.map((s) => {
+                  const exec = executionTr(s.executionModel);
+                  return (
+                    <tr key={s.tenantId} className="border-b border-[var(--color-border)] align-top">
+                      <td className="py-2 pr-2">
+                        <a className="font-semibold text-[var(--color-primary)] hover:underline" href={`/platform/kurumlar/${encodeURIComponent(s.tenantId)}`} title={s.tenantId}>
+                          {s.tenantName ?? `${s.tenantId.slice(0, 12)}…`}
+                        </a>
+                        <span className="mt-0.5 block">
+                          <a className="text-[var(--color-text-muted)] hover:underline" href={`/platform/fatura/e-belgeler?tenant=${encodeURIComponent(s.tenantId)}`}>
+                            Belgeleri gör →
+                          </a>
+                        </span>
+                      </td>
+                      <td className="py-2 pr-2" title={s.planKey}>{s.planLabel} ({s.billingInterval === "yearly" ? "yıllık" : "aylık"})</td>
+                      <td className="py-2 pr-2" title={s.status}>{SUBSCRIPTION_STATUS_TR[s.status] ?? s.status}</td>
+                      <td className="py-2 pr-2" title={exec ?? s.provider}>{PROVIDER_TR[s.provider] ?? s.provider}{exec ? ` (${exec})` : ""}</td>
+                      <td className="py-2 pr-2">{fmtMinor(s.amountMinor)}{s.sandbox ? " (örnek)" : ""}</td>
+                      <td className="py-2 pr-2">{fmtDate(s.paidThrough)}</td>
+                      <td className="py-2 pr-2">{s.enforcement ? "Açık" : "Kapalı"}</td>
+                      <td className="py-2">
+                        <button
+                          disabled={busy}
+                          className={btnGhost}
+                          onClick={async () => {
+                            const d = await post("/api/v1/platform/billing/overview", { action: "enforcement", tenantId: s.tenantId, enabled: !s.enforcement });
+                            if (d) refresh();
+                          }}
+                        >
+                          {s.enforcement ? "Kapat" : "Aç"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
 
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <h2 className="mb-3 text-base font-semibold">Manuel süre/istisna</h2>
+      <section className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+        <h2 className="mb-1 text-base font-semibold">Geçici erişim izni</h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Ödeme beklenirken kuruma geçici erişim verir. Etkisi: seçili kurum, seçili tarihe kadar kısıtlanmaz.</p>
         <div className="grid gap-2 sm:grid-cols-4">
-          <input placeholder="tenantId" aria-label="tenantId" value={exc.tenantId} onChange={(e) => setExc({ ...exc, tenantId: e.target.value })} className={input} />
+          {tenantOptions(exc.tenantId, (v) => setExc({ ...exc, tenantId: v }), "Kurum")}
           <input type="datetime-local" aria-label="Bitiş" value={exc.until} onChange={(e) => setExc({ ...exc, until: e.target.value })} className={input} />
           <input placeholder="Gerekçe (en az 10 karakter)" aria-label="Gerekçe" value={exc.reason} onChange={(e) => setExc({ ...exc, reason: e.target.value })} className={`${input} sm:col-span-2`} />
         </div>
@@ -143,17 +195,18 @@ export function BillingManager({ data }: { data: Overview }) {
             if (d) refresh();
           }}
         >
-          İstisna ver
+          Geçici erişim ver
         </button>
-        <p className="mt-2 text-xs text-slate-500">İstisna ödenmiş kaydı taklit etmez; gerekçe + bitiş + audit ile kayıtlıdır.</p>
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">Bu izin ödeme kaydı değildir; gerekçe + bitiş tarihi + denetim kaydı ile saklanır.</p>
       </section>
 
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <h2 className="mb-3 text-base font-semibold">Manuel ödeme onayı (banka transferi)</h2>
+      <section className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+        <h2 className="mb-1 text-base font-semibold">Banka transferi onayı</h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Etkisi: seçili kurumun ödenmiş kullanım süresi uzar. Tutarı dekonttaki KDV dahil toplamla aynı girin.</p>
         <div className="grid gap-2 sm:grid-cols-3">
-          <input placeholder="tenantId" aria-label="tenantId" value={man.tenantId} onChange={(e) => setMan({ ...man, tenantId: e.target.value })} className={input} />
+          {tenantOptions(man.tenantId, (v) => setMan({ ...man, tenantId: v }), "Kurum")}
           <input placeholder="Banka referansı" aria-label="Banka referansı" value={man.providerRef} onChange={(e) => setMan({ ...man, providerRef: e.target.value })} className={input} />
-          <input type="number" min={1} placeholder="Tutar (kuruş)" aria-label="Tutar" value={man.amountMinor} onChange={(e) => setMan({ ...man, amountMinor: e.target.value })} className={input} />
+          <input type="number" min={0.01} step="0.01" placeholder="Tutar (₺)" aria-label="Tutar TL" value={man.amountTl} onChange={(e) => setMan({ ...man, amountTl: e.target.value })} className={input} />
           <select aria-label="Para birimi" value={man.currency} onChange={(e) => setMan({ ...man, currency: e.target.value })} className={input}>
             <option value="TRY">TRY</option>
             <option value="USD">USD</option>
@@ -162,14 +215,14 @@ export function BillingManager({ data }: { data: Overview }) {
           <input placeholder="Açıklama" aria-label="Açıklama" value={man.note} onChange={(e) => setMan({ ...man, note: e.target.value })} className={input} />
         </div>
         <button
-          disabled={busy || !man.tenantId || man.providerRef.trim().length < 3 || !man.amountMinor || !man.occurredAt || man.note.trim().length < 5}
+          disabled={busy || !man.tenantId || man.providerRef.trim().length < 3 || !man.amountTl || !man.occurredAt || man.note.trim().length < 5}
           className={`${btn} mt-2`}
           onClick={async () => {
             const d = await post("/api/v1/platform/billing/overview", {
               action: "manual_approve",
               tenantId: man.tenantId,
               providerRef: man.providerRef.trim(),
-              amountMinor: Number(man.amountMinor),
+              amountTl: man.amountTl,
               currency: man.currency,
               occurredAt: new Date(man.occurredAt).toISOString(),
               note: man.note.trim(),
@@ -177,67 +230,28 @@ export function BillingManager({ data }: { data: Overview }) {
             if (d) refresh();
           }}
         >
-          Manuel ödemeyi onayla
+          Transferi onayla
         </button>
-        <p className="mt-2 text-xs text-slate-500">
-          Yalnız yetkili onayı erişim açar; &ldquo;ödedim&rdquo; beyanı açmaz. Bu kayıt ödeme bilgisidir, fatura değildir.
-          Manuel kanal otomatik kart aboneliği değildir — her dönem onay gerekir.
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          Yalnız bu onay erişim açar; &ldquo;ödedim&rdquo; beyanı açmaz. Bu kayıt ödeme bilgisidir, fatura değildir.
+          Her dönem için ayrı onay gerekir (otomatik kart çekimi değildir).
         </p>
       </section>
 
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <h2 className="mb-3 text-base font-semibold">Deneme başvuruları ({data.trialRequests.length})</h2>
-        {data.trialRequests.length === 0 ? (
-          <p className="text-sm text-slate-600">Bekleyen başvuru yok.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="py-2 pr-2 font-medium">Kurum</th>
-                  <th className="py-2 pr-2 font-medium">Sahip</th>
-                  <th className="py-2 pr-2 font-medium">E-posta</th>
-                  <th className="py-2 pr-2 font-medium">Durum</th>
-                  <th className="py-2 font-medium">İşlem</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.trialRequests.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-100">
-                    <td className="py-2 pr-2">{r.institutionName}</td>
-                    <td className="py-2 pr-2">{r.ownerName}</td>
-                    <td className="py-2 pr-2">{r.ownerEmail}</td>
-                    <td className="py-2 pr-2">{r.status}</td>
-                    <td className="py-2">
-                      {r.status === "pending" ? (
-                        <span className="flex gap-1">
-                          <button disabled={busy} className={btn} onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "trial_decide", requestId: r.id, approve: true }); if (d) refresh(); }}>Onayla</button>
-                          <button disabled={busy} className={btnGhost} onClick={async () => { const d = await post("/api/v1/platform/billing/overview", { action: "trial_decide", requestId: r.id, approve: false }); if (d) refresh(); }}>Reddet</button>
-                        </span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className="mt-2 text-xs text-slate-500">Onay sonrası güvenli kurum daveti gönderilir; tenant açılınca deneme başlatılır.</p>
-      </section>
-
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <h2 className="mb-3 text-base font-semibold">Pilot kampanya oluştur</h2>
+      <section id="kampanyalar" className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+        <h2 className="mb-1 text-base font-semibold">Pilot kampanya oluştur</h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Kampanya yalnız seçili kuruma uygulanır; herkese açık kupon değildir.</p>
         <div className="grid gap-2 sm:grid-cols-3">
           <input placeholder="Ad" aria-label="Kampanya adı" value={cmp.name} onChange={(e) => setCmp({ ...cmp, name: e.target.value })} className={input} />
-          <input placeholder="Pilot tenantId (zorunlu)" aria-label="Pilot tenantId" value={cmp.tenantId} onChange={(e) => setCmp({ ...cmp, tenantId: e.target.value })} className={input} />
+          {tenantOptions(cmp.tenantId, (v) => setCmp({ ...cmp, tenantId: v }), "Pilot kurum")}
           <select aria-label="İndirim türü" value={cmp.discountType} onChange={(e) => setCmp({ ...cmp, discountType: e.target.value })} className={input}>
             <option value="percent">Yüzde</option>
-            <option value="fixed_minor">Sabit (kuruş)</option>
+            <option value="fixed_minor">Sabit tutar (₺)</option>
           </select>
           {cmp.discountType === "percent" ? (
             <input type="number" min={1} max={100} placeholder="Yüzde" aria-label="Yüzde" value={cmp.percent} onChange={(e) => setCmp({ ...cmp, percent: e.target.value })} className={input} />
           ) : (
-            <input type="number" min={0} placeholder="Tutar (kuruş)" aria-label="Sabit tutar" value={cmp.amountMinor} onChange={(e) => setCmp({ ...cmp, amountMinor: e.target.value })} className={input} />
+            <input type="number" min={0} step="0.01" placeholder="Tutar (₺)" aria-label="Sabit tutar TL" value={cmp.amountTl} onChange={(e) => setCmp({ ...cmp, amountTl: e.target.value })} className={input} />
           )}
           <select aria-label="Periyot kapsamı" value={cmp.intervalScope} onChange={(e) => setCmp({ ...cmp, intervalScope: e.target.value })} className={input}>
             <option value="both">Aylık + Yıllık</option>
@@ -258,7 +272,7 @@ export function BillingManager({ data }: { data: Overview }) {
               tenantId: cmp.tenantId,
               discountType: cmp.discountType,
               percent: cmp.discountType === "percent" ? Number(cmp.percent) : null,
-              amountMinor: cmp.discountType === "fixed_minor" ? Number(cmp.amountMinor) : null,
+              amountTl: cmp.discountType === "fixed_minor" ? cmp.amountTl : null,
               intervalScope: cmp.intervalScope,
               validTo: cmp.validTo ? new Date(cmp.validTo).toISOString() : null,
               maxRenewals: cmp.maxRenewals ? Number(cmp.maxRenewals) : null,
@@ -271,15 +285,20 @@ export function BillingManager({ data }: { data: Overview }) {
         </button>
       </section>
 
-      <section className="rounded-xl bg-white p-5 ring-1 ring-slate-200">
-        <h2 className="mb-3 text-base font-semibold">Başarısız webhook işleri ({data.failedWebhooks.length})</h2>
+      <section className="scroll-mt-24 rounded-[var(--radius-md)] bg-[var(--color-surface)] p-5 border border-[var(--color-border)]">
+        <h2 className="mb-1 text-base font-semibold">Başarısız bildirim işleri ({data.failedWebhooks.length})</h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">Sağlayıcıdan gelen ve işlenemeyen ödeme bildirimleri. Kayıt silinmez; sorun çözülünce yeniden işlenir.</p>
         {data.failedWebhooks.length === 0 ? (
-          <p className="text-sm text-slate-600">Başarısız iş yok.</p>
+          <p className="text-sm text-[var(--color-text-muted)]">Başarısız iş yok.</p>
         ) : (
           <ul className="space-y-1 text-xs">
             {data.failedWebhooks.map((w) => (
-              <li key={w.id} className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
-                <span className="font-mono">{w.eventId}</span> — {w.eventType} — {w.error ?? "hata yok"} ({new Date(w.createdAt).toLocaleString("tr-TR")})
+              <li key={w.id} className="rounded-lg bg-[var(--color-surface-muted)] px-3 py-2 border border-[var(--color-border)]">
+                Sağlayıcı bildirimi işlenemedi · {new Date(w.createdAt).toLocaleString("tr-TR")}
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[var(--color-text-muted)] hover:underline">Teknik ayrıntı</summary>
+                  <p className="mt-1 font-mono text-[var(--color-text-muted)]">{w.eventId} · {w.eventType} · {w.error ?? "hata detayı yok"}</p>
+                </details>
               </li>
             ))}
           </ul>

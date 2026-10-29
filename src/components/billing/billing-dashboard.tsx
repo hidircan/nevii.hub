@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type {
   SaasAccessDecisionShaped,
@@ -7,6 +8,19 @@ import type {
   SubscriptionView,
   AttemptView,
 } from "./billing-view-types";
+import { TaxLines } from "./tax-lines";
+
+/** Teknik durum kodları → kullanıcı dili. */
+const SUBSCRIPTION_STATUS_TR: Record<string, string> = {
+  active: "Aktif",
+  trialing: "Denemede",
+  pending: "Ödeme bekleniyor",
+  incomplete: "Tamamlanmadı",
+  past_due: "Ödeme gecikti",
+  suspended: "Askıda (ödeme yok)",
+  canceled: "İptal edildi",
+  expired: "Süresi doldu",
+};
 
 /**
  * Kurum sahibi fatura paneli. Tüm yazma işlemleri billing API'lerine gider;
@@ -18,20 +32,39 @@ export function BillingDashboard({
   attempts,
   access,
   plans,
+  initialPlanKey,
+  initialInterval,
+  mockCompleteAvailable,
+  tax,
+  hasBillingProfile,
 }: {
   canWrite: boolean;
   subscription: SubscriptionView | null;
   attempts: AttemptView[];
   access: SaasAccessDecisionShaped;
   plans: BillingPlanOption[];
+  /** Ana sayfadan gelen seçim (?plan=&interval=) — geçerliyse korunur. */
+  initialPlanKey?: string | null;
+  initialInterval?: "monthly" | "yearly" | null;
+  /** Local demo: mock webhook simülatörü açıksa pending aboneliği tamamlar. */
+  mockCompleteAvailable?: boolean;
+  /** Vergi gösterimi (oran etiketi + örnek işareti; tutar sunucuda hesaplanır). */
+  tax: { rateBps: number; rateLabel: string; demo: boolean };
+  /** Fatura profili tamamlanmış mı? Eksikse checkout sunucuda reddedilir. */
+  hasBillingProfile: boolean;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [checkoutHtml, setCheckoutHtml] = useState<string | null>(null);
+  const [checkoutIsMock, setCheckoutIsMock] = useState(false);
   const [formPost, setFormPost] = useState<{ postUrl: string; fields: Record<string, string> } | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [planKey, setPlanKey] = useState(plans[0]?.key ?? "core");
-  const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  const [planKey, setPlanKey] = useState(
+    initialPlanKey && plans.some((p) => p.key === initialPlanKey) ? initialPlanKey : (plans[0]?.key ?? "core")
+  );
+  const [interval, setInterval] = useState<"monthly" | "yearly">(
+    initialInterval === "yearly" ? "yearly" : "monthly"
+  );
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedRecurring, setAcceptedRecurring] = useState(false);
   const [customer, setCustomer] = useState({
@@ -79,6 +112,7 @@ export function BillingDashboard({
       setShowCheckout(true);
     } else if (typeof data.checkoutFormContent === "string") {
       setCheckoutHtml(data.checkoutFormContent);
+      setCheckoutIsMock(data.mock === true);
       setFormPost(null);
       setShowCheckout(true);
     } else {
@@ -87,7 +121,7 @@ export function BillingDashboard({
     setNotice({
       kind: "ok",
       text: data.mock
-        ? "MOCK checkout açıldı (gerçek tahsilat değildir)."
+        ? "MOCK checkout açıldı (gerçek tahsilat değildir). Bu demo alanına gerçek kart bilgisi girmeyin."
         : "Güvenli ödeme formu açıldı. Kart bilgileriniz yalnızca ödeme sağlayıcısına iletilir.",
     });
   }
@@ -157,6 +191,17 @@ export function BillingDashboard({
         </p>
       ) : null}
 
+      {!hasBillingProfile && canWrite ? (
+        <p role="alert" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+          Ödeme başlatmadan önce <Link href="/abonelik/fatura-bilgilerim" className="font-semibold underline">Fatura Bilgilerinizi</Link> tamamlayın;
+          profil olmadan tahsilat başlatılamaz.
+        </p>
+      ) : null}
+      <nav aria-label="Fatura bağlantıları" className="flex flex-wrap gap-2 text-sm">
+        <Link href="/abonelik/fatura-bilgilerim" className={btnGhost}>Fatura Bilgilerim</Link>
+        <Link href="/abonelik/faturalar" className={btnGhost}>Faturalarım</Link>
+      </nav>
+
       <section className={card}>
         <h2 className="text-base font-semibold text-slate-900">Mevcut abonelik</h2>
         {!subscription ? (
@@ -170,14 +215,14 @@ export function BillingDashboard({
           </div>
         ) : (
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt className="text-slate-500">Paket</dt><dd className="font-medium">{subscription.planLabel} ({subscription.planKey})</dd></div>
-            <div><dt className="text-slate-500">Durum</dt><dd className="font-medium">{subscription.status}</dd></div>
+            <div><dt className="text-slate-500">Paket</dt><dd className="font-medium" title={subscription.planKey}>{subscription.planLabel}</dd></div>
+            <div><dt className="text-slate-500">Durum</dt><dd className="font-medium">{SUBSCRIPTION_STATUS_TR[subscription.status] ?? subscription.status}</dd></div>
             <div><dt className="text-slate-500">Periyot</dt><dd className="font-medium">{subscription.billingInterval === "yearly" ? "Yıllık (yılda tek tahsilat)" : "Aylık"}</dd></div>
-            <div><dt className="text-slate-500">Dönem tutarı</dt><dd className="font-medium">{subscription.displayTotal}{subscription.sandbox ? " (SANDBOX)" : ""}</dd></div>
+            <div><dt className="text-slate-500">Dönem tutarı</dt><dd className="font-medium">{subscription.displayTotal}{subscription.sandbox ? " (örnek fiyat)" : ""}</dd></div>
             {subscription.displayMonthlyEquivalent ? (
               <div><dt className="text-slate-500">Aylık eşdeğer</dt><dd className="font-medium">{subscription.displayMonthlyEquivalent} (bilgi amaçlı)</dd></div>
             ) : null}
-            <div><dt className="text-slate-500">Geçerlilik (paid-through)</dt><dd className="font-medium">{subscription.paidThrough ? new Date(subscription.paidThrough).toLocaleDateString("tr-TR") : "—"}</dd></div>
+            <div><dt className="text-slate-500">Ödenmiş kullanım süresi</dt><dd className="font-medium">{subscription.paidThrough ? new Date(subscription.paidThrough).toLocaleDateString("tr-TR") : "—"}</dd></div>
             {subscription.trialEndsAt ? (
               <div><dt className="text-slate-500">Deneme bitışı</dt><dd className="font-medium">{new Date(subscription.trialEndsAt).toLocaleDateString("tr-TR")}</dd></div>
             ) : null}
@@ -187,6 +232,20 @@ export function BillingDashboard({
         )}
         {subscription?.renewalNote ? <p className="mt-3 text-xs leading-relaxed text-slate-500">{subscription.renewalNote}</p> : null}
         {subscription?.taxNote ? <p className="mt-1 text-xs text-slate-500">{subscription.taxNote}</p> : null}
+        {subscription?.campaign ? (
+          <div className="mt-3 rounded-xl bg-emerald-50 p-4 text-sm ring-1 ring-emerald-200">
+            <p><strong>Pilot kampanya:</strong> {subscription.campaign.name}</p>
+            <p className="mt-1"><strong>Takvim:</strong> {subscription.campaign.scheduleHeadline}</p>
+            <ul className="mt-1 list-disc pl-5">
+              {subscription.campaign.scheduleLines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            {subscription.campaign.afterNote ? (
+              <p className="mt-1"><strong>Sonrası:</strong> {subscription.campaign.afterNote}</p>
+            ) : null}
+          </div>
+        ) : null}
         {!access.allowed ? (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
             Erişiminiz kısıtlı. Ödemeyi tamamladığınızda otomatik açılır.
@@ -195,6 +254,18 @@ export function BillingDashboard({
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
             Ödeme işleminiz dikkat gerektiriyor. Kartınızı kontrol edin veya borcunuzu ödeyin.
           </p>
+        ) : null}
+        {canWrite && subscription && subscription.status === "pending" && mockCompleteAvailable ? (
+          <div className="mt-4">
+            <button
+              onClick={async () => { const d = await post("/api/v1/billing/mock/complete", {}, "mock-complete"); if (d) window.location.reload(); }}
+              disabled={busy === "mock-complete"}
+              className={btn}
+            >
+              {busy === "mock-complete" ? "Tamamlanıyor…" : "Mock ödemeyi tamamla (demo)"}
+            </button>
+            <p className="mt-1 text-xs text-slate-500">Local demo simülatörü: gerçek tahsilat yapmaz, aboneliği active duruma geçirir.</p>
+          </div>
         ) : null}
         {canWrite && subscription && (subscription.status === "active" || subscription.status === "past_due") && !subscription.cancelAtPeriodEnd ? (
           <div className="mt-4 flex flex-wrap gap-2">
@@ -243,6 +314,11 @@ export function BillingDashboard({
                   {selectedPrice.sandbox ? " — SANDBOX test tutarı" : ""}</p>
                 {!selectedPrice.approved ? (
                   <p className="mt-1 text-amber-800">Bu paketin onaylı fiyatı yok; gerçek checkout kapalı.</p>
+                ) : (
+                  <TaxLines amountMinor={selectedPrice.amountMinor} tax={tax} />
+                )}
+                {selectedPlan?.description ? (
+                  <p className="mt-1 text-xs font-medium text-slate-600">{selectedPlan.description}</p>
                 ) : null}
                 <p className="mt-1 text-xs text-slate-500">{selectedPrice.renewalNote}</p>
               </div>
@@ -266,8 +342,8 @@ export function BillingDashboard({
               <input type="checkbox" checked={acceptedRecurring} onChange={(e) => setAcceptedRecurring(e.target.checked)} className="mt-1" required />
               <span>
                 Kartımın güvenli saklanmasını ve her dönem başında otomatik tahsilatı
-                kabul ediyorum. Kart bilgilerim yalnızca ödeme sağlayıcısının güvenli
-                sayfasında alınır.
+                kabul ediyorum. Kart numaram NeviiHub sunucularında saklanmaz;
+                ödeme adımında doğrudan sağlayıcıya iletilir.
               </span>
             </label>
             <button type="submit" disabled={busy === "checkout" || !selectedPrice?.approved} className={btn}>
@@ -276,6 +352,11 @@ export function BillingDashboard({
           </form>
           {showCheckout && checkoutHtml ? (
             <div className="mt-4 rounded-lg ring-1 ring-slate-200">
+              {checkoutIsMock ? (
+                <p className="rounded-t-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 ring-1 ring-amber-200" role="note">
+                  MOCK ödeme alanı (gerçek tahsilat değildir). Bu demo alanına gerçek kart bilgisi girmeyin.
+                </p>
+              ) : null}
               <div id="provider-checkout-form" dangerouslySetInnerHTML={{ __html: checkoutHtml }} />
             </div>
           ) : null}
@@ -285,7 +366,8 @@ export function BillingDashboard({
                 <input key={k} type="hidden" name={k} value={v} />
               ))}
               <p className="text-sm text-slate-600">
-                Kart bilgileriniz doğrudan ödeme sağlayıcısına iletilir; NeviiHub kart bilginizi görmez.
+                Kart bilgileriniz bu formdan doğrudan ödeme sağlayıcısına iletilir;
+                sunucularımızda ve kayıtlarımızda saklanmaz.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <input required name="cc_owner" placeholder="Kart üzerindeki isim" aria-label="Kart üzerindeki isim" className={input} autoComplete="cc-name" />

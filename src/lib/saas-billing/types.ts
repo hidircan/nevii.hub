@@ -77,6 +77,71 @@ export type SaasTrialRequestRecord = {
   createdAt: string;
 };
 
+export const SAAS_PURCHASE_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
+export type SaasPurchaseRequestStatus = (typeof SAAS_PURCHASE_REQUEST_STATUSES)[number];
+
+/**
+ * Yeni müşteri bekleyen sipariş kaydı (loginless huni Adım 2).
+ * - Tenant AÇILMIŞ sayılmaz, kullanım hakkı VERİLMEZ; ödeme doğrulanmadan
+ *   statü "awaiting_payment"tir.
+ * - Erişim tahmini zor 256-bit token'la (hash'i saklanır, hamı saklanmaz).
+ * - Fiyat snapshot'ı ödeme anında (Adım 3 "Ödemeyi tamamla") dondurulur.
+ */
+export const SAAS_PENDING_ORDER_STATUSES = ["awaiting_payment", "paid", "expired", "canceled"] as const;
+export type SaasPendingOrderStatus = (typeof SAAS_PENDING_ORDER_STATUSES)[number];
+
+export type SaasPendingOrderRecord = {
+  id: string;
+  /** Ödeme sonrası açılacak kurumun ayrılmış kimliği (önceden üretilir). */
+  tenantId: string;
+  planKey: string;
+  interval: SaasBillingInterval;
+  institutionName: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone: string | null;
+  /** Doğrulanmış fatura girdisi (profil kaydına birebir dönüşür). */
+  billing: import("./invoicing-profile").BillingProfileInput;
+  status: SaasPendingOrderStatus;
+  /** sha256(ham token) — ham token ASLA saklanmaz. */
+  accessTokenHash: string;
+  /** Çift tıklama/tekrar koruması (istemci üretir, tekil). */
+  idempotencyKey: string;
+  subscriptionId: string | null;
+  priceSnapshot: SaasPriceSnapshot | null;
+  consents: {
+    termsAt: string;
+    recurringAt: string;
+    marketingAt: string | null;
+    termsText: string;
+  } | null;
+  setupUserId: string | null;
+  /** Ödeme penceresi sonu (ISO). */
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * Yeni müşteri satın alma başvurusu (checkout hesap adımı). Tenant AÇMAZ,
+ * ödeme BAŞLATMAZ; onay + güvenli davet + giriş sonrası checkout'a devam edilir.
+ * Fiyat dondurulmaz — snapshot ödeme öncesi checkout'ta kurulur.
+ */
+export type SaasPurchaseRequestRecord = {
+  id: string;
+  planKey: string;
+  interval: SaasBillingInterval;
+  institutionName: string;
+  ownerName: string;
+  ownerEmail: string;
+  ownerPhone: string | null;
+  status: SaasPurchaseRequestStatus;
+  tenantId: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+};
+
 export type SaasCurrency = "TRY" | "USD";
 
 /** Para birimi → minor-unit üssü. Varsayım yok, açık tablo. */
@@ -93,17 +158,24 @@ export type SaasPriceSnapshot = {
   catalogVersion: number | null;
   billingInterval: SaasBillingInterval;
   currency: SaasCurrency;
-  /** Dönem tahsilat tutarı (minor). */
+  /** Dönem tahsilat tutarı (minor, KDV HARİÇ — kampanya sonrası). */
   amountMinor: number;
-  /** Yıllıkta aylık eşdeğer (yalnız gösterim, minor, yuvarlanmış). */
+  /** Yıllıkta aylık eşdeğer (yalnız gösterim, minor, yuvarlanmış, KDV hariç). */
   monthlyEquivalentMinor: number | null;
+  /** Kabul anındaki vergi: oran (bps), KDV tutarı, KDV dahil toplam. */
+  taxRateBps?: number | null;
+  taxAmountMinor?: number | null;
+  /** Karttan çekilen / onaylanan toplam (KDV dahil, minor). */
+  totalWithTaxMinor?: number | null;
+  /** Örnek (demo) vergi hesabı mı? */
+  taxDemo?: boolean;
   campaignCode: string | null;
   campaignNote: string | null;
   /** Kampanya sonrası uygulanacak fiyatın açıklaması. */
   postCampaignNote: string | null;
   limits: { students: number | null; users: number | null; branches: number | null };
   includedModules: string[];
-  /** Vergi gösterimi: V1'de tutarlar KDV hariçtir, hesaplama yok. */
+  /** Vergi gösterimi: liste KDV hariç (+ KDV); oran doğrulanmadan gerçek checkout kapalı. */
   taxNote: string;
   /** Yenileme koşulu (ödeme öncesi kullanıcıya gösterilen metin). */
   renewalNote: string;

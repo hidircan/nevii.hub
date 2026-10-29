@@ -48,7 +48,7 @@ export default async function PlatformUsersPage({ searchParams }: { searchParams
           <option value="all">Tüm davetler</option>
           <option value="none">Davetleri gizle</option>
         </select>
-        <input name="branchId" defaultValue={sp.branchId ?? ""} placeholder="Şube id" aria-label="Şube" className={`${sel} w-32`} />
+        <input name="branchId" defaultValue={sp.branchId ?? ""} placeholder="Şube kodu" aria-label="Şube" className={`${sel} w-32`} />
         <button type="submit" className="rounded-[var(--radius-md)] bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-white">Filtrele</button>
       </form>
       <PlatformUsersManager

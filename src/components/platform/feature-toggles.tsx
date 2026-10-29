@@ -19,7 +19,7 @@ export type FeatureActorRole = "HYPER_ADMIN" | "SUPER_ADMIN" | "SCHOOL_ADMIN";
 const ENTITLEMENT_LABEL: Record<ResolvedFeatureFlag["entitlementSource"], string> = {
   plan: "pakette",
   addon: "eklenti",
-  override: "platform override",
+  override: "platform özel izni",
   none: "pakette yok",
 };
 

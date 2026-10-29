@@ -903,6 +903,150 @@ describe("Q1: gönderilmiş-belirsiz işlem süreyle serbest kalmaz", () => {
   });
 });
 
+describe("kampanya yenileme kapısı (scheduler)", () => {
+  async function seedExhaustedCampaignSub() {
+    const { saveSaasCampaign } = await import("../saas-billing/store");
+    await saveSaasCampaign({
+      id: "saas_cmp_test",
+      name: "Test Kampanya",
+      tenantId: T1,
+      code: "pilot_test_kapi",
+      discountType: "percent",
+      amountMinor: null,
+      percent: 20,
+      intervalScope: "both",
+      validFrom: null,
+      validTo: null,
+      maxRenewals: 0,
+      maxRedemptions: null,
+      redeemedCount: 0,
+      postCampaignNote: "Test sonrası not.",
+      active: true,
+      createdBy: "u",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const sub = await seedDueSub();
+    const fresh = await getSaasSubscription(T1);
+    if (!fresh) throw new Error("seed yok");
+    await upsertSaasSubscription({
+      ...fresh,
+      priceSnapshot: {
+        ...fresh.priceSnapshot,
+        campaignCode: "pilot_test_kapi",
+        campaignNote: "Test Kampanya: indirimli",
+        postCampaignNote: "Test sonrası not.",
+      },
+    });
+    return sub;
+  }
+
+  it("tükenmiş kampanyada sağlayıcıya çekim gitmez, REVIEW açılır", async () => {
+    const sub = await seedExhaustedCampaignSub();
+    paytrEnv();
+    let chargeCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { body?: unknown }) => {
+        if (String(init?.body ?? "").includes("recurring_payment")) chargeCalls += 1;
+        return { ok: true, json: async () => ({ status: "success" }) };
+      })
+    );
+    const r = await collectDueSubscriptions({ dryRun: false, nowIso: NOW });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.charged).toBe(0);
+    expect(chargeCalls).toBe(0);
+    expect(r.data.uncertain).toBe(1);
+    const attempts = await listSaasAttempts(sub.id, 50);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0].status).toBe("uncertain");
+    expect(attempts[0].error).toContain("CAMPAIGN_REVIEW");
+  });
+
+  it("açık REVIEW varken ikinci koşu yeni satır yazmaz, çekim yapmaz", async () => {
+    const sub = await seedExhaustedCampaignSub();
+    paytrEnv();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ status: "success" }) })));
+    const r1 = await collectDueSubscriptions({ dryRun: false, nowIso: NOW });
+    expect(r1.ok && r1.data.uncertain).toBe(1);
+    const r2 = await collectDueSubscriptions({ dryRun: false, nowIso: NOW });
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    expect(r2.data.charged).toBe(0);
+    expect(r2.data.uncertain).toBe(0);
+    expect(r2.data.skipped[0]).toContain("kampanya incelemesi");
+    expect(await listSaasAttempts(sub.id, 50)).toHaveLength(1);
+  });
+
+  it("kampanya hakkı varken yenileme normal çekilir", async () => {
+    const { saveSaasCampaign } = await import("../saas-billing/store");
+    await saveSaasCampaign({
+      id: "saas_cmp_test2",
+      name: "Test Kampanya 2",
+      tenantId: T1,
+      code: "pilot_test_kapi2",
+      discountType: "percent",
+      amountMinor: null,
+      percent: 20,
+      intervalScope: "both",
+      validFrom: null,
+      validTo: null,
+      maxRenewals: 3,
+      maxRedemptions: null,
+      redeemedCount: 0,
+      postCampaignNote: "Test sonrası not.",
+      active: true,
+      createdBy: "u",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    const sub = await seedDueSub();
+    const fresh = await getSaasSubscription(T1);
+    if (!fresh) throw new Error("seed yok");
+    await upsertSaasSubscription({
+      ...fresh,
+      priceSnapshot: { ...fresh.priceSnapshot, campaignCode: "pilot_test_kapi2" },
+    });
+    paytrEnv();
+    let chargeCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: { body?: unknown }) => {
+        if (String(init?.body ?? "").includes("recurring_payment")) chargeCalls += 1;
+        return { ok: true, json: async () => ({ status: "success" }) };
+      })
+    );
+    const r = await collectDueSubscriptions({ dryRun: false, nowIso: NOW });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.charged).toBe(1);
+    expect(chargeCalls).toBe(1);
+    expect(await listSaasAttempts(sub.id, 50)).toHaveLength(1);
+  });
+});
+
+describe("kampanya takvimi metni (davet/onay/abonelik ortak)", () => {
+  it("maxRenewals=3: ilk dahil toplam 4", async () => {
+    const { describeCampaignSchedule } = await import("../saas-billing/campaigns");
+    const s = describeCampaignSchedule({ maxRenewals: 3, validTo: null });
+    expect(s.headline).toBe("İlk tahsilat dahil toplam 4 tahsilat kampanyalı");
+    expect(s.lines.join(" ")).toContain("toplam 4 indirimli tahsilat");
+    expect(s.lines.join(" ")).toContain("otomatik çekim durur");
+  });
+  it("maxRenewals=0: yalnız ilk tahsilat", async () => {
+    const { describeCampaignSchedule } = await import("../saas-billing/campaigns");
+    const s = describeCampaignSchedule({ maxRenewals: 0, validTo: null });
+    expect(s.headline).toBe("Yalnızca ilk tahsilat kampanyalı");
+  });
+  it("maxRenewals=null: aktif kaldıkça + bitiş tarihi", async () => {
+    const { describeCampaignSchedule } = await import("../saas-billing/campaigns");
+    const s = describeCampaignSchedule({ maxRenewals: null, validTo: "2026-12-31T00:00:00.000Z" });
+    expect(s.headline).toBe("İlk tahsilat ve aktif kaldıkça yenilemeler kampanyalı");
+    expect(s.lines.join(" ")).toContain("Kampanya bitişi:");
+  });
+});
+
 describe("job endpoint auth", () => {
   it("secret yoksa/yanlışsa 401; doğruysa dry-run 200", async () => {
     const { GET } = await import("../../app/api/v1/platform/jobs/saas-collections/route");
