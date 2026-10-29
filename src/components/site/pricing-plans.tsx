@@ -32,28 +32,45 @@ function PlanCard({
   plan,
   interval,
   chrome,
+  featured,
 }: {
   plan: PricingPlanView;
   interval: "monthly" | "yearly";
   chrome: PricingChrome;
+  /** Ortadaki (önerilen) paket öne çıkar. */
+  featured: boolean;
 }) {
   const price = interval === "yearly" ? plan.yearly : plan.monthly;
   const buyHref = `/satin-al?plan=${encodeURIComponent(plan.key)}&interval=${interval}`;
   const quoteHref = `/teklif?plan=${encodeURIComponent(plan.key)}`;
+  const limits = [
+    limitText(plan.limits.students, chrome.students, chrome.unlimited),
+    limitText(plan.limits.users, chrome.users, chrome.unlimited),
+    limitText(plan.limits.branches, chrome.branches, chrome.unlimited),
+  ];
   return (
-    <li className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold text-slate-900">{plan.label}</h3>
-      {plan.description ? <p className="mt-1 text-sm text-slate-600">{plan.description}</p> : null}
-      <div className="mt-4">
+    <li
+      className={`nh-lift relative flex flex-col rounded-3xl p-7 ${
+        featured
+          ? "bg-white shadow-xl shadow-amber-900/10 ring-2 ring-amber-500 lg:-my-3 lg:py-10"
+          : "bg-white/80 shadow-sm ring-1 ring-slate-200 hover:shadow-lg"
+      }`}
+    >
+      {featured ? (
+        <span className="absolute -top-3 left-7 rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-950 shadow-sm">
+          Önerilen
+        </span>
+      ) : null}
+      <h3 className="text-xl font-semibold text-slate-900">{plan.label}</h3>
+      {plan.description ? <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{plan.description}</p> : null}
+      <div className="mt-6">
         {plan.customQuote ? (
-          <p className="text-2xl font-semibold text-slate-900">{chrome.customQuote}</p>
+          <p className="text-3xl font-semibold tracking-tight text-slate-900">{chrome.customQuote}</p>
         ) : (
           <>
-            <p className="text-2xl font-semibold text-slate-900">
-              {price.displayTotal}
-              <span className="ml-1 text-sm font-normal text-slate-500">
-                / {interval === "yearly" ? chrome.perYear : chrome.perMonth}
-              </span>
+            <p className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="text-4xl font-semibold tracking-tight text-slate-900 tabular-nums">{price.displayTotal}</span>
+              <span className="text-sm text-slate-500">/ {interval === "yearly" ? chrome.perYear : chrome.perMonth}</span>
             </p>
             {interval === "yearly" && plan.yearly.displayMonthlyEquivalent ? (
               <p className="mt-1 text-sm text-slate-500">
@@ -61,7 +78,7 @@ function PlanCard({
               </p>
             ) : null}
             {interval === "yearly" && plan.savingsPercent !== null ? (
-              <p className="mt-1 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+              <p className="mt-2 inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
                 {chrome.savings.replace("{pct}", String(plan.savingsPercent))}
               </p>
             ) : null}
@@ -72,19 +89,30 @@ function PlanCard({
         )}
       </div>
       {!price.approved && !plan.customQuote ? (
-        <p className="mt-2 text-sm font-medium text-amber-800">
-          {chrome.notApproved}
-        </p>
+        <p className="mt-2 text-sm font-medium text-amber-800">{chrome.notApproved}</p>
       ) : null}
-      <p className="mt-3 text-xs leading-relaxed text-slate-500">{price.taxNote}</p>
-      <ul className="mt-4 space-y-1.5 text-sm text-slate-600">
-        <li>{limitText(plan.limits.students, chrome.students, chrome.unlimited)} · {limitText(plan.limits.users, chrome.users, chrome.unlimited)} · {limitText(plan.limits.branches, chrome.branches, chrome.unlimited)}</li>
-        {plan.moduleLabels.slice(0, 5).map((m) => (
-          <li key={m}>· {m}</li>
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">{price.taxNote}</p>
+      <ul className="mt-5 flex flex-wrap gap-1.5">
+        {limits.map((l) => (
+          <li key={l} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+            {l}
+          </li>
         ))}
-        {plan.moduleLabels.length > 5 ? <li>{chrome.moreModules.replace("{n}", String(plan.moduleLabels.length - 5))}</li> : null}
       </ul>
-      <div className="mt-auto flex flex-col gap-2 pt-5">
+      <ul className="mt-5 space-y-2 border-t border-slate-100 pt-5 text-sm text-slate-700">
+        {plan.moduleLabels.slice(0, 6).map((m) => (
+          <li key={m} className="flex gap-2.5">
+            <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="m3 8.5 3.5 3.5L13 4.5" />
+            </svg>
+            <span>{m}</span>
+          </li>
+        ))}
+        {plan.moduleLabels.length > 6 ? (
+          <li className="pl-6.5 text-slate-500">{chrome.moreModules.replace("{n}", String(plan.moduleLabels.length - 6))}</li>
+        ) : null}
+      </ul>
+      <div className="mt-auto flex flex-col gap-2 pt-7">
         {!plan.customQuote ? (
           <a
             href={buyHref}
@@ -92,8 +120,10 @@ function PlanCard({
             onClick={price.approved ? undefined : (e) => e.preventDefault()}
             className={
               price.approved
-                ? "rounded-xl bg-amber-600 px-5 py-2.5 text-center text-sm font-semibold text-white hover:bg-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-                : "cursor-not-allowed rounded-xl bg-slate-100 px-5 py-2.5 text-center text-sm font-semibold text-slate-400"
+                ? `rounded-full px-5 py-3 text-center text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
+                    featured ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-slate-900 text-white hover:bg-slate-700"
+                  }`
+                : "cursor-not-allowed rounded-full bg-slate-100 px-5 py-3 text-center text-sm font-semibold text-slate-400"
             }
           >
             {chrome.buy}
@@ -101,7 +131,7 @@ function PlanCard({
         ) : null}
         <a
           href={quoteHref}
-          className="rounded-xl border border-slate-300 px-5 py-2.5 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+          className="rounded-full px-5 py-3 text-center text-sm font-semibold text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
         >
           {chrome.quote}
         </a>
@@ -122,15 +152,15 @@ export function PricingPlans({
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   return (
     <div>
-      <div className="mx-auto mt-8 flex max-w-xs items-center justify-center gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label={chrome.periodLabel}>
+      <div className="mx-auto mt-8 flex max-w-xs items-center justify-center gap-1 rounded-full bg-white p-1 shadow-sm ring-1 ring-slate-200" role="group" aria-label={chrome.periodLabel}>
         {(["monthly", "yearly"] as const).map((v) => (
           <button
             key={v}
             type="button"
             aria-pressed={interval === v}
             onClick={() => setInterval(v)}
-            className={`flex-1 rounded-lg px-4 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 ${
-              interval === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            className={`flex-1 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 ${
+              interval === v ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-800"
             }`}
           >
             {v === "monthly" ? chrome.monthly : chrome.yearly}
@@ -153,9 +183,15 @@ export function PricingPlans({
           {chrome.trialCta}
         </a>
       </div>
-      <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {plans.map((p) => (
-          <PlanCard key={p.key} plan={p} interval={interval} chrome={chrome} />
+      <ul className="mt-12 grid items-stretch gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {plans.map((p, i) => (
+          <PlanCard
+            key={p.key}
+            plan={p}
+            interval={interval}
+            chrome={chrome}
+            featured={plans.length >= 3 && i === 1 && !p.customQuote && p.monthly.approved && p.monthly.amountMinor > 0}
+          />
         ))}
       </ul>
     </div>

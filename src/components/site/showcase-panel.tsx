@@ -93,7 +93,7 @@ export function SceneBody({ scene }: { scene: ShowcaseScene }) {
             </span>
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                r.focus ? "nh-pulse bg-[var(--color-primary)] text-white" : "bg-white/15 text-white"
+                r.focus ? "nh-pulse bg-amber-600 text-white" : "bg-white/15 text-white"
               }`}
             >
               {r.status}
