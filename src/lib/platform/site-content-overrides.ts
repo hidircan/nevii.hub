@@ -42,6 +42,8 @@ export const EDITABLE_CONTENT_FIELDS: ContentField[] = [
   F("Hakkında", "about.title", "Başlık"),
   F("Hakkında", "about.description", "Açıklama", { multiline: true }),
   F("Hakkında", "about.note", "Alt not (varsayılanı İngilizce özet)", { multiline: true }),
+  F("Canlı rakamlar", "stats.title", "Başlık"),
+  F("Canlı rakamlar", "stats.description", "Açıklama", { multiline: true }),
   F("Başlangıç adımları", "start.eyebrow", "Üst etiket"),
   F("Başlangıç adımları", "start.title", "Başlık"),
   F("Özellikler", "features.title", "Başlık"),

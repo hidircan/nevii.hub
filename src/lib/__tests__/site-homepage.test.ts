@@ -119,3 +119,19 @@ describe("içerik yapısı", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 });
+
+describe("canlı CSS kilitleri (2026-10-30 bayat derleme olayı)", () => {
+  it("derleme önbelleği kapalı ve derleme sonrası CSS kapısı bağlı", () => {
+    expect(readFileSync(path.join(ROOT, "next.config.ts"), "utf-8")).toContain("turbopackFileSystemCacheForBuild: false");
+    const scripts = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf-8")).scripts;
+    expect(scripts.postbuild).toBe("node scripts/check-built-css.mjs");
+  });
+
+  it("koyu iletişim başlığının rengi stil dosyasına bağlı değil; sahneler üst üste binemez", () => {
+    expect(sections).toContain('"--text-primary": "#ffffff"');
+    expect(page).toContain('"--text-primary": "#0f172a"');
+    const css = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf-8");
+    expect(css).toContain(".nh-cycle { opacity: 0; visibility: hidden; }");
+    expect(css).toContain(".nh-cycle:first-child { opacity: 1; visibility: visible; }");
+  });
+});

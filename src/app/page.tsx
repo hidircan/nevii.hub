@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type CSSProperties } from "react";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -17,6 +17,7 @@ import {
   PricingSection,
   PurchaseSection,
   ReferencesSection,
+  StatsSection,
   SiteFooter,
   SiteHeader,
   StepsSection,
@@ -114,6 +115,7 @@ async function LandingContent() {
   const [banner, brand] = await Promise.all([getAppBannerConfig(), getPlatformBrand()]);
   const views: Record<SiteSectionId, React.ReactNode> = {
     about: <AboutSection c={c} />,
+    stats: <StatsSection c={c} />,
     start: <StepsSection c={c} />,
     features: <FeaturesSection c={c} />,
     platform: <PlatformSection c={c} />,
@@ -128,7 +130,7 @@ async function LandingContent() {
   return (
     // Bu ekran her zaman AÇIK temadır (cihaz koyu temada olsa bile) — bkz.
     // sections.tsx tema notu; logo beyaz güvenli alan kartında durur.
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="min-h-screen bg-white text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
       <a
         href="#icerik"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-amber-600 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"

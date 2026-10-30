@@ -29,7 +29,7 @@ import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-loca
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
 import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
-import { SceneBody, ShowcaseCycle, STORY_SCENES } from "./showcase-panel";
+import { ProductStage, SceneBody, STORY_SCENES } from "./showcase-panel";
 import type { CSSProperties } from "react";
 
 /** Odak halkası her etkileşimli öğede AYNI — klavye kullanıcısı nerede olduğunu her zaman görür. */
@@ -116,13 +116,15 @@ function Section({
   id,
   children,
   className = "",
+  style,
 }: {
   id: string;
   children: React.ReactNode;
   className?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <section id={id} className={`scroll-mt-32 px-6 py-16 sm:py-20 ${className}`}>
+    <section id={id} style={style} className={`scroll-mt-32 px-6 py-16 sm:py-20 ${className}`}>
       <div className="mx-auto max-w-6xl">{children}</div>
     </section>
   );
@@ -269,8 +271,8 @@ export function HeroSection({ c }: { c: SiteContent }) {
       />
       <div className="mx-auto max-w-3xl text-center">
         <p className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
-          <PlatformLogo height={36} />
-          <span className="text-xl font-extrabold normal-case tracking-tight text-slate-900 sm:text-2xl">
+          <PlatformLogo height={64} />
+          <span className="text-[2.75rem] font-extrabold normal-case leading-none tracking-tight text-slate-900 sm:text-5xl">
             {BRAND.shortName}
           </span>
         </p>
@@ -324,23 +326,7 @@ export function HeroSection({ c }: { c: SiteContent }) {
           </figure>
         </Reveal>
       ) : (
-        <div className="relative mx-auto mt-14 max-w-2xl">
-          <div
-            aria-hidden
-            className="nh-drift pointer-events-none absolute -inset-x-16 -inset-y-10 -z-10 rounded-full opacity-60 blur-3xl"
-            style={{ background: "radial-gradient(closest-side, #fcd34d, transparent)" }}
-          />
-          <div
-            className="nh-rise rounded-[1.25rem] bg-[#4a3208] p-3 shadow-2xl shadow-amber-900/25 ring-1 ring-black/5 sm:p-4"
-            style={{ "--nh-delay": "200ms" } as CSSProperties}
-          >
-            <div aria-hidden className="mb-3 flex items-center justify-between px-2 text-xs text-white/60">
-              <span className="font-semibold text-white/90">{BRAND.shortName}</span>
-              <span className="rounded-full bg-white/10 px-3 py-1">neviihub.com/panel</span>
-            </div>
-            <ShowcaseCycle />
-          </div>
-        </div>
+        <ProductStage modules={c.groups.map((g) => g.title)} />
       )}
     </section>
   );
@@ -351,6 +337,49 @@ export function AboutSection({ c }: { c: SiteContent }) {
     <Section id="hakkimizda" className="bg-white">
       <SectionHeading title={c.about.title} description={c.about.description} />
       <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">{c.about.note}</p>
+    </Section>
+  );
+}
+
+/** Toplu, anonim canlı sayılar. Veri okunamazsa veya henüz yoksa bölüm hiç çıkmaz. */
+export async function StatsSection({ c }: { c: SiteContent }) {
+  const { getSiteStats } = await import("@/lib/platform/site-stats");
+  const stats = await getSiteStats();
+  if (!stats) return null;
+  const items = [
+    { value: stats.students, label: c.stats.students },
+    { value: stats.teachers, label: c.stats.teachers },
+    { value: stats.parents, label: c.stats.parents },
+    { value: stats.admins, label: c.stats.admins },
+    { value: stats.branches, label: c.stats.branches },
+  ].filter((item) => item.value > 0);
+  return (
+    <Section
+      id="rakamlar"
+      className="relative overflow-hidden bg-[#4a3208]"
+      style={{ "--text-primary": "#ffffff" } as CSSProperties}
+    >
+      <div
+        aria-hidden
+        className="nh-drift pointer-events-none absolute -right-1/4 -top-1/2 h-[160%] w-[70%] rounded-full opacity-40 blur-3xl"
+        style={{ background: "radial-gradient(closest-side, #d97706, transparent)" }}
+      />
+      <Reveal className="relative text-center">
+        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{c.stats.title}</h2>
+        <p className="mt-3 text-sm text-white/70">{c.stats.description}</p>
+      </Reveal>
+      <ul className="relative mt-10 flex flex-wrap justify-center gap-x-12 gap-y-8 sm:gap-x-16">
+        {items.map((item, i) => (
+          <li key={item.label}>
+            <Reveal delayMs={i * 90} className="text-center">
+              <p className="text-5xl font-extrabold tabular-nums tracking-tight text-white sm:text-6xl">
+                {item.value.toLocaleString(c.locale === "tr" ? "tr-TR" : "en-US")}
+              </p>
+              <p className="mt-2 text-sm font-medium text-amber-200">{item.label}</p>
+            </Reveal>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }
@@ -694,7 +723,8 @@ export async function ContactSection({ c }: { c: SiteContent }) {
     info.address ? { icon: MapPin, label: c.contact.address, value: info.address, href: null } : null,
   ].filter((d): d is NonNullable<typeof d> => d !== null);
   return (
-    <Section id="iletisim" className="site-dark relative overflow-hidden bg-slate-950">
+    // Başlık rengi globals.css'te `--text-primary`tan gelir; satır içi verilince temaya ve CSS derlemesine bağlı kalmaz.
+    <Section id="iletisim" className="relative overflow-hidden bg-slate-950" style={{ "--text-primary": "#ffffff" } as CSSProperties}>
       <div
         aria-hidden
         className="nh-drift pointer-events-none absolute -left-1/4 top-0 h-[120%] w-[70%] rounded-full opacity-30 blur-3xl"

@@ -1683,3 +1683,8 @@ olmalı. tsc bunu yakalamaz, gözle denetlenir.
 - `src/app/icon.png` silindiğinde `apps/mobile` testi kırıldı ama kök `npm test` görmedi. Paylaşılan dosyaya dokunan işte `apps/mobile` içinde de `npm test` çalıştır.
 - Testte `const NOW = new Date()` modül yüklenirken gerçek saati alır; `vi.setSystemTime` sonradan etkilemez. Sabit tarih kullan. Göreli "geçen gün" yardımcıları resmî tatile denk gelip takvime bağlı kırılır.
 
+## 2026-10-30 — Vercel bayat CSS yayınladı (yerel derleme temizdi)
+- Vercel `.next/cache`'i geri yüklüyor, Turbopack derleme önbelleği (`turbopackFileSystemCacheForBuild`, varsayılan açık) `globals.css`'in eski halini üretti; aynı gün eklenen tüm kurallar canlıya çıkmadı. Belirti: vitrin sahneleri üst üste, koyu bölüm başlığı koyu. Yerel `next build` temiz olduğu için görünmedi.
+- Düzeltme: önbellek kapalı + `postbuild` kapısı (`scripts/check-built-css.mjs`): keyframes eksikse derleme durur, önceki sağlam sürüm yayında kalır. Görsel iş bittiğinde canlı CSS'i kaynakla karşılaştır; yalnız yerelde bakmak yetmez.
+- Kritik görünümü tek stil kuralına bağlama: sahnelerde varsayılan `visibility: hidden`, başlık rengi satır içi `--text-primary` (CSS düşse de okunur kalır).
+

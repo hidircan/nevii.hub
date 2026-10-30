@@ -120,6 +120,24 @@ describe("içerik ve bağlantı güvenliği", () => {
   });
 });
 
+describe("canlı rakamlar", () => {
+  it("kurum ayrımı ve kişisel veri yok; tek sorgu saatlik önbellekte", () => {
+    const src = readFileSync(path.join(ROOT, "src/lib/platform/site-stats.ts"), "utf-8");
+    expect(src).toContain("revalidate: 3600");
+    expect(src).not.toMatch(/"name"|"email"|GROUP BY/);
+  });
+
+  it("varsayılan sırada Hakkında'dan sonra gelir; kayıtlı eski sıraya da oraya girer ve kapatılabilir", async () => {
+    expect((await getSitePageSettings()).order.slice(0, 2)).toEqual(["about", "stats"]);
+    const { upsertSettingOverride } = await import("../platform/store");
+    await upsertSettingOverride({ scopeType: "platform", scopeId: "*", key: "site.page", value: { order: ["faq", "about", "contact"], hidden: ["references"] }, updatedAt: new Date().toISOString(), updatedBy: "x" });
+    const order = (await getSitePageSettings()).order;
+    expect(order.indexOf("stats")).toBe(order.indexOf("about") + 1);
+    expect((await setSitePage(hyper(), { layout: { order, hidden: ["references", "stats"] } })).ok).toBe(true);
+    expect((await resolveSitePage("tr")).sections).not.toContain("stats");
+  });
+});
+
 describe("yetki, kalıcılık ve tek kaynak", () => {
   it("HYPER_ADMIN dışında kimse değiştiremez", async () => {
     for (const role of ["SUPER_ADMIN", "SCHOOL_ADMIN", "TEACHER"] as const) {

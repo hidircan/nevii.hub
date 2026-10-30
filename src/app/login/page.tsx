@@ -93,10 +93,7 @@ export default async function LoginPage({
           href="/"
           className="relative inline-flex w-fit items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
         >
-          <span className="inline-flex rounded-lg bg-white/95 p-1">
-            <PlatformLogo height={28} />
-          </span>
-          <span className="text-xl font-extrabold tracking-tight">{BRAND.shortName}</span>
+          <span className="text-5xl font-extrabold leading-none tracking-tight">{BRAND.shortName}</span>
         </Link>
 
         <div className="relative max-w-md">

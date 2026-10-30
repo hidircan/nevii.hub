@@ -6,6 +6,7 @@
     "dev": "next dev",
     "prebuild": "npx prisma generate && npx tsx scripts/check-pending-migrations.ts",
     "build": "next build",
+    "postbuild": "node scripts/check-built-css.mjs",
     "start": "next start",
     "lint": "eslint",
     "prisma:generate": "prisma generate",

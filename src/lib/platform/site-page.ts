@@ -20,6 +20,7 @@ export const SITE_PAGE_KEY = "site.page";
 
 export const SITE_SECTIONS = [
   { id: "about", label: "Hakkında", anchor: "hakkimizda" },
+  { id: "stats", label: "Canlı rakamlar", anchor: "rakamlar" },
   { id: "start", label: "Başlangıç adımları", anchor: "nasil-baslarsiniz" },
   { id: "features", label: "Özellikler", anchor: "ozellikler" },
   { id: "platform", label: "Platform tanıtımı", anchor: "platform" },
@@ -176,7 +177,13 @@ function normalizeSettings(value: unknown): SitePageSettings {
   const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   const isSection = (x: unknown): x is SiteSectionId => SECTION_IDS.includes(x as SiteSectionId);
   const saved = Array.isArray(v.order) ? v.order.filter(isSection) : [];
-  const order = [...new Set([...saved, ...SECTION_IDS])];
+  // Yeni eklenen bölüm kayıtlı sıranın sonuna değil, varsayılan yerine (önceki komşusunun arkasına) girer.
+  const order = [...new Set(saved)];
+  SECTION_IDS.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const after = i === 0 ? -1 : order.indexOf(SECTION_IDS[i - 1]!);
+    order.splice(after + 1, 0, id);
+  });
   const hidden = (Array.isArray(v.hidden) ? v.hidden.filter(isSection) : DEFAULT_HIDDEN).filter((id) => !ALWAYS_VISIBLE.includes(id));
 
   const links: SitePageSettings["links"] = {};
