@@ -478,17 +478,59 @@ function scopePairs(f: OverrideScopeFilter): { scopeType: string; scopeId: strin
   return pairs;
 }
 
+const ASSET_SCOPE_PREFIX = "brand_asset:";
+/** Her ziyarette dar okunan, katalog ayarı olmayan satırlar; panel isteklerinin listelerine taşınmaz. */
+const isListExcludedKey = (key: string) => key.startsWith("site.") || key === "platform.logo";
+
+/** Tek ayar satırı — tüm kapsamı listelemeden (site/marka gibi her ziyarette okunan ayarlar için). */
+export async function getSettingOverride(scopeType: string, scopeId: string, key: string): Promise<SettingOverride | null> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const row = await getPrisma().settingOverride.findUnique({
+        where: { scopeType_scopeId_key: { scopeType, scopeId, key } },
+        select: { value: true, updatedAt: true, updatedBy: true },
+      });
+      return row
+        ? {
+            scopeType: scopeType as SettingScope,
+            scopeId,
+            key,
+            value: row.value as JsonValue,
+            updatedAt: row.updatedAt.toISOString(),
+            updatedBy: row.updatedBy,
+          }
+        : null;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const state = await loadState();
+  return state.settingOverrides.find((o) => o.scopeType === scopeType && o.scopeId === scopeId && o.key === key) ?? null;
+}
+
 export async function listSettingOverrides(filter?: OverrideScopeFilter): Promise<SettingOverride[]> {
   const pairs = filter ? scopePairs(filter) : null;
-  const inScope = (o: { scopeType: string; scopeId: string }) =>
-    !pairs || pairs.some((p) => p.scopeType === o.scopeType && p.scopeId === o.scopeId);
+  const inScope = (o: { scopeType: string; scopeId: string; key: string }) =>
+    !o.scopeType.startsWith(ASSET_SCOPE_PREFIX) &&
+    !isListExcludedKey(o.key) &&
+    (!pairs || pairs.some((p) => p.scopeType === o.scopeType && p.scopeId === o.scopeId));
   if (isDbMode) {
     try {
       const { getPrisma } = await import("../db");
       const prisma = getPrisma();
-      // saas_billing:* satırları ayar değil, satın alma kayıtlarıdır (saas-billing/store.ts).
+      // saas_billing:* satırları ayar değil, satın alma kayıtlarıdır (saas-billing/store.ts);
+      // brand_asset:* satırları dosya baytıdır, tek satır okuyucuyla okunur (branding.ts).
       const rows = await prisma.settingOverride.findMany({
-        where: pairs ? { OR: pairs } : { NOT: { scopeType: { startsWith: "saas_billing:" } } },
+        where: {
+          ...(pairs ? { OR: pairs } : {}),
+          NOT: [
+            { scopeType: { startsWith: "saas_billing:" } },
+            { scopeType: { startsWith: ASSET_SCOPE_PREFIX } },
+            { key: { startsWith: "site." } },
+            { key: "platform.logo" },
+          ],
+        },
       });
       return rows.map((r) => ({
         scopeType: r.scopeType as SettingScope,

@@ -5,6 +5,8 @@ import type {
   NavItem,
   PlatformSurface,
   PurchaseStep,
+  ReferenceItem,
+  StepItem,
 } from "../site-content";
 
 /**
@@ -31,8 +33,8 @@ export function readSiteLocaleCookie(value: string | undefined | null): SiteLoca
   return normalizeSiteLocale(value);
 }
 
-/** Tek bölümün tüm metinleri — bileşenler metni YALNIZCA buradan alır. */
-export type SiteContent = {
+/** Dile göre çevrilen metinler (`tr.ts`, `en.ts`…). */
+export type SiteLocaleContent = {
   locale: SiteLocale;
   meta: { title: string; description: string };
   skip: string;
@@ -94,3 +96,23 @@ export type SiteContent = {
   };
   footer: { rights: string };
 };
+
+/**
+ * Dile bağlı olmayan varsayılanlar (`site-content.ts`); NeviiOS Site Ayarları
+ * bunları dil bazında ezebilir. `links` değeri null ise hedef gizli bir bölümü
+ * gösterdiği için düğme çıkmaz.
+ */
+export type SiteSharedContent = {
+  about: { title: string; description: string; note: string };
+  start: { eyebrow: string; title: string };
+  startSteps: StepItem[];
+  referenceItems: ReferenceItem[];
+  heroShowcase: { imageUrl: string; imageAlt: string; caption: string } | null;
+  links: Record<SiteLinkKey, string | null>;
+  contactInfo: { email?: string; phone?: string; address?: string; mapEmbedUrl?: string };
+};
+
+export type SiteLinkKey = "headerDemo" | "headerLogin" | "heroLogin" | "heroTrial" | "heroTour" | "contactTrial" | "pricingPlaceholder" | "purchaseCta";
+
+/** Bileşenler metni YALNIZCA buradan alır. */
+export type SiteContent = Omit<SiteLocaleContent, "about"> & SiteSharedContent;

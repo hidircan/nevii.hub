@@ -1,10 +1,10 @@
+import { cache } from "react";
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
-import { PLATFORM_TENANT_ID } from "../auth/config";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
-import { appendPlatformAudit, listSettingOverrides, upsertSettingOverride } from "./store";
+import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
 import { getSiteContent } from "../site-locales";
 import type { SiteContent, SiteLocale } from "../site-locales";
 
@@ -13,7 +13,7 @@ export const SITE_CONTENT_KEY = "site.content";
 /**
  * Anasayfa metin düzenlemeleri — kod içeriğin ÜSTÜNDE ince override katmanı.
  * - Kapsam: tekil metin alanları (başlık/açıklama/düğme). Liste içerikleri
- *   (menü öğeleri, özellik grupları, SSS maddeleri, adımlar) kodda kalır.
+ *   (menü, özellik grupları, SSS, adımlar) `site-page.ts` üzerindedir.
  * - Boş bırakılan alan kod varsayılanına düşer ("varsayılana dön").
  * - Yer tutuculu metinler ({equiv}, {pct}, {n}) korunmak zorundadır.
  */
@@ -41,6 +41,9 @@ export const EDITABLE_CONTENT_FIELDS: ContentField[] = [
   F("Karşılama", "hero.tour", "Tanıtım düğmesi"),
   F("Hakkında", "about.title", "Başlık"),
   F("Hakkında", "about.description", "Açıklama", { multiline: true }),
+  F("Hakkında", "about.note", "Alt not (varsayılanı İngilizce özet)", { multiline: true }),
+  F("Başlangıç adımları", "start.eyebrow", "Üst etiket"),
+  F("Başlangıç adımları", "start.title", "Başlık"),
   F("Özellikler", "features.title", "Başlık"),
   F("Özellikler", "features.description", "Açıklama", { multiline: true }),
   F("Platform", "platform.title", "Başlık"),
@@ -121,10 +124,9 @@ function setPath(c: SiteContent, path: string, value: string): boolean {
 
 export type ContentOverrides = Partial<Record<SiteLocale, Record<string, string>>>;
 
-export async function getSiteContentOverrides(): Promise<ContentOverrides> {
-  const row = (await listSettingOverrides({ tenantId: PLATFORM_TENANT_ID })).find(
-    (o) => o.scopeType === "platform" && o.scopeId === "*" && o.key === SITE_CONTENT_KEY
-  );
+/** İstek başına tek okuma (generateMetadata + sayfa aynı satırı paylaşır). */
+export const getSiteContentOverrides = cache(async function getSiteContentOverrides(): Promise<ContentOverrides> {
+  const row = await getSettingOverride("platform", "*", SITE_CONTENT_KEY);
   const v = (row?.value ?? {}) as Record<string, unknown>;
   const out: ContentOverrides = {};
   for (const locale of ["tr", "en", "de", "fr", "es"] as const) {
@@ -137,7 +139,7 @@ export async function getSiteContentOverrides(): Promise<ContentOverrides> {
     if (Object.keys(clean).length > 0) out[locale] = clean;
   }
   return out;
-}
+});
 
 /** Etkin site içeriği: kod varsayılanı + kayıtlı düzenlemeler. */
 export async function resolveSiteContent(locale: SiteLocale): Promise<SiteContent> {

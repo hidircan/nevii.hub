@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       error,
       notice,
       async login(email, password, takeover = false) {
-        const res = await apiPost<LoginResponse>("/api/v1/auth/login", {
+        const res = await apiPost<LoginResponse>("/api/v1/auth/mobile/login", {
           email,
           password,
           clientSupportsTakeover: true,

@@ -16,6 +16,8 @@ type Props = {
   subtitle?: string;
   openLabel: string;
   dismissLabel: string;
+  /** Platform markasından gelen ikon. */
+  iconUrl: string;
 };
 
 /** Play bağlantısındaki `id=` paket adı (Android intent bağlantısı için). */
@@ -39,7 +41,7 @@ function androidPackage(playStoreUrl?: string): string | null {
  * Kapatma 14 gün hatırlanır. Masaüstünde ve uygulamanın kendi web
  * görünümünde hiç görünmez.
  */
-export function SiteAppBanner({ scheme, appStoreUrl, playStoreUrl, title, subtitle, openLabel, dismissLabel }: Props) {
+export function SiteAppBanner({ scheme, appStoreUrl, playStoreUrl, title, subtitle, openLabel, dismissLabel, iconUrl }: Props) {
   const [platform, setPlatform] = useState<"ios" | "android" | null>(null);
 
   useEffect(() => {
@@ -108,7 +110,7 @@ export function SiteAppBanner({ scheme, appStoreUrl, playStoreUrl, title, subtit
     >
       <div className="mx-auto flex max-w-xl items-center gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icon.png" alt="" width={40} height={40} className="h-10 w-10 shrink-0 rounded-xl ring-1 ring-slate-200" />
+        <img src={iconUrl} alt="" width={40} height={40} className="h-10 w-10 shrink-0 rounded-xl ring-1 ring-slate-200" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-900">{title}</p>
           {subtitle ? <p className="truncate text-xs text-slate-600">{subtitle}</p> : null}

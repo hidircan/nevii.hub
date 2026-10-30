@@ -231,6 +231,7 @@ async function checkPublicEndpoints(): Promise<void> {
     "src/app/api/v1/ready/route.ts",
     "src/app/api/v1/health/route.ts",
     "src/app/api/v1/auth/login/route.ts",
+    "src/app/api/v1/auth/mobile/login/route.ts",
     "src/app/api/v1/auth/refresh/route.ts",
     "src/app/api/v1/auth/logout/route.ts",
     "src/app/api/v1/auth/forgot-password/route.ts",

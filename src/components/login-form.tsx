@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
+import { TurnstileField } from "@/components/turnstile-field";
 import { ModalShell, modalButton } from "@/components/modal-shell";
 import { authCopy, formatInLocale, loginErrorText, type AppLocale } from "@/lib/i18n/copy";
 import { resolvePlatformLoginDest, resolveSafeLoginNext } from "@/lib/auth/role-routes";
@@ -30,11 +31,14 @@ export function LoginForm({
   nextPath,
   lang = "tr",
   platformGate = false,
+  turnstileSiteKey = null,
 }: {
   nextPath?: string;
   lang?: AppLocale;
   /** NeviiOS platform kapısı: HYPER_ADMIN yalnız /platform altına, kurum rolleri kendi evine gider. */
   platformGate?: boolean;
+  /** Koruma etkinse public anahtar; null ise widget çizilmez. */
+  turnstileSiteKey?: string | null;
 }) {
   const copy = authCopy(lang);
   const router = useRouter();
@@ -46,8 +50,20 @@ export function LoginForm({
   const [capsLock, setCapsLock] = useState(false);
   // N — "başka cihazda aktif" onayı: cihaz özeti + son görülme.
   const [takeoverInfo, setTakeoverInfo] = useState<{ device: string | null; lastSeenAt: string | null } | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileRound, setTurnstileRound] = useState(0);
+  const challengePending = !!turnstileSiteKey && !turnstileToken;
+  /** Token tek kullanımlıktır: sonuçsuz her denemeden sonra alan yeniden kurulur. */
+  const renewTurnstile = () => {
+    setTurnstileToken(null);
+    setTurnstileRound((n) => n + 1);
+  };
+  const turnstileField = turnstileSiteKey ? (
+    <TurnstileField key={turnstileRound} siteKey={turnstileSiteKey} lang={lang} onToken={setTurnstileToken} />
+  ) : null;
 
   async function performLogin(loginEmail: string, loginPassword: string, takeover = false) {
+    if (challengePending) return;
     setLoading(true);
     setError(null);
     try {
@@ -55,13 +71,20 @@ export function LoginForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email: loginEmail, password: loginPassword, clientSupportsTakeover: true, takeover }),
+        body: JSON.stringify({
+          email: loginEmail,
+          password: loginPassword,
+          clientSupportsTakeover: true,
+          takeover,
+          ...(turnstileToken ? { turnstileToken } : {}),
+        }),
       });
       const json = (await res.json()) as {
         ok: boolean;
         data?: { user: { role: string }; resumeTo?: string | null };
         error?: { code?: string; message: string; details?: { device?: string | null; lastSeenAt?: string | null } };
       };
+      if (!json.ok) renewTurnstile();
       if (!json.ok && json.error?.code === "SESSION_ACTIVE_ELSEWHERE") {
         setTakeoverInfo({ device: json.error.details?.device ?? null, lastSeenAt: json.error.details?.lastSeenAt ?? null });
         setLoading(false);
@@ -97,6 +120,7 @@ export function LoginForm({
       router.replace(dest);
       router.refresh();
     } catch {
+      renewTurnstile();
       setError("Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.");
       setLoading(false);
     }
@@ -123,7 +147,7 @@ export function LoginForm({
             <button
               type="button"
               className={modalButton.primary}
-              disabled={loading}
+              disabled={loading || challengePending}
               onClick={() => void performLogin(email, password, true)}
             >
               {loading ? copy.signingIn : copy.takeoverAction}
@@ -143,6 +167,8 @@ export function LoginForm({
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">
           Diğer cihazdaki kullanıcı bilgilendirilir ve giriş ekranına yönlendirilir. İşlem denetim kaydına yazılır.
         </p>
+        {/* Onay yeni token ister; doğrulama etkileşim gerektirirse diyalog üstünde görünmeli. */}
+        {takeoverInfo ? <div className="mt-3">{turnstileField}</div> : null}
       </ModalShell>
       <form onSubmit={onSubmit} className="space-y-4" noValidate={false}>
         <div>
@@ -207,6 +233,7 @@ export function LoginForm({
             </p>
           ) : null}
         </div>
+        {takeoverInfo ? null : turnstileField}
         {error ? (
           <p
             id="login-error"
@@ -216,7 +243,7 @@ export function LoginForm({
             {error}
           </p>
         ) : null}
-        <Button type="submit" className="h-11 w-full text-base sm:text-sm" disabled={loading} aria-busy={loading}>
+        <Button type="submit" className="h-11 w-full text-base sm:text-sm" disabled={loading || challengePending} aria-busy={loading}>
           {loading ? (
             <span className="inline-flex items-center justify-center gap-2">
               <span
@@ -229,6 +256,11 @@ export function LoginForm({
             copy.signIn
           )}
         </Button>
+        {challengePending ? (
+          <p role="status" className="text-center text-xs text-[var(--color-text-muted)]">
+            {lang === "en" ? "Waiting for the security check to finish." : "Güvenlik doğrulamasının bitmesi bekleniyor."}
+          </p>
+        ) : null}
       </form>
     </div>
   );

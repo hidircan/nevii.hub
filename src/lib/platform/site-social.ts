@@ -1,10 +1,10 @@
+import { cache } from "react";
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
-import { PLATFORM_TENANT_ID } from "../auth/config";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
-import { appendPlatformAudit, listSettingOverrides, upsertSettingOverride } from "./store";
+import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
 
 /**
  * Herkese açık sitenin sosyal medya bağlantıları.
@@ -48,10 +48,8 @@ function normalizeUrl(raw: unknown): string | null {
 }
 
 /** Herkese açık okuma — yetki istemez, yalnız URL listesi döner. */
-export async function getSiteSocial(): Promise<SiteSocialLinks> {
-  const row = (await listSettingOverrides({ tenantId: PLATFORM_TENANT_ID })).find(
-    (o) => o.scopeType === "platform" && o.scopeId === "*" && o.key === SITE_SOCIAL_KEY
-  );
+export const getSiteSocial = cache(async function getSiteSocial(): Promise<SiteSocialLinks> {
+  const row = await getSettingOverride("platform", "*", SITE_SOCIAL_KEY);
   const v = (row?.value ?? {}) as Partial<Record<SiteSocialNetwork, unknown>>;
   const out: SiteSocialLinks = { ...EMPTY };
   for (const n of SITE_SOCIAL_NETWORKS) {
@@ -60,7 +58,7 @@ export async function getSiteSocial(): Promise<SiteSocialLinks> {
     out[n] = typeof v[n] === "string" && (v[n] as string).trim() ? norm : null;
   }
   return out;
-}
+});
 
 const inputSchema = z.object({
   youtube: z.string().max(300).nullable().optional(),

@@ -39,7 +39,8 @@ Gelecek iş (authenticated diagnostic): DB/provider readiness detayı gerekiyors
 
 | Endpoint / Surface | Public mi? | Amaç | Önceki Response / Risk | Uygulanan Fix | Final Public Contract | Test | Durum |
 |---|---|---|---|---|---|---|---|
-| `/api/v1/auth/login` | Evet | Giriş | Standart hata kodları; tercih çerezleri legacy adlı (`notaplan_*`) | — (çerez adı teknik identifier, bkz. §5) | Değişmedi | auth testleri | ✅ |
+| `/api/v1/auth/login` | Evet | Web girişi (Turnstile etkinse token şart) | Standart hata kodları; tercih çerezleri legacy adlı (`notaplan_*`) | — (çerez adı teknik identifier, bkz. §5) | Değişmedi | auth testleri | ✅ |
+| `/api/v1/auth/mobile/login` | Evet | Native uygulama girişi (Turnstile yok; çerez yazmaz, IP başına 10/15 dk, HYPER_ADMIN açılmaz) | Standart hata kodları | — | Yeni | auth-turnstile | ✅ |
 | `/api/v1/auth/logout` | Evet | Çıkış | — | — | Değişmedi | auth testleri | ✅ |
 | `/api/v1/auth/refresh` | Evet | Token yenileme | — | — | Değişmedi | auth testleri | ✅ |
 | `/api/v1/auth/forgot-password` | Evet | Parola sıfırlama isteği | — | — | Değişmedi | mevcut testler | ✅ |

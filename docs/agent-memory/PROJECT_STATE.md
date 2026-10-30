@@ -4,7 +4,15 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-30 (satın alma hukuk + kalıcılık + güvenlik + giriş/site yenileme + nevii-agent; PR açık, MERGE/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-30 akşam (merkezi logo + Site Ayarları + Turnstile; COMMIT/PR/CANLI YOK, migration YOK)
+- Worktree `nevii-hub-site-brand`, dal `feat/turnstile-site-marka` (taban origin/main 3d0d4113). Değişiklik commit edilmedi; owner onayı bekliyor.
+- Logo kök neden: `platform.logo` kaydediliyordu ama görünür yüzeyin hiçbiri okumuyordu (statik `BRAND.logoPath`, `src/app/icon.png`); ayrıca 200 KB sınırı. Artık `getPlatformBrand()` tek okuyucu, `PlatformLogo` tek render; sharp ile `brand_asset:logo` satırında küçük PNG varyantları; `?v=<sha16>` URL; `unstable_cache` + `revalidateTag`.
+- Site: `site.page` satırı (`platform/site-page.ts`): bölüm sırası/görünürlüğü, listeler (dil bazlı), düğme hedefleri, iletişim. Referanslar kod varsayılanıyla KAPALI; Fiyatlandırma kapatılamaz. `?onizleme=1` yalnız HYPER_ADMIN.
+- Turnstile: `lib/auth/turnstile.ts`; `TURNSTILE_ENABLED=true` + iki anahtar olmadan koruma yok. `/api/v1/auth/login` etkinken her istekte token ister. Mobil yeni uç `/api/v1/auth/mobile/login` (çerez yok, IP 10/15 dk, HYPER_ADMIN kapalı).
+- SIRA ŞART: yeni mobil sürüm yayınlanmadan Turnstile açılırsa 1.0.1 ve öncesi giriş yapamaz. Mobil uç token istemediği için doğrudan API'ye açık kalan risk; rate limit örnek başınadır.
+- Açık (owner): Cloudflare widget + Vercel env, mobil EAS sürümü, gizlilik/alt işleyen metnine Cloudflare (hukuki onayla), canlıda yeniden logo yükleme.
+
+## Snapshot — 2026-10-30 (satın alma hukuk + kalıcılık + güvenlik + giriş/site yenileme + nevii-agent; PR açık, MERGE/CANLI YOK, migration YOK)
 - Worktree `nevii-hub-neviios-control-center`, dal `feat/satin-alma-hukuk-guvenlik` (taban origin/main c887af01).
 - P0: saas-billing'in Prisma'sız koleksiyonları (sipariş, talep, teklif, fatura/satıcı profili, hukuki belge, e-belge)
   db modunda Vercel /tmp'ye yazılıyordu → artık `SettingOverride` satırları (`saas_billing:*`). Migration yok.

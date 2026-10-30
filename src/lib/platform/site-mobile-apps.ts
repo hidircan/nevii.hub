@@ -2,10 +2,9 @@ import { cache } from "react";
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
-import { PLATFORM_TENANT_ID } from "../auth/config";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
-import { appendPlatformAudit, listSettingOverrides, upsertSettingOverride } from "./store";
+import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
 
 /**
  * Mobil uygulama mağaza bağlantıları — TEK etkin kaynak.
@@ -49,9 +48,7 @@ const normPlay = (v: unknown) => normalizeStoreUrl(v, ["play.google.com"]);
 /** Site ayarındaki ham değerler (env'siz). */
 /** İstek başına tek okuma (sayfa + generateMetadata + bant aynı satırı paylaşır). */
 export const getSiteMobileApps = cache(async function getSiteMobileApps(): Promise<MobileAppLinks> {
-  const row = (await listSettingOverrides({ tenantId: PLATFORM_TENANT_ID })).find(
-    (o) => o.scopeType === "platform" && o.scopeId === "*" && o.key === SITE_MOBILE_APPS_KEY
-  );
+  const row = await getSettingOverride("platform", "*", SITE_MOBILE_APPS_KEY);
   const v = (row?.value ?? {}) as Partial<Record<string, unknown>>;
   return {
     appStoreUrl: typeof v.appStoreUrl === "string" && v.appStoreUrl.trim() ? normAppStore(v.appStoreUrl) : null,

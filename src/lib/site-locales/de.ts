@@ -1,7 +1,7 @@
-import type { SiteContent } from "./types";
+import type { SiteLocaleContent } from "./types";
 
 /** Deutsche Inhalte der öffentlichen Website — Übersetzung der türkischen Quelle. */
-export const deContent: SiteContent = {
+export const deContent: SiteLocaleContent = {
   locale: "de",
   meta: {
     title: "NeviiHub — Verwaltungsplattform für Musikschulen",

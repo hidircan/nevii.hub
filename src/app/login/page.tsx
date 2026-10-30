@@ -1,8 +1,8 @@
-import Image from "next/image";
 import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { getSessionContext, homePathForRole } from "@/lib/auth/session";
 import { LoginForm } from "@/components/login-form";
+import { PlatformLogo } from "@/components/platform-logo";
 import { BRAND } from "@/lib/brand";
 import { PORTAL_RECORD_MISSING_PARAM } from "@/lib/auth/portal-record-missing";
 import { cookies } from "next/headers";
@@ -11,6 +11,8 @@ import { resolveSafeLoginNext } from "@/lib/auth/role-routes";
 import { SiteAppBanner } from "@/components/site/app-banner";
 import { ShowcaseCycle } from "@/components/site/showcase-panel";
 import { appStoreIdFromUrl, getAppBannerConfig, resolveMobileAppLinks } from "@/lib/platform/site-mobile-apps";
+import { getPlatformBrand } from "@/lib/platform/branding";
+import { turnstileSiteKeyForWidget } from "@/lib/auth/turnstile";
 import type { Metadata } from "next";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -41,7 +43,7 @@ export default async function LoginPage({
     redirect(safeNext || homePathForRole(session.role));
   }
 
-  const appBanner = await getAppBannerConfig().catch(() => null);
+  const [appBanner, brand] = await Promise.all([getAppBannerConfig().catch(() => null), getPlatformBrand()]);
   const banners = (
     <>
       {portalRecordMissing ? (
@@ -91,7 +93,9 @@ export default async function LoginPage({
           href="/"
           className="relative inline-flex w-fit items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
         >
-          {BRAND.logoPath ? <Image src={BRAND.logoPath} alt="" width={36} height={36} className="rounded-lg bg-white/95 p-1" /> : null}
+          <span className="inline-flex rounded-lg bg-white/95 p-1">
+            <PlatformLogo height={28} />
+          </span>
           <span className="text-xl font-extrabold tracking-tight">{BRAND.shortName}</span>
         </Link>
 
@@ -120,7 +124,10 @@ export default async function LoginPage({
 
         <div className="nh-rise mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
           <div className="mb-8 lg:hidden">
-            {BRAND.logoPath ? <Image src={BRAND.logoPath} alt="" width={44} height={44} className="mb-3 rounded-xl" /> : null}
+            {/* Beyaz güvenli alan: koyu temada da koyu logo okunur. */}
+            <span className="mb-3 inline-flex rounded-xl bg-white p-1.5 ring-1 ring-[var(--color-border)]">
+              <PlatformLogo height={32} />
+            </span>
             {/* P1 revizyonu — marka "NeviiHub" aynen görünür (uppercase üretmez). */}
             <p className="text-lg font-extrabold tracking-tight text-[var(--color-primary)]">{BRAND.shortName}</p>
           </div>
@@ -128,7 +135,7 @@ export default async function LoginPage({
           <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{copy.signInHelp}</p>
           <div className="mt-8">
             {banners}
-            <LoginForm nextPath={safeNext || undefined} lang={lang} />
+            <LoginForm nextPath={safeNext || undefined} lang={lang} turnstileSiteKey={turnstileSiteKeyForWidget()} />
           </div>
           <p className="mt-10 text-xs leading-relaxed text-[var(--color-text-muted)]">
             Hesabınız kurumunuz tarafından açılır. Giriş bilgilerinizi bilmiyorsanız kurumunuzun yöneticisine başvurun.
@@ -143,6 +150,7 @@ export default async function LoginPage({
       {appBanner ? (
         <SiteAppBanner
           {...appBanner}
+          iconUrl={brand.appleIconUrl}
           title={lang === "en" ? "NeviiHub app" : "NeviiHub uygulaması"}
           subtitle={lang === "en" ? "Notifications and one-tap actions" : "Bildirimler ve tek dokunuşla işlemler"}
           openLabel={lang === "en" ? "Open" : "Uygulamada aç"}

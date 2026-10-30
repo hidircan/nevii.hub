@@ -42,7 +42,8 @@ const { resolveBranchScope, getBranchManagerOverview, canSeeInstitutionFinance, 
   "../platform/branch-scope"
 );
 const { openSupportSession, endSupportSession, getSupportDataView } = await import("../platform/support-access");
-const { setPlatformLogo, resetPlatformLogo, getPlatformLogo, validateLogoUpload, PLATFORM_LOGO_FALLBACK_PATH } = await import(
+const { setPlatformLogo } = await import("../platform/branding-upload");
+const { resetPlatformLogo, getPlatformLogo, validateLogoUpload, PLATFORM_LOGO_FALLBACK_PATH } = await import(
   "../platform/branding"
 );
 const { resolveTenantLimits, assertWithinLimit } = await import("../platform/entitlements");
@@ -69,7 +70,9 @@ const { __resetRateLimitForTests } = await import("../rate-limit");
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const TENANT_B = "tenant_b_neviios";
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]).toString("base64");
+const sharp = (await import("sharp")).default;
+const realPng = (r: number) => sharp({ create: { width: 8, height: 8, channels: 4, background: { r, g: 10, b: 10, alpha: 1 } } }).png().toBuffer();
+const PNG = (await realPng(1)).toString("base64");
 
 function ctx(role: AppRole, tenantId = DEFAULT_TENANT_ID, userId = "u1"): ServiceContext {
   return { role, userId, tenantId, channel: "web", requestId: "req_neviios" };
@@ -512,7 +515,7 @@ describe("platform logosu — yetki, doğrulama, fallback, bağımsızlık", () 
   it("SVG, tür/içerik uyuşmazlığı ve büyük dosya reddedilir", () => {
     expect(validateLogoUpload("image/svg+xml", Buffer.from("<svg onload=alert(1)>").toString("base64")).ok).toBe(false);
     expect(validateLogoUpload("image/png", Buffer.from("GIF89a....").toString("base64")).ok).toBe(false);
-    expect(validateLogoUpload("image/png", Buffer.concat([Buffer.from(PNG, "base64"), Buffer.alloc(210 * 1024)]).toString("base64")).ok).toBe(false);
+    expect(validateLogoUpload("image/png", Buffer.concat([Buffer.from(PNG, "base64"), Buffer.alloc(3 * 1024 * 1024)]).toString("base64")).ok).toBe(false);
     expect(validateLogoUpload("image/png", PNG).ok).toBe(true);
   });
 

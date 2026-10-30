@@ -43,6 +43,12 @@ export const SITE_HIGHLIGHTS: string[] = [
 
 export type StepItem = { title: string; description: string };
 
+export const SITE_START = { eyebrow: "Başlangıç", title: "Üç adımda yayında" };
+
+/** Yabancı ziyaretçiler (yatırımcı, program başvuruları) için kısa İngilizce özet. */
+export const SITE_ABOUT_NOTE =
+  "In English: NeviiHub is an AI-first operating system for music schools. Scheduling, attendance, makeup lessons, contracts, tuition collection and parent and teacher portals live in one place. AI agents prepare reminders, payment follow-ups and reports through the same permission checks as school staff, and a person approves every message before it is sent. Live since October 2026 in İzmir, Türkiye.";
+
 export const SITE_STEPS: StepItem[] = [
   {
     title: "Demo isteyin",

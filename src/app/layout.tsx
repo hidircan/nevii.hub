@@ -12,6 +12,7 @@ import {
 } from "@/lib/theme";
 import { clampPreferencesToPolicy } from "@/lib/appearance-policy";
 import { BRAND } from "@/lib/brand";
+import { getPlatformBrand } from "@/lib/platform/branding";
 import { getSessionAppearancePolicy } from "@/lib/platform/access";
 import { applyAppearancePolicy } from "@/lib/platform/policies";
 import { AssistantProvider } from "@/components/ai/assistant-context";
@@ -60,19 +61,22 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 const gloock = Gloock({ subsets: ["latin"], weight: "400", variable: "--font-gloock", display: "swap" });
 const notoSans = Noto_Sans({ subsets: ["latin"], variable: "--font-noto-sans", display: "swap" });
 
-export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.tagline}`,
-  description: BRAND.description,
-  // Sekme simgesi (favicon) — Next.js'in `src/app/icon.png` dosya
-  // kuralıyla otomatik sunulur; burada AYRICA `icons.icon` tanımlamak
-  // aynı URL'ye ikinci, çakışan/gereksiz bir <link rel="icon"> ekliyordu.
-  openGraph: {
+export async function generateMetadata(): Promise<Metadata> {
+  // Favicon NeviiOS Platform Markası'ndan gelir. `src/app/icon.png` bilerek yok:
+  // dosya kuralı buradaki ayarı ezer ve logo değişimi sekmeye hiç yansımazdı.
+  const brand = await getPlatformBrand();
+  return {
     title: `${BRAND.name} — ${BRAND.tagline}`,
     description: BRAND.description,
-    // ponytail: no approved Nevii Hub og-image asset yet — omit rather than
-    // reference the stale Maestron one. Add back once a real asset exists.
-  },
-};
+    icons: { icon: brand.iconUrl, apple: brand.appleIconUrl },
+    openGraph: {
+      title: `${BRAND.name} — ${BRAND.tagline}`,
+      description: BRAND.description,
+      // ponytail: no approved Nevii Hub og-image asset yet — omit rather than
+      // reference the stale Maestron one. Add back once a real asset exists.
+    },
+  };
+}
 
 export default async function RootLayout({
   children,

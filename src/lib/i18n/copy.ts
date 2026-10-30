@@ -109,6 +109,8 @@ export function loginErrorText(locale: AppLocale, code: string | undefined, fall
   if (locale !== "en") return fallback;
   if (code === "UNAUTHORIZED") return AUTH_COPY.en.badCredentials;
   if (code === "RATE_LIMITED") return AUTH_COPY.en.rateLimited;
+  if (code === "TURNSTILE_UNAVAILABLE") return "The security check service is unreachable, so sign-in failed. Try again in a few minutes.";
+  if (code?.startsWith("TURNSTILE_")) return "The security check did not pass. It has been refreshed; wait for it to finish and try again.";
   return fallback;
 }
 

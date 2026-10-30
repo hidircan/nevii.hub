@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 import { homePathForRole, resolveSafeLoginNext } from "@/lib/auth/role-routes";
 import { LoginForm } from "@/components/login-form";
+import { PlatformLogo } from "@/components/platform-logo";
+import { turnstileSiteKeyForWidget } from "@/lib/auth/turnstile";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,9 @@ export default async function PlatformGirisPage({
       <div className="w-full max-w-md">
         <div className="rounded-xl border border-[#1e4030] bg-[#0c1d14] p-8 shadow-[0_4px_16px_-4px_rgb(0_0_0/0.7)]">
           <div className="mb-6 text-center">
+            <span className="mb-3 inline-flex rounded-xl bg-white p-2">
+              <PlatformLogo height={36} />
+            </span>
             <p className="brand-mark text-3xl font-normal leading-none text-[#8df0ae]">NeviiHub</p>
             <h1 className="mt-3 text-xl font-semibold text-[#e8f5ec]">NeviiOS Control Center</h1>
             <p className="mt-2 text-sm text-[#a9cbb6]">
@@ -43,7 +48,7 @@ export default async function PlatformGirisPage({
               ekranını kullanır.
             </p>
           </div>
-          <LoginForm nextPath={safeNext || undefined} platformGate />
+          <LoginForm nextPath={safeNext || undefined} platformGate turnstileSiteKey={turnstileSiteKeyForWidget()} />
           <p className="mt-4 text-center text-xs text-[#a9cbb6]">
             Şifrenizi mi unuttunuz?{" "}
             <Link href="/sifre-sifirla" className="font-medium text-[#8df0ae] hover:underline">

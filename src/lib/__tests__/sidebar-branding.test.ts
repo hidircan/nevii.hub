@@ -9,7 +9,7 @@ import { BRAND } from "../brand";
  * GERÇEK ikonu + "NeviiHub" marka metni.
  *
  * Kullanılan asset `BRAND.logoMarkPath` (= /brand/logo.png) ve bu dosya
- * `src/app/icon.png` ile BYTE OLARAK AYNIDIR — yani favicon ile aynı görsel.
+ * `public/icon.png` ile BYTE OLARAK AYNIDIR — yani favicon ile aynı görsel.
  * Yeni/rastgele bir logo üretilmedi. Favicon/PWA/login logosu değiştirilmedi.
  */
 const ROOT = path.resolve(import.meta.dirname, "../../..");
@@ -47,8 +47,8 @@ describe("Sidebar markası", () => {
 });
 
 describe("Marka asset'i — mevcut icon.png ile aynı dosya", () => {
-  it("public/brand/logo.png ve src/app/icon.png BYTE OLARAK aynıdır", () => {
-    expect(sha(path.join(ROOT, "public/brand/logo.png"))).toBe(sha(path.join(ROOT, "src/app/icon.png")));
+  it("public/brand/logo.png ve public/icon.png BYTE OLARAK aynıdır", () => {
+    expect(sha(path.join(ROOT, "public/brand/logo.png"))).toBe(sha(path.join(ROOT, "public/icon.png")));
   });
 
   it("BRAND.logoMarkPath gerçekten var olan bir dosyaya işaret eder", () => {

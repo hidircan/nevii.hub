@@ -1672,3 +1672,9 @@ olmalı. tsc bunu yakalamaz, gözle denetlenir.
 - `body * { font-family: var(--font-sans) !important }` ve `h1,h2,h3 { color }` katmansız; Tailwind v4 yardımcıları
   `@layer utilities` içinde → `text-white`, `font-normal`, satır içi `fontFamily` (p üzerinde) etkisiz kaldı.
 - Display font için `h1–h3` kullan; renk/ağırlık için satır içi stil. Ekran görüntüsü yerine `getComputedStyle` ile doğrula.
+
+## 2026-10-30 — platform logosu kaydediliyor ama hiçbir ekran okumuyordu
+- `/platform/marka` başarılı görünüyordu; ana sayfa, giriş ve favicon statik `BRAND.logoPath` / `src/app/icon.png` kullanıyordu. Önizleme tek okuyucuydu, ekran "çalışıyor" gibi görünüyordu.
+- `src/app/icon.png` dosya kuralı `metadata.icons`'ı ezer: dinamik favicon için dosya silinmeli. Ayar ekleyince TÜM okuyucularını grep et.
+- Ayar satırına gömülü logo baytı `listSettingOverrides` ile her istekte taşınıyordu: bayt ayrı `brand_asset:*` satırında, okuma `getSettingOverride` ile.
+- sharp boru hattı sabit sıralıdır: aynı zincirde `flatten` resize/extend'den ÖNCE çalışır, ikon şeffaf kalır. Ayrı adımda uygula; görüntü aracı şeffaflığı beyaz gösterebilir, `stats().isOpaque` ile doğrula.

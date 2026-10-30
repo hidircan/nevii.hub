@@ -1,16 +1,20 @@
 import { ImageResponse } from "next/og";
+import { readPlatformLogoAsset } from "@/lib/platform/branding";
 
 /**
  * 10. tur iş #3 — OG/Twitter kart görseli (1200×630), Next dosya
  * konvansiyonu ile sunucu tarafında üretilir (`/opengraph-image`).
- * Harici tasarım aracı/asset gerektirmez; marka + TR sloganı.
+ * Harici tasarım aracı/asset gerektirmez; marka + TR sloganı. Logo NeviiOS
+ * Platform Markası'ndan gelir; ayar yoksa monogram çizilir.
  */
-export const runtime = "edge";
+export const dynamic = "force-dynamic";
 export const alt = "NeviiHub - Okullar için Yönetim Platformu";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export default function OpengraphImage() {
+export default async function OpengraphImage() {
+  const logo = await readPlatformLogoAsset("logo").catch(() => null);
+  const logoSrc = logo ? `data:${logo.mime};base64,${logo.bytes.toString("base64")}` : null;
   return new ImageResponse(
     (
       <div
@@ -32,7 +36,7 @@ export default function OpengraphImage() {
               width: 72,
               height: 72,
               borderRadius: 18,
-              background: "#f59e0b",
+              background: logoSrc ? "#ffffff" : "#f59e0b",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -41,7 +45,8 @@ export default function OpengraphImage() {
               color: "#0f172a",
             }}
           >
-            N
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- satori yalnız img destekler */}
+            {logoSrc ? <img src={logoSrc} width={56} height={56} style={{ objectFit: "contain" }} /> : "N"}
           </div>
           <div style={{ fontSize: 44, fontWeight: 800, letterSpacing: -1 }}>NeviiHub</div>
         </div>
