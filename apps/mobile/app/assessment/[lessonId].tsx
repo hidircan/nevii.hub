@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { apiPost } from "../../src/api/client";
 import { useAuth } from "../../src/auth/auth-context";
 import { AppHeader, Button, Card, Screen, ScoreSelector, SectionHeader, StatusBadge, TextField, AppText } from "../../src/components/ui";
@@ -72,7 +72,11 @@ export default function AssessmentScreen() {
   );
 
   // Varsayılan 3/5 puan ile başlar — öğretmen yalnız farklılaşan kriterlere dokunur.
-  const [scores, setScores] = useState<Record<string, number | null>>({ ...DEFAULT_SCORES });
+  // Taslak formu effect içinde senkron setState ile doldurmak yerine
+  // (react-hooks/set-state-in-effect), kullanıcı düzenlemesini ayrı bir
+  // "override" katmanında tutuyoruz: taslak gelene kadar varsayılanlar,
+  // geldikten sonra taslak değerleri görünür; kullanıcı dokununca override kazanır.
+  const [scoreOverrides, setScoreOverrides] = useState<Record<string, number | null>>({});
   const [showCriteriaEditor, setShowCriteriaEditor] = useState(!isPeriodic);
 
   // Tekil ders raporu alanları
@@ -85,11 +89,11 @@ export default function AssessmentScreen() {
   const [nextStepsNote, setNextStepsNote] = useState("");
 
   // 4 haftalık / 4 derslik dönem raporu alanları
-  const [overallProgressNote, setOverallProgressNote] = useState("");
+  // Genel değerlendirme ve öneri taslaktan gelir; kullanıcı yazınca override eder.
+  const [overallNoteOverride, setOverallNoteOverride] = useState<string | null>(null);
   const [periodicStrengthsNote, setPeriodicStrengthsNote] = useState("");
   const [areasForImprovementNote, setAreasForImprovementNote] = useState("");
-  const [recommendationNote, setRecommendationNote] = useState("");
-  const [draftHydrated, setDraftHydrated] = useState(false);
+  const [recommendationNoteOverride, setRecommendationNoteOverride] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,18 +112,16 @@ export default function AssessmentScreen() {
       : undefined;
   const draft = matchedPending?.draft;
 
-  // Taslak hidratasyonu: effect içinde sync setState yerine render sırasında
-  // önceki-taslak karşılaştırması (React'ın önerdiği desen; tek seferlik davranış aynı).
-  const [prevDraft, setPrevDraft] = useState<typeof draft>(undefined);
-  if (isPeriodic && draft && draft !== prevDraft) {
-    setPrevDraft(draft);
-    if (!draftHydrated) {
-      setScores({ ...draft.suggestedScores });
-      if (!overallProgressNote) setOverallProgressNote(draft.synthesizedNotes.overallProgressNote);
-      if (!recommendationNote) setRecommendationNote(draft.synthesizedNotes.recommendationNote);
-      setDraftHydrated(true);
-    }
-  }
+  // Taslak formu effect içinde senkron setState ile doldurmak yerine türetiyoruz:
+  // taslak gelene kadar varsayılanlar, geldikten sonra taslak değerleri görünür;
+  // kullanıcı dokunduğu anda override katmanı kazanır.
+  const draftScores: Record<string, number | null> =
+    isPeriodic && draft ? { ...DEFAULT_SCORES, ...draft.suggestedScores } : DEFAULT_SCORES;
+  const scores: Record<string, number | null> = { ...draftScores, ...scoreOverrides };
+  const overallProgressNote =
+    overallNoteOverride ?? (isPeriodic ? draft?.synthesizedNotes.overallProgressNote ?? "" : "");
+  const recommendationNote =
+    recommendationNoteOverride ?? (isPeriodic ? draft?.synthesizedNotes.recommendationNote ?? "" : "");
 
   const allScored = CRITERIA.every((c) => scores[c.key] !== null);
   const canSubmitLesson =
@@ -209,12 +211,12 @@ export default function AssessmentScreen() {
           {/* 1. Önceki 4 Dersin Otomatik Özeti */}
           <Card>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("assess.periodicSummaryTitle")}</Text>
+              <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("assess.periodicSummaryTitle")}</AppText>
               <StatusBadge label={tr("assess.periodicAvgScore", { v: avgScore.toFixed(1) })} tone="info" />
             </View>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted }]}>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted }]}>
               {tr("assess.periodicSummaryBody", { n: draft?.lessonCount ?? 4 })}
-            </Text>
+            </AppText>
 
             {draft && draft.lessonSummaries.length > 0 ? (
               <View style={{ gap: 8, marginTop: 10 }}>
@@ -229,19 +231,19 @@ export default function AssessmentScreen() {
                     }}
                   >
                     <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                      <Text style={[t.typography.caption, { color: t.colors.text, fontWeight: "700" }]}>
+                      <AppText style={[t.typography.caption, { color: t.colors.text, fontWeight: "700" }]}>
                         {idx + 1}. Ders · {relativeDayLabel(new Date(ls.startAt))}
-                      </Text>
+                      </AppText>
                       {ls.overallScore !== undefined ? (
-                        <Text style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>
+                        <AppText style={[t.typography.caption, { color: t.colors.primary, fontWeight: "700" }]}>
                           {ls.overallScore.toFixed(1)} / 5
-                        </Text>
+                        </AppText>
                       ) : null}
                     </View>
                     {ls.piecesWorked || ls.technicalWork || ls.strengthNote ? (
-                      <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+                      <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
                         {[ls.piecesWorked, ls.technicalWork, ls.strengthNote].filter(Boolean).join(" · ")}
-                      </Text>
+                      </AppText>
                     ) : null}
                   </View>
                 ))}
@@ -266,7 +268,7 @@ export default function AssessmentScreen() {
                     key={c.key}
                     label={tr(c.labelKey)}
                     value={scores[c.key] ?? 3}
-                    onChange={(v) => setScores((s) => ({ ...s, [c.key]: v }))}
+                    onChange={(v) => setScoreOverrides((s) => ({ ...s, [c.key]: v }))}
                   />
                 ))}
               </View>
@@ -280,7 +282,7 @@ export default function AssessmentScreen() {
                 label={tr("assess.periodicOverallLabel")}
                 placeholder={tr("assess.periodicOverallPh")}
                 value={overallProgressNote}
-                onChangeText={setOverallProgressNote}
+                onChangeText={setOverallNoteOverride}
                 multiline
                 numberOfLines={3}
               />
@@ -304,7 +306,7 @@ export default function AssessmentScreen() {
                 label={tr("assess.periodicRecommendLabel")}
                 placeholder={tr("assess.periodicRecommendPh")}
                 value={recommendationNote}
-                onChangeText={setRecommendationNote}
+                onChangeText={setRecommendationNoteOverride}
                 multiline
                 numberOfLines={3}
               />
@@ -313,11 +315,11 @@ export default function AssessmentScreen() {
 
           {/* 4. Onay */}
           <Card>
-            <Text style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("assess.periodicConfirmTitle")}</Text>
-            <Text style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
+            <AppText style={[t.typography.bodyStrong, { color: t.colors.text }]}>{tr("assess.periodicConfirmTitle")}</AppText>
+            <AppText style={[t.typography.caption, { color: t.colors.textMuted, marginTop: 4 }]}>
               {tr("assess.periodicConfirmHint")}
-            </Text>
-            {error ? <Text style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{error}</Text> : null}
+            </AppText>
+            {error ? <AppText style={[t.typography.caption, { color: t.colors.danger, marginTop: 8 }]}>{error}</AppText> : null}
             <Button
               label={tr("assess.periodicApproveBtn")}
               onPress={onSubmitPeriodic}
@@ -371,7 +373,7 @@ export default function AssessmentScreen() {
             key={c.key}
             label={tr(c.labelKey)}
             value={scores[c.key] ?? null}
-            onChange={(v) => setScores((s) => ({ ...s, [c.key]: v }))}
+            onChange={(v) => setScoreOverrides((s) => ({ ...s, [c.key]: v }))}
           />
         ))}
 

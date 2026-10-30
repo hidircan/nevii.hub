@@ -1,11 +1,12 @@
 /**
- * Yoklama statü renkleri — paylaşılan sözleşme testi.
+ * Yoklama statüsü — paylaşılan sözleşme testi (İş 2, 2026-10-30).
  *
- * Amaç: yönetici ders programı ile öğretmen ders programı AYNI eşlemeyi
- * (features/attendance/status-style.ts) kullanır; öğretmen yalnız SALT
- * OKUNUR rozet görür, yoklama değiştiremez. Renkler açık/koyu temada
- * WCAG AA (≥ 4.5:1) kontrast sağlar ve renk tek başına anlam taşımaz
- * (her statüde ikon + etiket).
+ * Tek kaynak `features/attendance/status-style.ts`; web yönetici panelinin
+ * `resolveLessonFinalStatus` + `LessonStatusBadge` + Yoklama Raporu
+ * `STATUS_LABEL` paritesidir: 6 görünür statü, "Mazeretli" YOK.
+ * Yönetici/öğretmen AYNI eşlemeyi kullanır; öğretmen SALT OKUNUR rozet
+ * görür. Renkler açık/koyu temada WCAG AA (≥ 4.5:1) kontrast sağlar ve
+ * renk tek başına anlam taşımaz (her statüde ikon + etiket).
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs/promises";
@@ -35,16 +36,65 @@ function contrast(fg: string, bg: string): number {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
-describe("yoklama statüsü eşlemesi", () => {
-  it("öncelik: iptal > işlendi/katıldı > gelmedi > izinli > işaretlenmedi", () => {
-    expect(attendanceStatusForLesson({ status: "cancelled" })).toBe("cancelled");
-    expect(attendanceStatusForLesson({ status: "scheduled", lessonProcessed: true })).toBe("attended");
-    expect(attendanceStatusForLesson({ status: "scheduled", studentAttended: true })).toBe("attended");
-    expect(attendanceStatusForLesson({ status: "no_show" })).toBe("absent");
-    expect(attendanceStatusForLesson({ status: "scheduled", studentAbsent: true })).toBe("absent");
-    expect(attendanceStatusForLesson({ status: "scheduled", studentExcused: true })).toBe("excused");
-    expect(attendanceStatusForLesson({ status: "scheduled" })).toBe("unmarked");
-    expect(attendanceStatusForLesson({ status: "in_progress" })).toBe("unmarked");
+describe("attendanceStatusForLesson — web resolveLessonFinalStatus port'u", () => {
+  const PAST = { startAt: "2020-01-01T09:00:00.000Z" };
+  const FUTURE = { startAt: "2099-01-01T09:00:00.000Z" };
+  /** Legacy bayraklar (`studentAbsent`/`studentExcused`) resolver'in TİPİNE
+   *  ARTIK girmiyor — yukarı akış alanları olarak iletilebilir; Tip düzeyi
+   *  sözleşme bunu kasıtlı olduğumuzu kilitler (web resolver da okumaz). */
+  type ResolverInput = Parameters<typeof attendanceStatusForLesson>[0];
+  const legacy = (fields: Record<string, unknown>): ResolverInput => fields as ResolverInput;
+
+  it("web öncelik zinciri: iptal > telafi > işlendi > geldi > planlanan telafi > zaman", () => {
+    expect(attendanceStatusForLesson({ status: "cancelled", ...PAST })).toBe("cancelled");
+    expect(attendanceStatusForLesson({ status: "scheduled", opsMakeupFlag: true, lessonProcessed: true, ...PAST })).toBe("makeup");
+    expect(attendanceStatusForLesson({ status: "scheduled", lessonProcessed: true, studentAttended: true, ...PAST })).toBe("processed");
+    expect(attendanceStatusForLesson({ status: "scheduled", studentAttended: true, ...PAST })).toBe("attended");
+    expect(attendanceStatusForLesson({ status: "scheduled", type: "makeup", ...PAST })).toBe("makeup_planned");
+    expect(attendanceStatusForLesson({ status: "scheduled", ...FUTURE })).toBe("planned");
+    expect(attendanceStatusForLesson({ status: "completed", ...PAST })).toBe("attended");
+    expect(attendanceStatusForLesson({ status: "completed", ...FUTURE })).toBe("planned");
+  });
+
+  it("İşlendi (processed) Geldi (attended) DEĞİLDİR — ayrı statüler", () => {
+    expect(attendanceStatusForLesson({ status: "scheduled", lessonProcessed: true, ...PAST })).not.toBe(
+      attendanceStatusForLesson({ status: "scheduled", studentAttended: true, ...PAST })
+    );
+  });
+
+  it("legacy bayraklar görünür statü üretmez (Mazeretli YOK — 2026-10-30 owner)", () => {
+    // Web resolver bu bayrakları OKUMAZ; bayraklı geçmiş işaresiz ders
+    // "planned", `completed` ise "attended" olur.
+    expect(attendanceStatusForLesson(legacy({ status: "scheduled", studentExcused: true, ...PAST }))).toBe("planned");
+    expect(attendanceStatusForLesson(legacy({ status: "scheduled", studentAbsent: true, ...PAST }))).toBe("planned");
+    expect(attendanceStatusForLesson({ status: "no_show", ...PAST })).toBe("planned");
+    expect(attendanceStatusForLesson(legacy({ status: "completed", studentExcused: true, ...PAST }))).toBe("attended");
+  });
+
+  it("bilinmeyen/eksik veri asla Geldi yorumlanmaz — nötr planned", () => {
+    expect(attendanceStatusForLesson(legacy({ status: "scheduled" }), new Date("2026-10-30T12:00:00Z"))).toBe("planned");
+    expect(attendanceStatusForLesson(legacy({ ...PAST }))).toBe("planned"); // status tanımsız → bayrak yok
+  });
+
+  it("statü sözlüğü: web 6 + legacy ledger-absent; 'excused' YOK", () => {
+    const codes = Object.keys(ATTENDANCE_STATUS_STYLES);
+    expect(codes).toEqual(
+      expect.arrayContaining(["attended", "processed", "makeup", "makeup_planned", "cancelled", "planned", "absent"])
+    );
+    expect(codes).not.toContain("excused"); // Mazeretli yok
+  });
+});
+
+describe("statü stili — web renk/ikon sözleşmesi", () => {
+  it("web PRESENTATION tonları: İşlendi KIRMIZI, Geldi yeşil, Telafi sarı", () => {
+    expect(attendanceStatusStyle("attended")).toMatchObject({ tone: "success", labelKey: "attStatus.present" });
+    expect(attendanceStatusStyle("processed")).toMatchObject({ tone: "danger", labelKey: "attStatus.processed" });
+    expect(attendanceStatusStyle("makeup")).toMatchObject({ tone: "warning", labelKey: "attStatus.makeup" });
+    expect(attendanceStatusStyle("makeup_planned")).toMatchObject({ tone: "warning", labelKey: "attStatus.makeupPlanned" });
+    expect(attendanceStatusStyle("cancelled")).toMatchObject({ tone: "neutral", labelKey: "attStatus.cancelled" });
+    expect(attendanceStatusStyle("planned")).toMatchObject({ tone: "neutral", labelKey: "attStatus.planned" });
+    // Ledger'in legacy 'Gelmedi' gösterimi nötrdür.
+    expect(attendanceStatusStyle("absent")).toMatchObject({ tone: "neutral", labelKey: "attStatus.absent" });
   });
 
   it("her statüde ikon + etiket var (renk tek başına anlam taşımaz)", () => {
@@ -56,8 +106,17 @@ describe("yoklama statüsü eşlemesi", () => {
     }
   });
 
-  it("legend dört statüyü kapsar (iptal edilen ders yoklama statüsü değildir)", () => {
-    expect(ATTENDANCE_LEGEND_CODES).toEqual(["attended", "absent", "excused", "unmarked"]);
+  it("legend web takviminin kapsamıdır: Geldi / İşlendi / Telafi / Planlanan telafi / Planlandı", () => {
+    expect(ATTENDANCE_LEGEND_CODES).toEqual([
+      "attended",
+      "processed",
+      "makeup",
+      "makeup_planned",
+      "planned",
+    ]);
+    expect(ATTENDANCE_LEGEND_CODES).not.toContain("cancelled");
+    expect(ATTENDANCE_LEGEND_CODES).not.toContain("absent");
+    expect(ATTENDANCE_LEGEND_CODES).not.toContain("excused");
   });
 
   it.each([
@@ -104,6 +163,6 @@ describe("paylaşımlı kullanım — admin ve öğretmen aynı modül", () => {
     const detail = await fs.readFile(path.join(APP_DIR, "(teacher)", "bugun", "[lessonId].tsx"), "utf-8");
     expect(detail).toMatch(/AttendanceStatusBadge/);
     expect(detail).not.toMatch(/lessons\/.*\/ops/);
-    expect(detail).not.toMatch(/label="Katıldı"|label="Gelmedi"|label="İzinli"/);
+    expect(detail).not.toMatch(/label="Katıldı"|label="Gelmedi"|label="İzinli"|label="Mazeretli"/);
   });
 });

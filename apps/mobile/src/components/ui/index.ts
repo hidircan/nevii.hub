@@ -32,4 +32,5 @@ export * from "./due-date-field";
 export * from "./live-lesson-timer";
 export * from "./score-selector";
 export * from "./tab-bar-label";
+export * from "./tab-bar";
 export * from "./app-text";

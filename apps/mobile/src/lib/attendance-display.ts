@@ -1,58 +1,61 @@
 import type { BadgeTone } from "../components/ui/status-badge";
 import type { Locale } from "../i18n/locales";
+import { lookup } from "../i18n/locales";
 import { getActiveLocale } from "../i18n/locale-store";
 import type { LedgerDisplayKey } from "../types/api";
+import { attendanceStatusStyle } from "../features/attendance/status-style";
 
 /**
- * Ledger görüntü statüsü → Türkçe etiket + rozet tonu. TEK KAYNAK — rapor
+ * Ledger görüntü statüsü → etiket + rozet tonu. TEK KAYNAK — rapor
  * satırları, Gelişim sayaçları, yoklama özeti ve ödeme kalemlerindeki ders
  * rozetleri buradan beslenir.
  *
- * Eşleşme (backend `lessonDisplayKey` önceliğiyle birebir):
- * attended=Geldi, processed=İşlendi, makeup=Telafi, absent=Gelmedi,
- * excused=İzinli, cancelled=İptal edildi, in_progress=Devam ediyor,
- * pending=Henüz sonuçlanmadı (nötr), upcoming=Planlandı.
- * "Mazeretli" backend'de ayrı bir state DEĞİL (excused=İzinli) — uydurulmaz.
+ * Etiketler i18n sözlüğünden (`attStatus.*`) çözülür; sunucu önceliği
+ * (`lessonDisplayKey`, student-ledgers.ts) zaten sunucu tarafında. Web
+ * yöneticiyle parite (İş 2, 2026-10-30; 2026-10-30 revizyon):
+ * - `attended=Geldi`, `processed=İşlendi (KIRMIZI/danger — artık success
+ *   DEĞİL; webde İşlendi kırmızıdır), `makeup=Telafi`,
+ * - `absent=Gelmedi` — sunucunun gerçek `no_show`/mazeretsiz gelmedi
+ *   bayrağı (web FLAG_LABEL sözü; YOKLAMA STATÜSÜ DEĞİLDİR, legend'da yok),
+ * - `excused` — "Mazeretli" diye bir yoklama statüsü YOKTUR (owner). Legacy
+ *   bayrak, statüsü olmayan ders gibi nötr "Henüz sonuçlanmadı" görünür;
+ *   web takvimi/rozetleri de legacy bayrağı görünür statü YAPMAZ,
+ * - `cancelled=İptal`, `pending=Henüz sonuçlanmadı (nötr)`,
+ *   `upcoming=Planlandı`, `in_progress=Devam ediyor`.
+ * Ops bayrağı olmayan satırlar sunucu anahtarıyla gelir (`pending`/
+ * `upcoming`); bunlar statü kodu DEĞİLDİR, ledger'e özgü görüntü
+ * anahtarlarıdır ve yalnız burada etiketlenir.
  */
-export const LEDGER_STATUS_LABEL: Record<LedgerDisplayKey, string> = {
-  attended: "Geldi",
-  processed: "İşlendi",
-  makeup: "Telafi",
-  absent: "Gelmedi",
-  excused: "İzinli",
-  cancelled: "İptal edildi",
-  in_progress: "Devam ediyor",
-  pending: "Henüz sonuçlanmadı",
-  upcoming: "Planlandı",
+const LEDGER_LABEL_KEY: Record<LedgerDisplayKey, string> = {
+  attended: "attStatus.present",
+  processed: "attStatus.processed",
+  makeup: "attStatus.makeup",
+  absent: "attStatus.absent",
+  // Legacy "Mazeretli" bayrağı görünür yoklama statüsü DEĞİL — nötr
+  // "Henüz sonuçlanmadı" olarak gösterilir (web `planned` indirgemesi).
+  excused: "attStatus.pending",
+  cancelled: "attStatus.cancelled",
+  in_progress: "attStatus.inProgress",
+  pending: "attStatus.pending",
+  upcoming: "attStatus.planned",
 };
 
-const LEDGER_STATUS_LABEL_EN: Record<LedgerDisplayKey, string> = {
-  attended: "Present",
-  processed: "Processed",
-  makeup: "Makeup",
-  absent: "Absent",
-  excused: "Excused",
-  cancelled: "Cancelled",
-  in_progress: "In progress",
-  pending: "Not yet finalized",
-  upcoming: "Scheduled",
+const LEDGER_STATUS_TONE: Record<LedgerDisplayKey, BadgeTone> = {
+  attended: attendanceStatusStyle("attended").tone,
+  processed: attendanceStatusStyle("processed").tone,
+  makeup: attendanceStatusStyle("makeup").tone,
+  absent: attendanceStatusStyle("absent").tone,
+  // Legacy "Mazeretli" — statüsüz ders gibi nötr.
+  excused: "neutral",
+  cancelled: attendanceStatusStyle("cancelled").tone,
+  in_progress: "info",
+  pending: "neutral",
+  upcoming: "neutral", // web "Planlandı" nötr yüzeydir — "primary" DEĞİL
 };
 
 export function ledgerStatusLabel(key: LedgerDisplayKey, locale: Locale = getActiveLocale()): string {
-  return locale === "en" ? LEDGER_STATUS_LABEL_EN[key] : LEDGER_STATUS_LABEL[key];
+  return lookup(locale, LEDGER_LABEL_KEY[key]);
 }
-
-const LEDGER_STATUS_TONE: Record<LedgerDisplayKey, BadgeTone> = {
-  attended: "success",
-  processed: "success",
-  makeup: "warning",
-  absent: "danger",
-  excused: "info",
-  cancelled: "neutral",
-  in_progress: "info",
-  pending: "neutral",
-  upcoming: "primary",
-};
 
 export function ledgerStatusBadge(
   key: LedgerDisplayKey,
@@ -61,7 +64,7 @@ export function ledgerStatusBadge(
   return { label: ledgerStatusLabel(key, locale), tone: LEDGER_STATUS_TONE[key] };
 }
 
-const VALID_KEYS = new Set<string>(Object.keys(LEDGER_STATUS_LABEL));
+const VALID_KEYS = new Set<string>(Object.keys(LEDGER_LABEL_KEY));
 
 /** Deep-link/query'den gelen statü değerini doğrular — bilinmeyen değer yoksayılır. */
 export function parseLedgerStatusParam(value: string | string[] | undefined): LedgerDisplayKey[] | null {

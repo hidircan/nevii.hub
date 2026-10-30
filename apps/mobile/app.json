@@ -3,7 +3,7 @@
     "name": "Nevii Hub",
     "slug": "nevii-hub-mobile",
     "scheme": "neviihub",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -37,6 +37,15 @@
       ],
       "expo-secure-store",
       "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "@react-native-community/datetimepicker",
       [
         "expo-image-picker",

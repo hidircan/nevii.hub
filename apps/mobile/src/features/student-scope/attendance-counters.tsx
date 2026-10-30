@@ -15,10 +15,12 @@ export function AttendanceCounters({ counts, onOpen }: { counts: Counts; onOpen:
   const t = useTheme();
   const { t: tr } = useLocale();
   const joined = counts.attended + counts.processed;
+  // "Mazeretli" (excused) 2026-10-30 owner kararıyla statütten çıkar: web
+  // panelde bu sayaç YOK. Legacy bayrağın sayısı gösterilmez; sunucu
+  // alanı olduğu gibi kalır.
   const main = [
     { key: "joined", label: tr("att.cJoined"), value: joined, status: "attended,processed", color: t.colors.success },
     { key: "absent", label: tr("att.cAbsent"), value: counts.absent, status: "absent", color: t.colors.danger },
-    { key: "excused", label: tr("att.cExcused"), value: counts.excused, status: "excused", color: t.colors.info },
   ];
   const extra = [
     { key: "makeup", label: tr("att.cMakeup"), value: counts.makeup, status: "makeup" },

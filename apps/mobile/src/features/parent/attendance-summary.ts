@@ -70,10 +70,12 @@ export function toAttendanceViewFromLedger(ledger: AttendanceLedgerResponse | nu
   };
 }
 
-/** Ekran okuyucu için oran + durum özeti (tek cümle, aktif dilde). */
+/** Ekran okuyucu için oran + durum özeti (tek cümle, aktif dilde).
+ *  "Mazeretli/izinli" Yoklama statüsü artık YOK (2026-10-30 owner) —
+ *  özet cümlesi yalnız oran, katılım ve devamsızlık söyler. */
 export function attendanceA11yLabel(view: AttendanceView, locale: Locale = getActiveLocale()): string {
   if (locale === "en") {
-    return `Attendance rate ${Math.round(view.rate)} percent. ${view.attended} of ${view.total} lessons attended, ${view.absent} absent, ${view.excused} excused.`;
+    return `Attendance rate ${Math.round(view.rate)} percent. ${view.attended} of ${view.total} lessons attended, ${view.absent} absent.`;
   }
-  return `Katılım oranı yüzde ${Math.round(view.rate)}. ${view.total} dersten ${view.attended} katılım, ${view.absent} devamsızlık, ${view.excused} izinli.`;
+  return `Katılım oranı yüzde ${Math.round(view.rate)}. ${view.total} dersten ${view.attended} katılım, ${view.absent} devamsızlık.`;
 }
