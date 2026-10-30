@@ -40,6 +40,7 @@ SaaS satış/abonelik: `src/lib/saas-billing/*` (checkout `/satin-al/*`, müşte
 6. Hukuki metin: hazır taslaklar var ama yayın NeviiOS'ta hukuki + ticari onayla; onaysız gerçek satış kapalı.
 7. Platform logosu tek kaynak: `getPlatformBrand()` / `<PlatformLogo>`; sayfada `BRAND.logoPath` veya `/icon.png` yazma. Ana sayfa yapısı `platform/site-page.ts`.
 8. Web girişi `/api/v1/auth/login` (Turnstile), native giriş `/api/v1/auth/mobile/login`; ayrım istemci başlığına asla dayanmaz.
+   Yeni mobil sürüm yaygınlaşmadan `TURNSTILE_ENABLED=true` yapma; önce `observe`.
 
 ## 5. Sık tekrarlanan tuzaklar (ayrıntı: LESSONS_LEARNED.md'de başlıkla ara)
 - Bir kuralı düzeltirken TÜM okuyucularını `grep` et (aynı soruya beş cevap olayları).

@@ -32,6 +32,7 @@ export function LoginForm({
   lang = "tr",
   platformGate = false,
   turnstileSiteKey = null,
+  turnstileRequired = true,
 }: {
   nextPath?: string;
   lang?: AppLocale;
@@ -39,6 +40,8 @@ export function LoginForm({
   platformGate?: boolean;
   /** Koruma etkinse public anahtar; null ise widget çizilmez. */
   turnstileSiteKey?: string | null;
+  /** false: gözlem modu; doğrulama bitmese de giriş açık kalır. */
+  turnstileRequired?: boolean;
 }) {
   const copy = authCopy(lang);
   const router = useRouter();
@@ -52,14 +55,14 @@ export function LoginForm({
   const [takeoverInfo, setTakeoverInfo] = useState<{ device: string | null; lastSeenAt: string | null } | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [turnstileRound, setTurnstileRound] = useState(0);
-  const challengePending = !!turnstileSiteKey && !turnstileToken;
+  const challengePending = !!turnstileSiteKey && turnstileRequired && !turnstileToken;
   /** Token tek kullanımlıktır: sonuçsuz her denemeden sonra alan yeniden kurulur. */
   const renewTurnstile = () => {
     setTurnstileToken(null);
     setTurnstileRound((n) => n + 1);
   };
   const turnstileField = turnstileSiteKey ? (
-    <TurnstileField key={turnstileRound} siteKey={turnstileSiteKey} lang={lang} onToken={setTurnstileToken} />
+    <TurnstileField key={turnstileRound} siteKey={turnstileSiteKey} lang={lang} onToken={setTurnstileToken} showErrors={turnstileRequired} />
   ) : null;
 
   async function performLogin(loginEmail: string, loginPassword: string, takeover = false) {

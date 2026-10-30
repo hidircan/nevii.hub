@@ -15,7 +15,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const NOW = new Date();
+const NOW = new Date("2026-10-06T06:00:00.000Z");
 
 function at(dayOffset: number, hour: number, minute = 0): string {
   const d = new Date(NOW);

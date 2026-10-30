@@ -59,7 +59,9 @@ export async function collectHealthCards(): Promise<HealthCard[]> {
     detail:
       turnstile === "active"
         ? "Etkin: web girişi token olmadan kabul edilmez. Mobil uç token istemez, rate limit ile korunur."
-        : turnstile === "misconfigured"
+        : turnstile === "observe"
+          ? "Gözlem modu: widget görünür ve sonuçlar denetim kaydına yazılır, giriş ENGELLENMEZ. Yeni mobil sürüm yaygınlaşınca TURNSTILE_ENABLED=true yapın."
+          : turnstile === "misconfigured"
           ? "Koruma ETKİN DEĞİL: TURNSTILE_ENABLED açık ama anahtar eksik veya canlıda test anahtarı var."
           : "Kapalı: TURNSTILE_ENABLED tanımlı değil. Giriş parola ve rate limit ile korunur.",
   });

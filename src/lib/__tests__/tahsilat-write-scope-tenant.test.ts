@@ -56,13 +56,13 @@ describe("approveFollowUpCaseTool — ALS/writeScope kurum uyuşmazlığı", () 
         channel: "web",
       };
 
-      await expect(
-        approveFollowUpCaseTool(scopedCtx, {
-          paymentId: payment.id,
-          studentId: student.id,
-          message: "Test mesajı",
-        })
-      ).rejects.toThrow(/Cross-tenant access denied/);
+      // Ödeme ctx.tenantId kapsamında dar okunur: başka kurumun kaydı bulunmaz, işlem yapılmaz.
+      const res = await approveFollowUpCaseTool(scopedCtx, {
+        paymentId: payment.id,
+        studentId: student.id,
+        message: "Test mesajı",
+      });
+      expect(!res.ok && res.error.code).toBe("NOT_FOUND");
     });
   });
 

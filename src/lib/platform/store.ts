@@ -479,6 +479,7 @@ function scopePairs(f: OverrideScopeFilter): { scopeType: string; scopeId: strin
 }
 
 const ASSET_SCOPE_PREFIX = "brand_asset:";
+const THROTTLE_SCOPE_PREFIX = "auth_throttle:";
 /** Her ziyarette dar okunan, katalog ayarı olmayan satırlar; panel isteklerinin listelerine taşınmaz. */
 const isListExcludedKey = (key: string) => key.startsWith("site.") || key === "platform.logo";
 
@@ -513,6 +514,7 @@ export async function listSettingOverrides(filter?: OverrideScopeFilter): Promis
   const pairs = filter ? scopePairs(filter) : null;
   const inScope = (o: { scopeType: string; scopeId: string; key: string }) =>
     !o.scopeType.startsWith(ASSET_SCOPE_PREFIX) &&
+    !o.scopeType.startsWith(THROTTLE_SCOPE_PREFIX) &&
     !isListExcludedKey(o.key) &&
     (!pairs || pairs.some((p) => p.scopeType === o.scopeType && p.scopeId === o.scopeId));
   if (isDbMode) {
@@ -527,6 +529,7 @@ export async function listSettingOverrides(filter?: OverrideScopeFilter): Promis
           NOT: [
             { scopeType: { startsWith: "saas_billing:" } },
             { scopeType: { startsWith: ASSET_SCOPE_PREFIX } },
+            { scopeType: { startsWith: THROTTLE_SCOPE_PREFIX } },
             { key: { startsWith: "site." } },
             { key: "platform.logo" },
           ],

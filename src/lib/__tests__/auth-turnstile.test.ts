@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import path from "path";
 import { __resetRateLimitForTests } from "../rate-limit";
 import { DEV_HYPER_ADMIN_EMAIL, DEV_HYPER_ADMIN_PASSWORD } from "../auth/config";
+import { LOGIN_THROTTLE_MAX_FAILURES, LOGIN_THROTTLE_WINDOW_MS, readLoginThrottle, recordLoginFailure, resetLoginThrottleForTests } from "../auth/login-throttle";
 import { turnstileSiteKeyForWidget, turnstileStatus, verifyTurnstileToken } from "../auth/turnstile";
 import { POST as webLogin } from "../../app/api/v1/auth/login/route";
 import { POST as nativeLogin } from "../../app/api/v1/auth/mobile/login/route";
@@ -30,6 +31,7 @@ const passed = { success: true, hostname: "app.example.test", action: "login" };
 
 beforeEach(() => {
   for (const b of ["auth-login-ip", "auth-login-ip-email", "auth-login-native-ip"]) __resetRateLimitForTests(b);
+  resetLoginThrottleForTests();
   vi.stubEnv("TURNSTILE_ENABLED", "true");
   vi.stubEnv("TURNSTILE_SITE_KEY", REAL_SITE);
   vi.stubEnv("TURNSTILE_SECRET_KEY", REAL_SECRET);
@@ -70,6 +72,39 @@ describe("Turnstile yapılandırması", () => {
       expect(readFileSync(path.join(ROOT, file), "utf-8")).not.toMatch(/SECRET|lib\/auth\/turnstile/);
     }
     expect(readFileSync(path.join(ROOT, "src/lib/auth/turnstile.ts"), "utf-8")).not.toMatch(/NEXT_PUBLIC/);
+  });
+});
+
+describe("gözlem modu (TURNSTILE_ENABLED=observe)", () => {
+  beforeEach(() => vi.stubEnv("TURNSTILE_ENABLED", "observe"));
+
+  it("widget çizilir ama koruma sayılmaz", () => {
+    expect(turnstileStatus()).toBe("observe");
+    expect(turnstileSiteKeyForWidget()).toBe(REAL_SITE);
+  });
+
+  it("token'sız istek ve geçersiz token girişi engellemez (eski mobil sürüm çalışır)", async () => {
+    siteverify({ success: false, "error-codes": ["invalid-input-response"] });
+    expect((await webLogin(post("/api/v1/auth/login", creds))).status).toBe(200);
+    __resetRateLimitForTests("auth-login-ip-email");
+    expect((await webLogin(post("/api/v1/auth/login", { ...creds, takeover: true, turnstileToken: "kotu" }))).status).toBe(200);
+  });
+
+  it("Cloudflare'e ulaşılamasa da giriş sürer; token yoksa Cloudflare'e gidilmez", async () => {
+    const down = vi.fn(async () => {
+      throw new Error("network");
+    });
+    vi.stubGlobal("fetch", down);
+    expect((await webLogin(post("/api/v1/auth/login", creds))).status).toBe(200);
+    expect(down).not.toHaveBeenCalled();
+    expect((await webLogin(post("/api/v1/auth/login", { ...creds, takeover: true, turnstileToken: "tok" }))).status).toBe(200);
+    expect(down).toHaveBeenCalledTimes(2);
+  });
+
+  it("canlıda test anahtarıyla gözlem de etkin sayılmaz", () => {
+    vi.stubEnv("TURNSTILE_SITE_KEY", "1x00000000000000000000AA");
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect(turnstileStatus()).toBe("misconfigured");
   });
 });
 
@@ -194,6 +229,60 @@ describe("mobil giriş ucu", () => {
 
   it("mobil uygulama yeni ucu kullanır", () => {
     expect(readFileSync(path.join(ROOT, "apps/mobile/src/auth/auth-context.tsx"), "utf-8")).toContain("/api/v1/auth/mobile/login");
+  });
+});
+
+describe("hesap bazlı giriş sınırı", () => {
+  const teacher = { email: "turgay.hosbas@niluferacar.com.tr", password: "demo-teacher-csv-1" };
+  const fromIp = (ip: string, password: string) =>
+    new Request("https://app.example.test/api/v1/auth/mobile/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": ip },
+      body: JSON.stringify({ email: teacher.email, password }),
+    });
+
+  it("farklı IP'lerden gelen deneme de hesabı durdurur; doğru parola bile o sürede girmez", async () => {
+    for (let i = 0; i < LOGIN_THROTTLE_MAX_FAILURES; i++) await nativeLogin(fromIp(`198.51.100.${i + 1}`, "yanlis"));
+    const res = await nativeLogin(fromIp("198.51.100.200", teacher.password));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBeTruthy();
+    expect(((await res.json()) as { error: { message: string } }).error.message).not.toMatch(/kayıtlı|bulunamadı/i);
+  });
+
+  it("web ve mobil aynı sayacı paylaşır", async () => {
+    for (let i = 0; i < LOGIN_THROTTLE_MAX_FAILURES; i++) await recordLoginFailure(teacher.email);
+    vi.stubEnv("TURNSTILE_ENABLED", "");
+    expect((await webLogin(post("/api/v1/auth/login", teacher))).status).toBe(429);
+  });
+
+  it("eşik altında başarılı giriş sayacı sıfırlar; süre dolunca kilit kendiliğinden açılır", async () => {
+    for (let i = 0; i < LOGIN_THROTTLE_MAX_FAILURES - 1; i++) await recordLoginFailure(teacher.email);
+    expect((await nativeLogin(fromIp("198.51.100.1", teacher.password))).status).toBe(200);
+    expect((await readLoginThrottle(teacher.email)).hasCounter).toBe(false);
+
+    const t0 = Date.now();
+    for (let i = 0; i < LOGIN_THROTTLE_MAX_FAILURES; i++) await recordLoginFailure(teacher.email, t0);
+    expect((await readLoginThrottle(teacher.email, t0)).blocked).toBe(true);
+    expect((await readLoginThrottle(teacher.email, t0 + LOGIN_THROTTLE_WINDOW_MS + 1)).blocked).toBe(false);
+  });
+
+  it("sayaç hesap adını yazmaz; ayar listelerine karışmaz", () => {
+    const src = readFileSync(path.join(ROOT, "src/lib/platform/store.ts"), "utf-8");
+    expect(src).toContain('THROTTLE_SCOPE_PREFIX = "auth_throttle:"');
+    expect(readFileSync(path.join(ROOT, "src/lib/auth/login-throttle.ts"), "utf-8")).toContain('createHash("sha256")');
+  });
+});
+
+describe("AI asistan yetkisi sunucuda", () => {
+  it("öğretmen ve öğrenci sohbet uçlarını kullanamaz, yöneticiler kullanır", async () => {
+    const { hasPermission } = await import("../auth/rbac");
+    for (const role of ["TEACHER", "STUDENT", "BRANCH_MANAGER", "AI_AGENT"] as const) expect(hasPermission(role, "ai:chat"), role).toBe(false);
+    for (const role of ["HYPER_ADMIN", "SUPER_ADMIN", "SCHOOL_ADMIN"] as const) expect(hasPermission(role, "ai:chat"), role).toBe(true);
+    for (const file of ["src/app/api/v1/chat/route.ts", "src/app/api/v1/chat/stream/route.ts", "src/app/api/v1/chat/[conversationId]/route.ts"]) {
+      const src = readFileSync(path.join(ROOT, file), "utf-8");
+      expect(src, file).toContain('"ai:chat"');
+      expect(src, file).not.toContain('"tools:catalog"');
+    }
   });
 });
 

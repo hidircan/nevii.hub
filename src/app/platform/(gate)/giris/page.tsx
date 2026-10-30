@@ -4,7 +4,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { homePathForRole, resolveSafeLoginNext } from "@/lib/auth/role-routes";
 import { LoginForm } from "@/components/login-form";
 import { PlatformLogo } from "@/components/platform-logo";
-import { turnstileSiteKeyForWidget } from "@/lib/auth/turnstile";
+import { turnstileSiteKeyForWidget, turnstileStatus } from "@/lib/auth/turnstile";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export default async function PlatformGirisPage({
               <PlatformLogo height={36} />
             </span>
             <p className="brand-mark text-3xl font-normal leading-none text-[#8df0ae]">NeviiHub</p>
-            <h1 className="mt-3 text-xl font-semibold text-[#e8f5ec]">NeviiOS Control Center</h1>
+            <h1 className="mt-3 text-xl font-semibold" style={{ color: "#e8f5ec" }}>NeviiOS Control Center</h1>
             <p className="mt-2 text-sm text-[#a9cbb6]">
               Platform yönetimi — yalnız HYPER_ADMIN. Kurum kullanıcıları{" "}
               <Link href="/login" className="font-medium text-[#8df0ae] hover:underline">
@@ -48,7 +48,10 @@ export default async function PlatformGirisPage({
               ekranını kullanır.
             </p>
           </div>
-          <LoginForm nextPath={safeNext || undefined} platformGate turnstileSiteKey={turnstileSiteKeyForWidget()} />
+          {/* Form etiketleri tema rengini kullanır; bu ekran her temada koyu zeminlidir. */}
+          <div className="[&_label]:!text-[#e8f5ec]">
+            <LoginForm nextPath={safeNext || undefined} platformGate turnstileSiteKey={turnstileSiteKeyForWidget()} turnstileRequired={turnstileStatus() === "active"} />
+          </div>
           <p className="mt-4 text-center text-xs text-[#a9cbb6]">
             Şifrenizi mi unuttunuz?{" "}
             <Link href="/sifre-sifirla" className="font-medium text-[#8df0ae] hover:underline">

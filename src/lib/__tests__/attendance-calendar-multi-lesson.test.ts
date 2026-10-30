@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { resolveDataDir } from "../config";
@@ -93,6 +93,15 @@ async function findFreePastWeekday(): Promise<string> {
  * güncellemeleri birbirinden bağımsız kalır.
  */
 describe("getAttendanceCalendarMonthTool — aynı gün birden fazla ders (İş 2)", () => {
+  // Geçmiş gün gerçek takvime bağlıydı: 28 Ekim arefesine denk gelince yoklama reddediliyordu.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-08T06:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("aynı öğrencinin aynı gün 2 dersi ayrı satırlar olarak, saat/öğretmen/enstrüman/oda/süre bilgisiyle döner", async () => {
     const dateKey = await findFreeWeekday();
     const morning = `${dateKey}T10:00:00.000Z`;

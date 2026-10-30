@@ -1678,3 +1678,8 @@ olmalı. tsc bunu yakalamaz, gözle denetlenir.
 - `src/app/icon.png` dosya kuralı `metadata.icons`'ı ezer: dinamik favicon için dosya silinmeli. Ayar ekleyince TÜM okuyucularını grep et.
 - Ayar satırına gömülü logo baytı `listSettingOverrides` ile her istekte taşınıyordu: bayt ayrı `brand_asset:*` satırında, okuma `getSettingOverride` ile.
 - sharp boru hattı sabit sıralıdır: aynı zincirde `flatten` resize/extend'den ÖNCE çalışır, ikon şeffaf kalır. Ayrı adımda uygula; görüntü aracı şeffaflığı beyaz gösterebilir, `stats().isOpaque` ile doğrula.
+
+## 2026-10-30 — kök CI mobil testleri çalıştırmıyor
+- `src/app/icon.png` silindiğinde `apps/mobile` testi kırıldı ama kök `npm test` görmedi. Paylaşılan dosyaya dokunan işte `apps/mobile` içinde de `npm test` çalıştır.
+- Testte `const NOW = new Date()` modül yüklenirken gerçek saati alır; `vi.setSystemTime` sonradan etkilemez. Sabit tarih kullan. Göreli "geçen gün" yardımcıları resmî tatile denk gelip takvime bağlı kırılır.
+

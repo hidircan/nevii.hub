@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const perm = assertPermission(auth.user.role, "tools:catalog");
+  const perm = assertPermission(auth.user.role, "ai:chat");
   if (!perm.ok) {
     return new Response(
       JSON.stringify({

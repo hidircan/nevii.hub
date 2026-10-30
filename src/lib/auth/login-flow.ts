@@ -9,6 +9,7 @@ import { clientIp } from "@/lib/http/client-ip";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { startUserSession } from "@/lib/auth/session-registry";
 import { TURNSTILE_FAILURES, turnstileStatus, verifyTurnstileToken } from "@/lib/auth/turnstile";
+import { clearLoginThrottle, LOGIN_THROTTLE_WINDOW_MS, readLoginThrottle, recordLoginFailure } from "@/lib/auth/login-throttle";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -68,25 +69,44 @@ export async function handleLogin({ body, ctx, request }: ApiHandlerArgs, channe
       return res;
     }
 
+    // Hesap sınırı IP'den bağımsızdır: dağıtık deneme de burada durur. Yanıt IP sınırıyla aynıdır.
+    const throttle = await readLoginThrottle(normalizedEmail);
+    if (throttle.blocked) {
+      auditLog({
+        action: "auth.login_account_throttled",
+        requestId: ctx.requestId || "unknown",
+        outcome: "denied",
+        meta: { email: normalizedEmail },
+      });
+      const res = jsonFail("RATE_LIMITED", "Çok fazla giriş denemesi yapıldı. Güvenlik için 15 dakika bekleyip tekrar deneyin.");
+      res.headers.set("Retry-After", String(Math.ceil(LOGIN_THROTTLE_WINDOW_MS / 1000)));
+      return res;
+    }
+
     // Parolaya bakılmadan önce: doğrulamayı geçmeyen istek parola bilgisi öğrenemez.
-    if (channel === "web" && turnstileStatus() === "active") {
+    const turnstile = turnstileStatus();
+    if (channel === "web" && (turnstile === "active" || turnstile === "observe")) {
       const check = await verifyTurnstileToken(parsed.data.turnstileToken, {
         requestHost: new URL(request.url).hostname,
         remoteIp: ip,
       });
-      if (!check.ok) {
+      if (!check.ok || turnstile === "observe") {
         auditLog({
-          action: "auth.login_turnstile_failed",
+          action: turnstile === "observe" ? "auth.login_turnstile_observed" : "auth.login_turnstile_failed",
           requestId: ctx.requestId || "unknown",
-          outcome: "denied",
-          meta: { email: normalizedEmail, reason: check.reason },
+          outcome: check.ok ? "success" : "denied",
+          meta: { email: normalizedEmail, reason: check.ok ? "passed" : check.reason },
         });
+      }
+      if (!check.ok && turnstile === "active") {
         const failure = TURNSTILE_FAILURES[check.reason];
         return NextResponse.json({ ok: false as const, error: { code: failure.code, message: failure.message } }, { status: failure.status });
       }
     }
 
     const authenticated = await authenticateUser(parsed.data.email, parsed.data.password);
+    if (!authenticated) await recordLoginFailure(normalizedEmail);
+    else if (throttle.hasCounter) await clearLoginThrottle(normalizedEmail);
     // Platform sahibi hesabı challenge'sız uçtan açılamaz; yanıt hatalı parolayla aynıdır.
     const user = channel === "native" && authenticated?.role === "HYPER_ADMIN" ? null : authenticated;
     if (!user) {

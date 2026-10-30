@@ -40,10 +40,13 @@ export function TurnstileField({
   siteKey,
   lang,
   onToken,
+  showErrors,
 }: {
   siteKey: string;
   lang: "tr" | "en";
   onToken: (token: string | null) => void;
+  /** Gözlem modunda giriş beklemediği için "giriş bekliyor" denmez. */
+  showErrors: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -98,7 +101,7 @@ export function TurnstileField({
   return (
     <div>
       <div ref={container} aria-label={lang === "en" ? "Security check" : "Güvenlik doğrulaması"} />
-      {failed ? (
+      {failed && showErrors ? (
         <p role="alert" className="mt-2 text-sm text-[var(--color-danger)]">
           {lang === "en"
             ? "The security check could not load, so sign-in is paused. Check your connection or disable content blockers for this page, then "

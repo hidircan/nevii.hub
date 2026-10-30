@@ -15,5 +15,5 @@ export const GET = withApiHandler(
 
     return fromServiceResult({ ok: true, data: { conversation: conv } });
   },
-  { permission: "tools:catalog" }
+  { permission: "ai:chat" }
 );
