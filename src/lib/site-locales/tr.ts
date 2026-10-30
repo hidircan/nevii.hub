@@ -10,10 +10,10 @@ import {
   SITE_PRICING_PLACEHOLDER,
   SITE_PURCHASE_STEPS,
 } from "../site-content";
-import type { SiteContent } from "./types";
+import type { SiteLocaleContent } from "./types";
 
 /** Türkçe site içeriği — mevcut sabitlerden derlenir, metin tekrarı yok. */
-export const trContent: SiteContent = {
+export const trContent: SiteLocaleContent = {
   locale: "tr",
   meta: {
     title: "NeviiHub — Müzik kurumları için yönetim platformu",

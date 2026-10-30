@@ -1,7 +1,7 @@
-import type { SiteContent } from "./types";
+import type { SiteLocaleContent } from "./types";
 
 /** English site content — translation of the Turkish source. Prices, plan names and demo data stay as-is. */
-export const enContent: SiteContent = {
+export const enContent: SiteLocaleContent = {
   locale: "en",
   meta: {
     title: "NeviiHub — Management platform for music schools",

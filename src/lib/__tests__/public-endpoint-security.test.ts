@@ -49,6 +49,7 @@ describe("public route envanteri", () => {
       "v1/auth/forgot-password/route.ts",
       "v1/auth/login/route.ts",
       "v1/auth/logout/route.ts",
+      "v1/auth/mobile/login/route.ts",
       "v1/auth/refresh/route.ts",
       "v1/auth/reset-password/route.ts",
       "v1/catalog/plans/route.ts",

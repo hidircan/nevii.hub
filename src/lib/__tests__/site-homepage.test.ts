@@ -78,7 +78,8 @@ describe("SEO temeli", () => {
   });
 
   it("SSS içeriği JSON-LD ile aynı kaynaktan beslenir (ayrışma imkânsız)", () => {
-    expect(page).toContain("SITE_FAQ");
+    expect(page).toContain("c.faqItems.map");
+    expect(page).toContain("<FaqSection c={c} />");
     expect(SITE_FAQ.length).toBeGreaterThan(0);
   });
 
@@ -99,8 +100,10 @@ describe("içerik yapısı", () => {
   });
 
   it("bölüm sırası: hero → adımlar → özellikler → portallar → SSS → iletişim", () => {
+    // Varsayılan sıra `views` haritasındadır; karşılama hep ilk bölümdür (NeviiOS sırası diğerlerini değiştirir).
+    expect(page.indexOf("<SiteHeader")).toBeLessThan(page.indexOf("<HeroSection"));
+    expect(page.indexOf("<HeroSection")).toBeLessThan(page.indexOf("sections.map"));
     const order = [
-      "<HeroSection",
       "<AboutSection",
       "<StepsSection",
       "<FeaturesSection",

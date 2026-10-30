@@ -8,7 +8,7 @@ import { appendPlatformAudit, deleteFeatureOverride, deleteSettingOverride, getP
 import { listPolicyVersions, newPolicyVersionId, savePolicyVersion } from "./store-ext";
 import { COMMERCIAL_CATALOG_KEY, FEATURES_POLICY_KEY, PLATFORM_SCOPE_ID, isGovernedPolicyKey, recordPublishedVersion } from "./policy-version-log";
 import { resolveAllFeatures, resolveEntitlement, resolveSetting, loadEntitlementInputs } from "./resolve";
-import { PLATFORM_LOGO_KEY, validateLogoUpload } from "./branding";
+import { invalidatePlatformBrand, PLATFORM_LOGO_KEY } from "./branding";
 import { stableStringify } from "./policies";
 import { builtinCatalog, catalogPublishImpact, validateCatalog } from "./commercial-catalog";
 import { FEATURE_FLAGS, type FeatureFlagKey, type JsonValue, type PolicyVersion } from "./types";
@@ -62,9 +62,7 @@ function validateValue(key: string, value: unknown): ServiceResult<JsonValue> {
     return validateCatalogValue(value);
   }
   if (key === PLATFORM_LOGO_KEY) {
-    const v = value as { mime?: string; dataBase64?: string };
-    const check = validateLogoUpload(String(v?.mime ?? ""), String(v?.dataBase64 ?? ""));
-    return check.ok ? ok(value as JsonValue) : fail("VALIDATION_ERROR", check.message);
+    return fail("VALIDATION_ERROR", "Logo taslakla değil, Platform Markası ekranından yüklenir.");
   }
   const def = SETTING_BY_KEY.get(key);
   if (!def) return fail("NOT_FOUND", "Bilinmeyen ayar anahtarı");
@@ -114,6 +112,11 @@ async function applyValue(
     if (scopeId !== PLATFORM_SCOPE_ID) return fail("VALIDATION_ERROR", "Paket kataloğu yalnız platform kapsamındadır.");
     if (value === null) return fail("VALIDATION_ERROR", "Katalog boşaltılamaz; önceki sürüme geri alın.");
   } else if (key === PLATFORM_LOGO_KEY) {
+    if (value === null) await deleteSettingOverride("platform", "*", key);
+    else await upsertSettingOverride({ scopeType: "platform", scopeId: "*", key, value, updatedAt: now, updatedBy: ctx.userId });
+    invalidatePlatformBrand();
+  } else if (key === "site.page" || key === "site.content") {
+    // Katalog ayarı değildir (applySettingWrite tanımaz); geri alma satırı doğrudan yazar.
     if (value === null) await deleteSettingOverride("platform", "*", key);
     else await upsertSettingOverride({ scopeType: "platform", scopeId: "*", key, value, updatedAt: now, updatedBy: ctx.userId });
   } else if (value === null) {

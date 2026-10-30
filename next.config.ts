@@ -18,7 +18,11 @@ const CSP = [
   "default-src 'self'",
   // Dev-only 'unsafe-eval': Next.js dev server (Fast Refresh / Turbopack HMR) evals
   // source maps. Never present in a production build.
-  isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
+  // challenges.cloudflare.com: giriş formundaki Turnstile betiği ve iframe'i.
+  isDev
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com"
+    : "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  "frame-src 'self' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

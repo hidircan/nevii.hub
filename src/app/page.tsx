@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -22,7 +23,9 @@ import {
 } from "@/components/site/sections";
 import { SiteAppBanner } from "@/components/site/app-banner";
 import { BRAND } from "@/lib/brand";
-import { SITE_FAQ } from "@/lib/site-content";
+import { getPlatformBrand } from "@/lib/platform/branding";
+import { resolveSitePage, type SiteSectionId } from "@/lib/platform/site-page";
+import type { SiteContent } from "@/lib/site-locales";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +39,7 @@ export const dynamic = "force-dynamic";
 const OG_LOCALE: Record<string, string> = { tr: "tr_TR", en: "en_US", de: "de_DE", fr: "fr_FR", es: "es_ES" };
 export async function generateMetadata(): Promise<Metadata> {
   const jar = await cookies();
-  const { resolveSiteContent } = await import("@/lib/platform/site-content-overrides");
-  const c = await resolveSiteContent(readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value));
+  const { c } = await resolveSitePage(readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value));
   // iOS akıllı bant: yalnız App Store bağlantısındaki sayısal kimlikten türetilir.
   const { appStoreIdFromUrl, resolveMobileAppLinks } = await import("@/lib/platform/site-mobile-apps");
   const links = await resolveMobileAppLinks();
@@ -64,8 +66,9 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-function siteJsonLd() {
-  return [
+/** İçerik NeviiOS'tan düzenlenebildiği için `<` kaçırılır: `</script>` etiketi kapatamaz. */
+function siteJsonLd(c: SiteContent, sections: SiteSectionId[]) {
+  const data = [
     {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
@@ -75,21 +78,29 @@ function siteJsonLd() {
       description: BRAND.description,
       inLanguage: "tr-TR",
     },
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      mainEntity: SITE_FAQ.map((f) => ({
-        "@type": "Question",
-        name: f.question,
-        acceptedAnswer: { "@type": "Answer", text: f.answer },
-      })),
-    },
+    // SSS yapısal verisi yalnız bölüm sayfada görünürken üretilir.
+    ...(sections.includes("faq")
+      ? [
+          {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: c.faqItems.map((f) => ({
+              "@type": "Question",
+              name: f.question,
+              acceptedAnswer: { "@type": "Answer", text: f.answer },
+            })),
+          },
+        ]
+      : []),
   ];
+  return JSON.stringify(data).replace(/</g, "\\u003c");
 }
 
-export default async function LandingPage() {
+export default async function LandingPage({ searchParams }: { searchParams: Promise<{ onizleme?: string }> }) {
   const session = await getSessionContext();
-  if (session) {
+  // Platform sahibi Site Ayarları'ndan yayındaki sayfayı açabilir; diğer herkes evine gider.
+  const preview = session?.role === "HYPER_ADMIN" && (await searchParams).onizleme === "1";
+  if (session && !preview) {
     redirect(homePathForRole(session.role));
   }
   return <LandingContent />;
@@ -97,11 +108,23 @@ export default async function LandingPage() {
 
 async function LandingContent() {
   const jar = await cookies();
-  const { resolveSiteContent } = await import("@/lib/platform/site-content-overrides");
-  const c = await resolveSiteContent(readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value));
+  const { c, sections } = await resolveSitePage(readSiteLocaleCookie(jar.get(LOCALE_COOKIE)?.value));
   // Bant yalnız uygulama tanımlıysa (şema veya mağaza bağlantısı) anlamlıdır.
   const { getAppBannerConfig } = await import("@/lib/platform/site-mobile-apps");
-  const banner = await getAppBannerConfig();
+  const [banner, brand] = await Promise.all([getAppBannerConfig(), getPlatformBrand()]);
+  const views: Record<SiteSectionId, React.ReactNode> = {
+    about: <AboutSection c={c} />,
+    start: <StepsSection c={c} />,
+    features: <FeaturesSection c={c} />,
+    platform: <PlatformSection c={c} />,
+    references: <ReferencesSection c={c} />,
+    pricing: <PricingSection c={c} />,
+    purchase: <PurchaseSection c={c} />,
+    mobile: <MobileAppSection c={c} />,
+    media: <MediaSection c={c} />,
+    faq: <FaqSection c={c} />,
+    contact: <ContactSection c={c} />,
+  };
   return (
     // Bu ekran her zaman AÇIK temadır (cihaz koyu temada olsa bile) — bkz.
     // sections.tsx tema notu; logo beyaz güvenli alan kartında durur.
@@ -114,27 +137,20 @@ async function LandingContent() {
       </a>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(siteJsonLd()) }}
+        dangerouslySetInnerHTML={{ __html: siteJsonLd(c, sections) }}
       />
       <SiteHeader c={c} />
       <main id="icerik">
         <HeroSection c={c} />
-        <AboutSection c={c} />
-        <StepsSection />
-        <FeaturesSection c={c} />
-        <PlatformSection c={c} />
-        <ReferencesSection c={c} />
-        <PricingSection c={c} />
-        <PurchaseSection c={c} />
-        <MobileAppSection c={c} />
-        <MediaSection c={c} />
-        <FaqSection c={c} />
-        <ContactSection c={c} />
+        {sections.map((id) => (
+          <Fragment key={id}>{views[id]}</Fragment>
+        ))}
       </main>
       <SiteFooter c={c} />
       {banner ? (
         <SiteAppBanner
           {...banner}
+          iconUrl={brand.appleIconUrl}
           title={c.mobileApp.title}
           subtitle="Bildirimler ve tek dokunuşla işlemler"
           openLabel={c.mobileApp.openInApp}

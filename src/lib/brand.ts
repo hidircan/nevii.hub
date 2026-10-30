@@ -20,11 +20,8 @@ export const BRAND = {
     "NeviiHub, Kurumlar için program, yoklama, telafi ve ödeme yönetimi platformudur.",
   assistantName: "NeviiHub AI",
   /**
-   * P0 (2026-08-30, temiz karşılama ekranı) — onaylı NeviiHub "N" monogram
-   * markası `public/brand/logo.png` altında mevcut; welcome/login ekranları
-   * artık bunu kullanır. `logoMarkPath` küçük/kare kullanım (favicon,
-   * sidebar) için aynı dosyayı işaret eder — ayrı bir asset yoksa fallback
-   * metin/monogram render'a düşülür.
+   * Build-time varsayılan: NeviiOS'ta logo yüklenmemişse kullanılır. Yüzeyler
+   * bu yolları doğrudan değil `getPlatformBrand()` / `<PlatformLogo>` ile okur.
    */
   logoPath: "/brand/logo.png" as string | null,
   logoSvgPath: null as string | null,

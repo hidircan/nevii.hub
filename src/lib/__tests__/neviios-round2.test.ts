@@ -25,7 +25,8 @@ const { invalidateSessionValidity, isSessionClaimValid } = await import("../auth
 const { issueTokenPair, verifyAccessToken } = await import("../auth/jwt");
 const { authenticateUser, getUserById } = await import("../auth/users");
 const { BRAND } = await import("../brand");
-const { PLATFORM_LOGO_FALLBACK_PATH, setPlatformLogo, getPlatformLogo } = await import("../platform/branding");
+const { PLATFORM_LOGO_FALLBACK_PATH, getPlatformLogo } = await import("../platform/branding");
+const { setPlatformLogo } = await import("../platform/branding-upload");
 const lifecycle = await import("../platform/user-lifecycle");
 const { platformSearch, maskEmail } = await import("../platform/search");
 const matrix = await import("../platform/permission-matrix");
@@ -46,8 +47,10 @@ const { PlatformUserMenu } = await import("../../components/platform/platform-us
 
 const DATA_FILE = path.join(resolveDataDir(path.join(process.cwd(), "data")), "store.json");
 const ROOT = process.cwd();
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]).toString("base64");
-const PNG2 = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(48, 2)]).toString("base64");
+const sharp = (await import("sharp")).default;
+const realPng = (r: number) => sharp({ create: { width: 8, height: 8, channels: 4, background: { r, g: 10, b: 10, alpha: 1 } } }).png().toBuffer();
+const PNG = (await realPng(1)).toString("base64");
+const PNG2 = (await realPng(200)).toString("base64");
 const FUTURE = () => new Date(Date.now() + 86_400_000).toISOString();
 
 function ctx(role: AppRole, tenantId = DEFAULT_TENANT_ID, userId = "u1"): ServiceContext {
@@ -104,10 +107,12 @@ describe("logo ve marka", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("platform logo ayarı yoksa görünür logo /brand/logo.png'e döner; favicon ayrı build-time varlık", async () => {
+  it("platform logo ayarı yoksa görünür logo /brand/logo.png'e, favicon /icon.png'e döner", async () => {
     expect(PLATFORM_LOGO_FALLBACK_PATH).toBe("/brand/logo.png");
     expect(BRAND.faviconPath).toBe("/icon.png");
-    expect(existsSync(path.join(ROOT, "src/app/icon.png"))).toBe(true);
+    expect(existsSync(path.join(ROOT, "public/icon.png"))).toBe(true);
+    // Dosya kuralındaki ikon metadata'yı ezer; logo değişimi sekmeye yansımazdı.
+    expect(existsSync(path.join(ROOT, "src/app/icon.png"))).toBe(false);
     const { GET } = await import("../../app/api/v1/branding/platform-logo/route");
     const res = await GET(req("/api/v1/branding/platform-logo", null));
     expect(res.status).toBe(302);

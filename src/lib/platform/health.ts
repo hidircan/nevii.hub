@@ -2,6 +2,7 @@ import { STORE_MODE, isDbMode } from "../config";
 import { isPlatformEncryptionConfigured } from "./secrets";
 import { listPlatformAudit, listPlatformTenants } from "./store";
 import { INTEGRATION_CATALOG } from "./integrations";
+import { turnstileStatus } from "../auth/turnstile";
 
 export type HealthCard = {
   id: string;
@@ -48,6 +49,19 @@ export async function collectHealthCards(): Promise<HealthCard[]> {
     label: "JWT",
     status: jwtOk || process.env.NODE_ENV !== "production" ? "ok" : "error",
     detail: jwtOk ? "JWT_SECRET tanımlı" : "Geliştirme yedek sırrı (production'da JWT_SECRET zorunlu)",
+  });
+
+  const turnstile = turnstileStatus();
+  cards.push({
+    id: "turnstile",
+    label: "Giriş koruması (Turnstile)",
+    status: turnstile === "active" ? "ok" : turnstile === "misconfigured" ? "error" : "warn",
+    detail:
+      turnstile === "active"
+        ? "Etkin: web girişi token olmadan kabul edilmez. Mobil uç token istemez, rate limit ile korunur."
+        : turnstile === "misconfigured"
+          ? "Koruma ETKİN DEĞİL: TURNSTILE_ENABLED açık ama anahtar eksik veya canlıda test anahtarı var."
+          : "Kapalı: TURNSTILE_ENABLED tanımlı değil. Giriş parola ve rate limit ile korunur.",
   });
 
   const aiOn = hasEnv(["GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "NVIDIA_NIM_API_KEY", "CEREBRAS_API_KEY"]);

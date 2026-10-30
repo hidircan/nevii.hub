@@ -347,15 +347,14 @@ describe("login dönüş + hero marka satırı — görünüm sözleşmesi", () 
     expect(createForm).toContain("actionCreateStaffMember");
   });
 
-  it("hero marka satırı logo + BRAND.shortName kullanır; uppercase dönüşümü yok, yeni mekanizma yok", () => {
+  it("hero marka satırı platform logosu + BRAND.shortName kullanır; uppercase dönüşümü yok", () => {
     // Yorumlar ayıklanır — "NEVİİHUB" tarihsel açıklaması yorumlarda geçebilir (brand-spelling.test.ts ile AYNI kural).
     const code = readFileSync(path.join(ROOT, "src/components/site/sections.tsx"), "utf-8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/(^|\s)\/\/.*$/gm, "$1");
     expect(code).toContain("BRAND.shortName");
-    expect(code).toContain("BRAND.logoPath");
+    expect(code).toContain("<PlatformLogo");
     expect(code).toContain("normal-case");
-    expect(code).not.toContain("platform-brand");
     expect(code).not.toContain("NEVİİHUB");
   });
 });

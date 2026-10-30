@@ -13,7 +13,6 @@
  * "hazırlanıyor / bize ulaşın" durumuna düşer.
  */
 import Link from "@/components/link";
-import Image from "next/image";
 import {
   Check,
   GraduationCap,
@@ -24,14 +23,14 @@ import {
   MapPin,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
-import { SITE_CONTACT, SITE_HERO_SHOWCASE, SITE_REFERENCES } from "@/lib/site-content";
+import { PlatformLogo } from "@/components/platform-logo";
+import { SITE_CONTACT } from "@/lib/site-content";
 import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-locales";
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
 import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
 import { SceneBody, ShowcaseCycle, STORY_SCENES } from "./showcase-panel";
 import type { CSSProperties } from "react";
-import { SITE_STEPS } from "@/lib/site-content";
 
 /** Odak halkası her etkileşimli öğede AYNI — klavye kullanıcısı nerede olduğunu her zaman görür. */
 const FOCUS_RING =
@@ -155,7 +154,7 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow?: string; tit
 export function SiteLogo({ size = 40 }: { size?: number }) {
   return (
     <span className="inline-flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200">
-      <Image src={BRAND.logoPath ?? "/icon.png"} alt={BRAND.name} width={size} height={size} className="rounded-lg" />
+      <PlatformLogo height={size} alt={BRAND.name} />
     </span>
   );
 }
@@ -210,9 +209,9 @@ export function SiteHeader({ c }: { c: SiteContent }) {
           </Link>
           <nav aria-label="Ana menü" className="ml-6 hidden min-w-0 flex-1 items-center justify-center gap-0 xl:flex">
             {/* Logo zaten ana sayfaya döner; geniş menüde "Ana Sayfa" tekrarlanmaz. */}
-            {c.nav.filter((item) => item.href !== "#ust" && item.href !== "/").map((item) => (
+            {c.nav.filter((item) => item.href !== "#ust" && item.href !== "/").map((item, i) => (
               <a
-                key={item.href}
+                key={i}
                 href={item.href}
                 className={`nh-navlink relative whitespace-nowrap rounded-full px-2.5 py-2 text-[13px] font-medium text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
               >
@@ -224,14 +223,16 @@ export function SiteHeader({ c }: { c: SiteContent }) {
             <span className="hidden sm:block">
               <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} />
             </span>
-            <a
-              href="#iletisim"
-              className={`hidden rounded-full px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
-            >
-              {c.header.demo}
-            </a>
+            {c.links.headerDemo ? (
+              <a
+                href={c.links.headerDemo}
+                className={`hidden rounded-full px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
+              >
+                {c.header.demo}
+              </a>
+            ) : null}
             <Link
-              href="/login"
+              href={c.links.headerLogin ?? "/login"}
               className={`shrink-0 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 ${FOCUS_RING}`}
             >
               {c.header.login}
@@ -243,9 +244,9 @@ export function SiteHeader({ c }: { c: SiteContent }) {
           <span className="shrink-0 pr-1 sm:hidden">
             <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} compact />
           </span>
-          {c.nav.map((item) => (
+          {c.nav.map((item, i) => (
             <a
-              key={item.href}
+              key={i}
               href={item.href}
               className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 ${FOCUS_RING}`}
             >
@@ -268,17 +269,7 @@ export function HeroSection({ c }: { c: SiteContent }) {
       />
       <div className="mx-auto max-w-3xl text-center">
         <p className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
-          {BRAND.logoPath ? (
-            <Image
-              src={BRAND.logoPath}
-              alt=""
-              aria-hidden
-              width={40}
-              height={40}
-              priority
-              className="h-8 w-8 object-contain sm:h-10 sm:w-10"
-            />
-          ) : null}
+          <PlatformLogo height={36} />
           <span className="text-xl font-extrabold normal-case tracking-tight text-slate-900 sm:text-2xl">
             {BRAND.shortName}
           </span>
@@ -289,26 +280,28 @@ export function HeroSection({ c }: { c: SiteContent }) {
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Link
-            href="/login"
+            href={c.links.heroLogin ?? "/login"}
             className={`rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS_RING}`}
           >
             {c.hero.login}
           </Link>
           <a
-            href="/deneme"
+            href={c.links.heroTrial ?? "/deneme"}
             className={`rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 ${FOCUS_RING}`}
           >
             {c.hero.trial}
           </a>
         </div>
-        <p className="mt-4 text-sm">
-          <a href="#platform" className={`font-medium text-amber-700 hover:text-amber-800 ${FOCUS_RING}`}>
-            {c.hero.tour}
-          </a>
-        </p>
+        {c.links.heroTour ? (
+          <p className="mt-4 text-sm">
+            <a href={c.links.heroTour} className={`font-medium text-amber-700 hover:text-amber-800 ${FOCUS_RING}`}>
+              {c.hero.tour}
+            </a>
+          </p>
+        ) : null}
         <ul className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-slate-700">
-          {c.hero.highlights.map((h) => (
-            <li key={h} className="inline-flex items-center gap-1.5">
+          {c.hero.highlights.map((h, i) => (
+            <li key={i} className="inline-flex items-center gap-1.5">
               <Check className="h-4 w-4 text-amber-600" aria-hidden />
               {h}
             </li>
@@ -316,18 +309,18 @@ export function HeroSection({ c }: { c: SiteContent }) {
         </ul>
       </div>
       {/* Gerçek ürün ekranı — tanımlıysa gösterilir, yoksa hero görselsiz kalır. */}
-      {SITE_HERO_SHOWCASE ? (
+      {c.heroShowcase ? (
         <Reveal delayMs={150} className="mx-auto mt-12 max-w-4xl">
           <figure>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={SITE_HERO_SHOWCASE.imageUrl}
-              alt={SITE_HERO_SHOWCASE.imageAlt}
+              src={c.heroShowcase.imageUrl}
+              alt={c.heroShowcase.imageAlt}
               width={1200}
               height={750}
               className="w-full rounded-2xl shadow-xl shadow-amber-900/10 ring-1 ring-slate-900/10"
             />
-            <figcaption className="mt-3 text-center text-sm text-slate-500">{SITE_HERO_SHOWCASE.caption}</figcaption>
+            <figcaption className="mt-3 text-center text-sm text-slate-500">{c.heroShowcase.caption}</figcaption>
           </figure>
         </Reveal>
       ) : (
@@ -357,25 +350,18 @@ export function AboutSection({ c }: { c: SiteContent }) {
   return (
     <Section id="hakkimizda" className="bg-white">
       <SectionHeading title={c.about.title} description={c.about.description} />
-      {/* Yabancı ziyaretçiler (yatırımcı, program başvuruları) için kısa İngilizce özet. */}
-      <p lang="en" className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">
-        <span className="font-semibold text-slate-700">In English:</span> NeviiHub is an AI-first operating
-        system for music schools. Scheduling, attendance, makeup lessons, contracts, tuition collection and
-        parent and teacher portals live in one place. AI agents prepare reminders, payment follow-ups and
-        reports through the same permission checks as school staff, and a person approves every message before
-        it is sent. Live since October 2026 in İzmir, Türkiye.
-      </p>
+      <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">{c.about.note}</p>
     </Section>
   );
 }
 
-export function StepsSection() {
+export function StepsSection({ c }: { c: SiteContent }) {
   return (
     <Section id="nasil-baslarsiniz" className="bg-slate-50">
-      <SectionHeading eyebrow="Başlangıç" title="Üç adımda yayında" />
+      <SectionHeading eyebrow={c.start.eyebrow} title={c.start.title} />
       <ol className="mx-auto mt-10 grid max-w-4xl gap-4 sm:grid-cols-3">
-        {SITE_STEPS.map((s, i) => (
-          <li key={s.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        {c.startSteps.map((s, i) => (
+          <li key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-base font-bold text-amber-800">
               {i + 1}
             </p>
@@ -394,13 +380,13 @@ export function FeaturesSection({ c }: { c: SiteContent }) {
       <SectionHeading title={c.features.title} description={c.features.description} />
       <Reveal delayMs={80} className="mt-10">
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {c.groups.map((g) => (
-            <li key={g.title} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {c.groups.map((g, i) => (
+            <li key={i} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="text-base font-semibold text-slate-900">{g.title}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{g.description}</p>
               <ul className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
-                {g.points.map((p) => (
-                  <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
+                {g.points.map((p, j) => (
+                  <li key={j} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
                     <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                       <path d="m3 8.5 3.5 3.5L13 4.5" />
                     </svg>
@@ -422,7 +408,7 @@ export function PlatformSection({ c }: { c: SiteContent }) {
       {c.surfaces.map((s, i) => {
         const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
         return (
-          <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
+          <li key={i} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
             <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
               <Icon className="h-5 w-5" aria-hidden />
             </p>
@@ -451,7 +437,7 @@ export function PlatformSection({ c }: { c: SiteContent }) {
           {c.surfaces.map((s, i) => {
             const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
             return (
-              <li key={s.title} className="nh-story-step flex min-h-[70vh] flex-col justify-center">
+              <li key={i} className="nh-story-step flex min-h-[70vh] flex-col justify-center">
                 <p className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-amber-700 shadow-sm ring-1 ring-amber-100">
                   <Icon className="h-5 w-5" aria-hidden />
                 </p>
@@ -481,8 +467,8 @@ export function PlatformSection({ c }: { c: SiteContent }) {
 function PlatformPoints({ points }: { points: string[] }) {
   return (
     <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
-      {points.map((p) => (
-        <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
+      {points.map((p, i) => (
+        <li key={i} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
           <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
             <path d="m3 8.5 3.5 3.5L13 4.5" />
           </svg>
@@ -497,15 +483,15 @@ export function ReferencesSection({ c }: { c: SiteContent }) {
   return (
     <Section id="referanslar" className="bg-white">
       <SectionHeading title={c.references.title} />
-      {SITE_REFERENCES.length === 0 ? (
+      {c.referenceItems.length === 0 ? (
         // Uydurma kurum/logo/müşteri sözü GÖSTERİLMEZ; altyapı hazır, veri eklenince kartlar otomatik çıkar.
         <p className="mx-auto mt-8 max-w-xl rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-600">
           {c.references.empty}
         </p>
       ) : (
         <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {SITE_REFERENCES.map((r) => (
-            <li key={r.name} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {c.referenceItems.map((r, i) => (
+            <li key={i} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               {r.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={r.logoUrl} alt={r.logoAlt ?? r.name} className="mb-4 h-10 w-auto max-w-[160px] object-contain" />
@@ -585,12 +571,14 @@ export async function PricingSection({ c }: { c: SiteContent }) {
         <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-slate-200 bg-slate-50 p-8 text-center">
           <h3 className="text-lg font-semibold text-slate-900">{c.pricingPlaceholder.title}</h3>
           <p className="mt-3 text-sm leading-relaxed text-slate-600">{c.pricingPlaceholder.description}</p>
-          <a
-            href="#iletisim"
-            className={`mt-6 inline-block rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS_RING}`}
-          >
-            {c.pricingPlaceholder.cta}
-          </a>
+          {c.links.pricingPlaceholder ? (
+            <a
+              href={c.links.pricingPlaceholder}
+              className={`mt-6 inline-block rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS_RING}`}
+            >
+              {c.pricingPlaceholder.cta}
+            </a>
+          ) : null}
         </div>
       ) : (
         <Reveal delayMs={80} className="mt-10">
@@ -607,19 +595,21 @@ export function PurchaseSection({ c }: { c: SiteContent }) {
       <SectionHeading title={c.purchase.title} description={c.purchase.description} />
       <Reveal delayMs={80} className="mx-auto mt-10 max-w-5xl">
         <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:gap-3">
-          {c.steps.map((s) => (
-            <li key={s.title} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          {c.steps.map((s, i) => (
+            <li key={i} className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <h3 className="text-sm font-semibold text-slate-900">{s.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
             </li>
           ))}
         </ol>
       </Reveal>
-      <p className="mt-8 text-center text-sm">
-        <a href="#fiyatlandirma" className={`font-medium text-amber-700 hover:text-amber-800 ${FOCUS_RING}`}>
-          {c.purchase.cta}
-        </a>
-      </p>
+      {c.links.purchaseCta ? (
+        <p className="mt-8 text-center text-sm">
+          <a href={c.links.purchaseCta} className={`font-medium text-amber-700 hover:text-amber-800 ${FOCUS_RING}`}>
+            {c.purchase.cta}
+          </a>
+        </p>
+      ) : null}
     </Section>
   );
 }
@@ -632,7 +622,7 @@ export function MediaSection({ c }: { c: SiteContent }) {
       <SectionHeading title={c.media.title} description={c.media.description} />
       <ul className="mt-10 grid gap-6 sm:grid-cols-2">
         {c.mediaItems.map((m, i) => (
-          <li key={m.title} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <li key={i} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <Reveal delayMs={i * 80}>
               {m.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -666,8 +656,8 @@ export function FaqSection({ c }: { c: SiteContent }) {
       <SectionHeading title={c.faq.title} description={c.faq.description} />
       <Reveal delayMs={80} className="mx-auto mt-10 max-w-3xl">
         <div className="space-y-3">
-          {c.faqItems.map((item) => (
-            <details key={item.question} className="group rounded-2xl border border-slate-200 bg-white p-5">
+          {c.faqItems.map((item, i) => (
+            <details key={i} className="group rounded-2xl border border-slate-200 bg-white p-5">
               <summary
                 className={`cursor-pointer list-none text-base font-semibold text-slate-900 ${FOCUS_RING} rounded-lg`}
               >
@@ -697,12 +687,11 @@ async function socialWithHrefs(): Promise<{ label: string; href?: string }[]> {
 
 export async function ContactSection({ c }: { c: SiteContent }) {
   const social = (await socialWithHrefs()).filter((s) => s.href);
+  const info = c.contactInfo;
   const details = [
-    SITE_CONTACT.email
-      ? { icon: Mail, label: c.contact.email, value: SITE_CONTACT.email, href: `mailto:${SITE_CONTACT.email}` }
-      : null,
-    SITE_CONTACT.phone ? { icon: Phone, label: c.contact.phone, value: SITE_CONTACT.phone, href: `tel:${SITE_CONTACT.phone}` } : null,
-    SITE_CONTACT.address ? { icon: MapPin, label: c.contact.address, value: SITE_CONTACT.address, href: null } : null,
+    info.email ? { icon: Mail, label: c.contact.email, value: info.email, href: `mailto:${info.email}` } : null,
+    info.phone ? { icon: Phone, label: c.contact.phone, value: info.phone, href: `tel:${info.phone}` } : null,
+    info.address ? { icon: MapPin, label: c.contact.address, value: info.address, href: null } : null,
   ].filter((d): d is NonNullable<typeof d> => d !== null);
   return (
     <Section id="iletisim" className="site-dark relative overflow-hidden bg-slate-950">
@@ -717,9 +706,9 @@ export async function ContactSection({ c }: { c: SiteContent }) {
           <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{c.contact.demoTitle}</h2>
           <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">{c.contact.description}</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            {SITE_CONTACT.email ? (
+            {info.email ? (
               <a
-                href={`mailto:${SITE_CONTACT.email}?subject=${encodeURIComponent(`NeviiHub ${c.contact.demoTitle}`)}`}
+                href={`mailto:${info.email}?subject=${encodeURIComponent(`NeviiHub ${c.contact.demoTitle}`)}`}
                 className={`inline-flex items-center gap-2 rounded-full bg-amber-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-400 ${FOCUS_RING_DARK}`}
               >
                 <Mail className="h-4 w-4" aria-hidden />
@@ -727,7 +716,7 @@ export async function ContactSection({ c }: { c: SiteContent }) {
               </a>
             ) : null}
             <a
-              href="/deneme"
+              href={c.links.contactTrial ?? "/deneme"}
               className={`inline-flex items-center rounded-full px-6 py-3 text-sm font-semibold text-white ring-1 ring-white/25 hover:bg-white/10 ${FOCUS_RING_DARK}`}
             >
               {c.hero.trial}
@@ -790,9 +779,9 @@ export async function ContactSection({ c }: { c: SiteContent }) {
           ) : null}
         </div>
       </Reveal>
-      {SITE_CONTACT.mapEmbedUrl ? (
+      {info.mapEmbedUrl ? (
         <iframe
-          src={SITE_CONTACT.mapEmbedUrl}
+          src={info.mapEmbedUrl}
           title={c.contact.mapTitle}
           loading="lazy"
           className="relative mt-8 h-64 w-full rounded-2xl border border-white/10"
@@ -846,16 +835,16 @@ export async function SiteFooter({ c }: { c: SiteContent }) {
           <span className="text-sm font-semibold text-slate-900">{BRAND.name}</span>
         </div>
         <nav aria-label="Alt menü" className="flex flex-wrap justify-center gap-x-4 gap-y-2">
-          {c.nav.map((item) => (
-            <a key={item.href} href={item.href} className={`text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}>
+          {c.nav.map((item, i) => (
+            <a key={i} href={item.href} className={`text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}>
               {item.label}
             </a>
           ))}
         </nav>
         <div className="flex flex-col items-center gap-2 sm:items-end">
-          {SITE_CONTACT.email ? (
-            <a href={`mailto:${SITE_CONTACT.email}`} className={`text-sm font-medium text-amber-700 ${FOCUS_RING}`}>
-              {SITE_CONTACT.email}
+          {c.contactInfo.email ? (
+            <a href={`mailto:${c.contactInfo.email}`} className={`text-sm font-medium text-amber-700 ${FOCUS_RING}`}>
+              {c.contactInfo.email}
             </a>
           ) : null}
           {social.length > 0 ? (
@@ -893,6 +882,7 @@ export async function SiteFooter({ c }: { c: SiteContent }) {
           ) : null}
           <p className="text-xs text-slate-500">
             © {new Date().getFullYear()} {BRAND.name}
+            {c.footer.rights ? ` · ${c.footer.rights}` : null}
           </p>
         </div>
       </div>

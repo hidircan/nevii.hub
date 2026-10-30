@@ -7,6 +7,7 @@ import { requirePlatformSession, isPlatformForbidden } from "@/lib/platform/sess
 import { getUserById } from "@/lib/auth/users";
 import { roleLabelTr } from "@/lib/auth/role-labels";
 import { PLATFORM_BRAND } from "@/lib/platform/brand";
+import { PlatformLogo } from "@/components/platform-logo";
 import { resolveGrants } from "@/lib/platform/permissions";
 import { screensFor } from "@/lib/platform/permission-matrix";
 import { getUserLifecycle } from "@/lib/platform/store-ext";
@@ -73,8 +74,13 @@ export default async function PlatformLayout({ children }: { children: React.Rea
             background: "color-mix(in srgb, var(--color-surface) 92%, transparent)",
           }}
         >
-          <p className="truncate text-sm font-semibold text-[var(--color-text)]">
-            {PLATFORM_BRAND.name} · {PLATFORM_BRAND.productLine}
+          <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--color-text)]">
+            <span className="inline-flex shrink-0 rounded bg-white p-0.5">
+              <PlatformLogo height={20} />
+            </span>
+            <span className="truncate">
+              {PLATFORM_BRAND.name} · {PLATFORM_BRAND.productLine}
+            </span>
           </p>
           <div className="flex items-center gap-3">
             <PlatformCommandPalette />

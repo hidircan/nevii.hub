@@ -1,5 +1,6 @@
 import { withApiHandler } from "@/lib/api/handler";
-import { getPlatformLogoMeta, resetPlatformLogo, setPlatformLogo } from "@/lib/platform/branding";
+import { getPlatformLogoMeta, resetPlatformLogo } from "@/lib/platform/branding";
+import { setPlatformLogo } from "@/lib/platform/branding-upload";
 
 export const dynamic = "force-dynamic";
 

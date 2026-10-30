@@ -62,7 +62,7 @@ export function SiteContentManager({ overrides: initial, fields, defaults }: Pro
     setSaved(res.data.overrides);
     const next = { ...(res.data.overrides[locale] ?? {}) };
     setValues(next);
-    setNotice(`${dirtyPaths.length} alan kaydedildi. Anasayfa bir sonraki açılışta güncellenir.`);
+    setNotice(`${dirtyPaths.length} alan kaydedildi ve yayına girdi.`);
   }
 
   return (
@@ -70,8 +70,8 @@ export function SiteContentManager({ overrides: initial, fields, defaults }: Pro
       <div className="space-y-4">
         <h2 className="text-sm font-semibold">Site metinleri</h2>
         <p className="text-sm text-[var(--color-text-muted)]">
-          Anasayfadaki başlık, açıklama ve düğme metinleri. Boş bırakılan alan varsayılan metni kullanır; değişiklik
-          anında yayına yansır (önbellek temizliği gerekmez). Liste içerikleri (menü, SSS maddeleri) bu kapsamda değildir.
+          Başlık, açıklama, düğme ve arama/paylaşım metinleri. Boş bırakılan alan varsayılan metni kullanır. Kaydettiğiniz
+          an yayına girer. Menü, SSS ve adımlar gibi listeler Listeler sekmesindedir.
         </p>
         <div role="tablist" aria-label="Dil" className="flex flex-wrap gap-1">
           {SITE_LOCALES.map((l) => (
