@@ -31,6 +31,7 @@ export type Announcement = {
 export type AnnouncementsResponse = { announcements: Announcement[] };
 
 export type LessonStatus = "scheduled" | "in_progress" | "completed" | "cancelled" | "no_show";
+export type LessonType = "regular" | "makeup" | "trial" | "group";
 
 export type Lesson = {
   id: string;
@@ -43,6 +44,8 @@ export type Lesson = {
   branchName?: string;
   startAt: string;
   endAt: string;
+  /** Sunucu ders tipi — `makeup` = Telafi Merkezi'nden planlanan telafi dersi. */
+  type?: LessonType;
   status: LessonStatus;
   actualStartAt?: string | null;
   actualEndAt?: string | null;

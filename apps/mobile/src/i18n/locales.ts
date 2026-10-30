@@ -306,7 +306,6 @@ const tr = {
   att: {
     cJoined: "Katıldı",
     cAbsent: "Gelmedi",
-    cExcused: "İzinli",
     cMakeup: "Telafi",
     cPending: "Sonuçlanmadı",
     cCancelled: "İptal",
@@ -1181,9 +1180,9 @@ const tr = {
     tchFbMarkAs: "{status} olarak işaretle",
   },
   attFlag: {
-    flagAttended: "Katıldı",
+    flagAttended: "Geldi",
     flagAbsent: "Gelmedi",
-    flagExcused: "İzinli",
+    flagExcused: "Mazeretli",
     flagProcessed: "İşlendi",
     flagMakeup: "Telafi",
   },
@@ -1402,11 +1401,15 @@ const tr = {
   },
   attStatus: {
     legend: "Yoklama durumu",
-    present: "Katıldı",
+    present: "Geldi",
+    processed: "İşlendi",
+    makeup: "Telafi",
+    makeupPlanned: "Planlanan telafi",
     absent: "Gelmedi",
-    excused: "İzinli",
-    unmarked: "İşaretlenmedi",
-    cancelled: "İptal edildi",
+    cancelled: "İptal",
+    planned: "Planlandı",
+    inProgress: "Devam ediyor",
+    pending: "Henüz sonuçlanmadı",
   },
 };
 
@@ -1700,7 +1703,6 @@ const en: Strings = {
   att: {
     cJoined: "Attended",
     cAbsent: "Absent",
-    cExcused: "Excused",
     cMakeup: "Makeup",
     cPending: "Unfinalized",
     cCancelled: "Cancelled",
@@ -2797,10 +2799,14 @@ const en: Strings = {
   attStatus: {
     legend: "Attendance status",
     present: "Attended",
+    processed: "Processed",
+    makeup: "Makeup",
+    makeupPlanned: "Makeup planned",
     absent: "Absent",
-    excused: "Excused",
-    unmarked: "Not marked",
     cancelled: "Cancelled",
+    planned: "Scheduled",
+    inProgress: "In progress",
+    pending: "Not yet finalized",
   },
 };
 
