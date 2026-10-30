@@ -30,6 +30,13 @@ export const PENDING_ORDER_TTL_MS = 24 * 3600 * 1000;
 /** Sonuç/parola kurulum bağlantısı penceresi (ödeme sonrası). */
 export const SETUP_TTL_MS = 72 * 3600 * 1000;
 
+/**
+ * Satış yalnız kurumsal (şirket / şahıs işletmesi). Bireysel (tüketici) alıcıya
+ * mesafeli satış ve cayma hakkı hükümleri uygulanır; metinler buna göre yazılmadı.
+ */
+export const B2B_ONLY_MESSAGE =
+  "NeviiHub kurumsal olarak satılır: alıcı türü olarak şirket veya şahıs işletmesi seçin. Kişisel kullanım için info@neviihub.com adresine yazın.";
+
 export function hashOrderToken(raw: string): string {
   return createHash("sha256").update(raw, "utf8").digest("hex");
 }
@@ -139,6 +146,7 @@ async function createPendingOrderInner(
       v.institutionName,
   });
   if (!billing.ok) return fail("VALIDATION_ERROR", billing.error);
+  if (billing.data.recipientType === "individual") return fail("VALIDATION_ERROR", B2B_ONLY_MESSAGE);
 
   const token = newOrderToken();
   const record: SaasPendingOrderRecord = {
@@ -221,6 +229,7 @@ export async function updatePendingOrder(args: {
   if (v.billing !== undefined) {
     const bv = validateBillingProfile(v.billing);
     if (!bv.ok) return fail("VALIDATION_ERROR", bv.error);
+    if (bv.data.recipientType === "individual") return fail("VALIDATION_ERROR", B2B_ONLY_MESSAGE);
     billing = bv.data;
   }
   const now = args.nowIso ?? new Date().toISOString();
@@ -427,6 +436,7 @@ export async function startOrderPayment(args: {
       marketingAt: args.marketingConsent ? now : null,
       termsText,
       docVersions: { ...(args.docVersions as Record<string, string>) },
+      docTextHashes: await acceptedDocTextHashes(),
       providerId,
       providerDisplayName: providerDisplay.displayName,
     },
@@ -915,7 +925,7 @@ export async function getOrderPublicView(args: {
  * sağlayıcının görünen kimliği. Belge METNİ içermez (taslak üstverisi).
  */
 export async function getCheckoutDocContext(): Promise<{
-  documents: { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null }[];
+  documents: { id: string; title: string; version: string; scope: string; about: string; bodyText: string | null; draft: boolean }[];
   provider: { id: string; displayName: string; termsUrl: string | null };
   acceptedVersions: Record<string, string>;
   docsApproved: boolean;
@@ -926,12 +936,25 @@ export async function getCheckoutDocContext(): Promise<{
   const info = getProviderDisplayInfo(providerId);
   const docs = await getEffectiveDocs();
   return {
-    documents: docs.map((d) => ({ id: d.id, title: d.title, version: d.version, scope: d.scope, about: d.about, bodyText: d.bodyText })),
+    documents: docs.map((d) => ({ id: d.id, title: d.title, version: d.version, scope: d.scope, about: d.about, bodyText: d.bodyText, draft: d.draft })),
     provider: { id: providerId, displayName: info.displayName, termsUrl: info.termsUrl },
     acceptedVersions: Object.fromEntries(docs.filter((d) => d.scope === "required").map((d) => [d.id, d.version])),
     docsApproved: (await getDocsApprovalStatusAsync()).allApproved,
     isMock: providerId === "mock",
   };
+}
+
+/**
+ * Kabul anında müşteriye gösterilen (satıcı bilgisiyle doldurulmuş) metnin
+ * sha256 parmak izi. Satıcı profili veya yayın sonradan değişse de hangi
+ * metnin onaylandığı ispatlanabilir (HMK m.193 delil maddesi).
+ */
+async function acceptedDocTextHashes(): Promise<Record<string, string>> {
+  const { getEffectiveDocs } = await import("./legal-doc-store");
+  const docs = await getEffectiveDocs();
+  return Object.fromEntries(
+    docs.filter((d) => d.bodyText).map((d) => [d.id, createHash("sha256").update(d.bodyText!, "utf8").digest("hex")])
+  );
 }
 
 /** E-posta maskesi (sonuç ekranı): a***@k***.com biçimi. */

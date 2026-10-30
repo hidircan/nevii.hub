@@ -1261,3 +1261,100 @@ a[href],
     transform: none;
   }
 }
+
+/*
+ * Giriş / ana sayfa hareketleri (2026-10-30). Yalnız CSS: sunucu isteği, JS
+ * döngüsü veya veri okuması YOK (Supabase/Vercel kotasına etkisi sıfır).
+ * "Hareketi azalt" tercihinde tamamen kapanır.
+ */
+@keyframes nh-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes nh-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 55%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 0%, transparent); }
+}
+@keyframes nh-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-4%, 3%, 0) scale(1.08); }
+}
+.nh-rise { animation: nh-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: var(--nh-delay, 0ms); }
+.nh-pulse { animation: nh-pulse 2.4s ease-in-out 1.4s infinite; }
+.nh-drift { animation: nh-drift 18s ease-in-out infinite alternate; }
+@media (prefers-reduced-motion: reduce) {
+  .nh-rise, .nh-pulse, .nh-drift { animation: none !important; }
+}
+/* Giriş vitrini: 3 sahne × 4 sn çapraz geçiş. */
+@keyframes nh-cycle {
+  0% { opacity: 0; transform: translateY(6px); }
+  4%, 30% { opacity: 1; transform: none; }
+  34%, 100% { opacity: 0; transform: translateY(-4px); }
+}
+.nh-cycle { opacity: 0; animation: nh-cycle 12s ease-in-out infinite both; animation-delay: var(--nh-cycle-delay, 0s); }
+@media (prefers-reduced-motion: reduce) {
+  .nh-cycle { animation: none !important; }
+  .nh-cycle:first-child { opacity: 1; }
+}
+
+/*
+ * Ana sayfa kaydırmalı anlatım (Platform bölümü). Saf CSS scroll-driven
+ * animation: her adım kendi view-timeline'ını yayınlar, sabit (sticky)
+ * ekrandaki katman o adımın zaman çizgisiyle görünür. Desteklemeyen
+ * tarayıcı, dar ekran ve "hareketi azalt" → kart düzeni (nh-story-fallback).
+ */
+@keyframes nh-story-fade {
+  0%, 28% { opacity: 0; transform: translateY(14px) scale(0.98); }
+  36%, 64% { opacity: 1; transform: none; }
+  72%, 100% { opacity: 0; transform: translateY(-14px) scale(0.98); }
+}
+/* İlk katman başta, son katman sonda görünür kalır (boş çerçeve görünmez). */
+@keyframes nh-story-fade-first {
+  0%, 64% { opacity: 1; transform: none; }
+  72%, 100% { opacity: 0; transform: translateY(-14px) scale(0.98); }
+}
+@keyframes nh-story-fade-last {
+  0%, 28% { opacity: 0; transform: translateY(14px) scale(0.98); }
+  36%, 100% { opacity: 1; transform: none; }
+}
+@keyframes nh-story-focus {
+  0%, 25% { opacity: 0.35; }
+  38%, 62% { opacity: 1; }
+  75%, 100% { opacity: 0.35; }
+}
+@supports (animation-timeline: view()) {
+  @media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+    .nh-story-fallback { display: none; }
+    .nh-story { display: grid; timeline-scope: --nh-s0, --nh-s1, --nh-s2; }
+    .nh-story-step { animation: nh-story-focus linear both; animation-timeline: view(); }
+    .nh-story-step:nth-child(1) { view-timeline-name: --nh-s0; }
+    .nh-story-step:nth-child(2) { view-timeline-name: --nh-s1; }
+    .nh-story-step:nth-child(3) { view-timeline-name: --nh-s2; }
+    .nh-story-layer { opacity: 0; animation: nh-story-fade linear both; }
+    .nh-story-layer:nth-child(1) { animation-timeline: --nh-s0; animation-name: nh-story-fade-first; }
+    .nh-story-layer:last-child { animation-name: nh-story-fade-last; }
+    .nh-story-layer:nth-child(2) { animation-timeline: --nh-s1; }
+    .nh-story-layer:nth-child(3) { animation-timeline: --nh-s2; }
+  }
+}
+
+/* Kurumsal site ortak efektleri (2026-10-30) — yalnız CSS. */
+.site-dark h1, .site-dark h2, .site-dark h3 { color: #fff; }
+@keyframes nh-header-bar {
+  from { background-color: rgb(255 255 255 / 0.55); box-shadow: none; }
+  to { background-color: rgb(255 255 255 / 0.92); box-shadow: 0 12px 32px -18px rgb(36 28 20 / 0.35); }
+}
+@supports (animation-timeline: scroll()) {
+  .nh-header-bar { animation: nh-header-bar linear both; animation-timeline: scroll(root); animation-range: 0 160px; }
+}
+.nh-lift { transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 200ms ease, background-color 200ms ease; }
+.nh-lift:hover { transform: translateY(-3px); }
+.nh-navlink::after {
+  content: ""; position: absolute; left: 0.75rem; right: 0.75rem; bottom: 0.3rem; height: 2px; border-radius: 2px;
+  background: #d97706; transform: scaleX(0); transform-origin: left; transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nh-navlink:hover::after, .nh-navlink:focus-visible::after { transform: scaleX(1); }
+@media (prefers-reduced-motion: reduce) {
+  .nh-lift, .nh-lift:hover { transition: none; transform: none; }
+  .nh-navlink::after { transition: none; }
+}

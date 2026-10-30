@@ -20,6 +20,8 @@ import {
   LayoutDashboard,
   Mail,
   Users,
+  Phone,
+  MapPin,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { SITE_CONTACT, SITE_HERO_SHOWCASE, SITE_REFERENCES } from "@/lib/site-content";
@@ -27,6 +29,8 @@ import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-loca
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
 import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
+import { SceneBody, ShowcaseCycle, STORY_SCENES } from "./showcase-panel";
+import type { CSSProperties } from "react";
 import { SITE_STEPS } from "@/lib/site-content";
 
 /** Odak halkası her etkileşimli öğede AYNI — klavye kullanıcısı nerede olduğunu her zaman görür. */
@@ -119,7 +123,7 @@ function Section({
   className?: string;
 }) {
   return (
-    <section id={id} className={`scroll-mt-20 px-6 py-16 sm:py-20 ${className}`}>
+    <section id={id} className={`scroll-mt-32 px-6 py-16 sm:py-20 ${className}`}>
       <div className="mx-auto max-w-6xl">{children}</div>
     </section>
   );
@@ -196,56 +200,60 @@ export function LanguageSwitcher({ locale, label, compact }: { locale: SiteLocal
 
 export function SiteHeader({ c }: { c: SiteContent }) {
   return (
-    <header id="ust" className="sticky top-0 z-30 border-b border-slate-200 bg-white/85 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-3">
-        <Link href="/" className={`flex shrink-0 items-center gap-2.5 rounded-lg ${FOCUS_RING}`}>
-          <SiteLogo size={32} />
-          <span className="text-lg font-extrabold tracking-wide text-slate-900">{BRAND.shortName}</span>
-        </Link>
-        <nav aria-label="Ana menü" className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 lg:flex">
+    <header id="ust" className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
+      {/* Yüzen çubuk; kaydırdıkça gölge + opaklık (globals.css nh-header-bar, saf CSS). */}
+      <div className="nh-header-bar mx-auto max-w-6xl rounded-2xl border border-slate-200/70 bg-white/70 backdrop-blur-xl">
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
+          <Link href="/" className={`flex shrink-0 items-center gap-2.5 rounded-lg ${FOCUS_RING}`}>
+            <SiteLogo size={30} />
+            <span className="text-lg font-extrabold tracking-tight text-slate-900">{BRAND.shortName}</span>
+          </Link>
+          <nav aria-label="Ana menü" className="ml-6 hidden min-w-0 flex-1 items-center justify-center gap-0 xl:flex">
+            {/* Logo zaten ana sayfaya döner; geniş menüde "Ana Sayfa" tekrarlanmaz. */}
+            {c.nav.filter((item) => item.href !== "#ust" && item.href !== "/").map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className={`nh-navlink relative whitespace-nowrap rounded-full px-2.5 py-2 text-[13px] font-medium text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
+              >
+                {item.label}
+              </a>
+            ))}
+          </nav>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden sm:block">
+              <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} />
+            </span>
+            <a
+              href="#iletisim"
+              className={`hidden rounded-full px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
+            >
+              {c.header.demo}
+            </a>
+            <Link
+              href="/login"
+              className={`shrink-0 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 ${FOCUS_RING}`}
+            >
+              {c.header.login}
+            </Link>
+          </div>
+        </div>
+        {/* xl altında menü ayrı satırda, yatay kaydırılabilir — JS'siz, erişilebilir. */}
+        <nav aria-label="Ana menü (mobil)" className="flex items-center gap-1 overflow-x-auto border-t border-slate-200/60 px-3 py-1.5 xl:hidden">
+          <span className="shrink-0 pr-1 sm:hidden">
+            <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} compact />
+          </span>
           {c.nav.map((item) => (
             <a
               key={item.href}
               href={item.href}
-              className={`whitespace-nowrap rounded-lg px-2.5 py-2 text-[13px] font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 ${FOCUS_RING}`}
+              className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 ${FOCUS_RING}`}
             >
               {item.label}
             </a>
           ))}
         </nav>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="hidden sm:block">
-            <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} />
-          </span>
-          <a
-            href="#iletisim"
-            className={`hidden rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
-          >
-            {c.header.demo}
-          </a>
-          <Link
-            href="/login"
-            className={`shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS_RING}`}
-          >
-            {c.header.login}
-          </Link>
-        </div>
       </div>
-      {/* Mobilde menü ayrı bir satırda, yatay kaydırılabilir — JS'siz, erişilebilir. */}
-      <nav aria-label="Ana menü (mobil)" className="flex items-center gap-1 overflow-x-auto px-4 pb-2 lg:hidden">
-        <span className="shrink-0 pr-1 sm:hidden">
-          <LanguageSwitcher locale={c.locale} label={c.header.languageLabel} compact />
-        </span>
-        {c.nav.map((item) => (
-          <a
-            key={item.href}
-            href={item.href}
-            className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 ${FOCUS_RING}`}
-          >
-            {item.label}
-          </a>
-        ))}
-      </nav>
     </header>
   );
 }
@@ -322,7 +330,25 @@ export function HeroSection({ c }: { c: SiteContent }) {
             <figcaption className="mt-3 text-center text-sm text-slate-500">{SITE_HERO_SHOWCASE.caption}</figcaption>
           </figure>
         </Reveal>
-      ) : null}
+      ) : (
+        <div className="relative mx-auto mt-14 max-w-2xl">
+          <div
+            aria-hidden
+            className="nh-drift pointer-events-none absolute -inset-x-16 -inset-y-10 -z-10 rounded-full opacity-60 blur-3xl"
+            style={{ background: "radial-gradient(closest-side, #fcd34d, transparent)" }}
+          />
+          <div
+            className="nh-rise rounded-[1.25rem] bg-[#4a3208] p-3 shadow-2xl shadow-amber-900/25 ring-1 ring-black/5 sm:p-4"
+            style={{ "--nh-delay": "200ms" } as CSSProperties}
+          >
+            <div aria-hidden className="mb-3 flex items-center justify-between px-2 text-xs text-white/60">
+              <span className="font-semibold text-white/90">{BRAND.shortName}</span>
+              <span className="rounded-full bg-white/10 px-3 py-1">neviihub.com/panel</span>
+            </div>
+            <ShowcaseCycle />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -391,36 +417,79 @@ export function FeaturesSection({ c }: { c: SiteContent }) {
 }
 
 export function PlatformSection({ c }: { c: SiteContent }) {
+  const cards = (
+    <ul className="grid gap-4 lg:grid-cols-3">
+      {c.surfaces.map((s, i) => {
+        const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
+        return (
+          <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
+            <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
+              <Icon className="h-5 w-5" aria-hidden />
+            </p>
+            <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
+            <PlatformPoints points={s.points} />
+          </li>
+        );
+      })}
+    </ul>
+  );
   return (
     <Section id="platform" className="bg-slate-50">
       <SectionHeading title={c.platform.title} description={c.platform.description} />
-      <Reveal delayMs={80} className="mt-10">
-        <ul className="grid gap-4 lg:grid-cols-3">
+      {/* Dar ekran / desteklemeyen tarayıcı / hareketi azalt: kartlar. */}
+      <Reveal delayMs={80} className="nh-story-fallback mt-10">
+        {cards}
+      </Reveal>
+      {/*
+        Geniş ekran + scroll-driven animation desteği: kaydırdıkça soldaki
+        anlatım akar, sağdaki ekran sabit kalıp portal ekranına geçer.
+        Yalnız CSS (globals.css nh-story-*); JS/istek yok.
+      */}
+      <div className="nh-story mt-12 hidden grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-14">
+        <ol className="space-y-0">
           {c.surfaces.map((s, i) => {
             const Icon = PORTAL_ICONS[i % PORTAL_ICONS.length]!;
             return (
-            <li key={s.title} className="flex flex-col rounded-2xl border border-amber-100 bg-gradient-to-b from-amber-50 to-white p-6 shadow-sm">
-              <p className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
-                <Icon className="h-5 w-5" aria-hidden />
-              </p>
-              <h3 className="mt-4 text-base font-semibold text-slate-900">{s.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.description}</p>
-              <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
-                {s.points.map((p) => (
-                  <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
-                    <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m3 8.5 3.5 3.5L13 4.5" />
-                    </svg>
-                    <span>{p}</span>
-                  </li>
-                ))}
-              </ul>
-            </li>
+              <li key={s.title} className="nh-story-step flex min-h-[70vh] flex-col justify-center">
+                <p className="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-amber-700 shadow-sm ring-1 ring-amber-100">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </p>
+                <h3 className="mt-5 text-2xl font-semibold text-slate-900">{s.title}</h3>
+                <p className="mt-3 max-w-md text-base leading-relaxed text-slate-600">{s.description}</p>
+                <PlatformPoints points={s.points} />
+              </li>
             );
           })}
-        </ul>
-      </Reveal>
+        </ol>
+        <div className="relative">
+          <div className="sticky top-[calc(50vh-11rem)]">
+            <div aria-hidden className="relative h-[22rem] rounded-[1.25rem] bg-[#4a3208] p-4 shadow-2xl shadow-amber-900/25">
+              {STORY_SCENES.slice(0, Math.max(1, c.surfaces.length)).map((scene) => (
+                <div key={scene.title} className="nh-story-layer absolute inset-4 rounded-2xl bg-white/[0.07] p-5 ring-1 ring-white/15">
+                  <SceneBody scene={scene} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </Section>
+  );
+}
+
+function PlatformPoints({ points }: { points: string[] }) {
+  return (
+    <ul className="mt-4 space-y-2 border-t border-amber-100 pt-4">
+      {points.map((p) => (
+        <li key={p} className="flex gap-2 text-[13px] leading-relaxed text-slate-700">
+          <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 8.5 3.5 3.5L13 4.5" />
+          </svg>
+          <span>{p}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -627,99 +696,108 @@ async function socialWithHrefs(): Promise<{ label: string; href?: string }[]> {
 }
 
 export async function ContactSection({ c }: { c: SiteContent }) {
-  const hasDetails = !!(SITE_CONTACT.phone || SITE_CONTACT.email || SITE_CONTACT.address);
-  const social = await socialWithHrefs();
+  const social = (await socialWithHrefs()).filter((s) => s.href);
+  const details = [
+    SITE_CONTACT.email
+      ? { icon: Mail, label: c.contact.email, value: SITE_CONTACT.email, href: `mailto:${SITE_CONTACT.email}` }
+      : null,
+    SITE_CONTACT.phone ? { icon: Phone, label: c.contact.phone, value: SITE_CONTACT.phone, href: `tel:${SITE_CONTACT.phone}` } : null,
+    SITE_CONTACT.address ? { icon: MapPin, label: c.contact.address, value: SITE_CONTACT.address, href: null } : null,
+  ].filter((d): d is NonNullable<typeof d> => d !== null);
   return (
-    <Section id="iletisim" className="bg-slate-900">
-      <div className="mx-auto max-w-2xl text-center">
-        <Eyebrow tone="dark">{c.contact.title}</Eyebrow>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-          {c.contact.demoTitle}
-        </h2>
-        <p className="mt-3 text-base leading-relaxed text-slate-300">
-          {c.contact.description}
-        </p>
-      </div>
-      <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-slate-700 bg-slate-800 p-8 text-center">
-        {hasDetails ? (
-          <dl className="space-y-2 text-sm text-slate-200">
-            {SITE_CONTACT.phone ? (
-              <div>
-                <dt className="inline font-semibold">{c.contact.phone}: </dt>
-                <dd className="inline">
-                  <a href={`tel:${SITE_CONTACT.phone}`} className={FOCUS_RING_DARK}>
-                    {SITE_CONTACT.phone}
-                  </a>
-                </dd>
-              </div>
-            ) : null}
+    <Section id="iletisim" className="site-dark relative overflow-hidden bg-slate-950">
+      <div
+        aria-hidden
+        className="nh-drift pointer-events-none absolute -left-1/4 top-0 h-[120%] w-[70%] rounded-full opacity-30 blur-3xl"
+        style={{ background: "radial-gradient(closest-side, #d97706, transparent)" }}
+      />
+      <Reveal className="relative grid gap-10 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl backdrop-blur sm:p-12 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
+        <div>
+          <Eyebrow tone="dark">{c.contact.title}</Eyebrow>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{c.contact.demoTitle}</h2>
+          <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">{c.contact.description}</p>
+          <div className="mt-8 flex flex-wrap gap-3">
             {SITE_CONTACT.email ? (
-              <div>
-                <dt className="inline font-semibold">{c.contact.email}: </dt>
-                <dd className="inline">
-                  <a href={`mailto:${SITE_CONTACT.email}`} className={`underline ${FOCUS_RING_DARK}`}>
-                    {SITE_CONTACT.email}
-                  </a>
-                </dd>
-              </div>
+              <a
+                href={`mailto:${SITE_CONTACT.email}?subject=${encodeURIComponent(`NeviiHub ${c.contact.demoTitle}`)}`}
+                className={`inline-flex items-center gap-2 rounded-full bg-amber-500 px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-400 ${FOCUS_RING_DARK}`}
+              >
+                <Mail className="h-4 w-4" aria-hidden />
+                {c.contact.demoCta}
+              </a>
             ) : null}
-            {SITE_CONTACT.address ? (
-              <div>
-                <dt className="inline font-semibold">{c.contact.address}: </dt>
-                <dd className="inline">{SITE_CONTACT.address}</dd>
-              </div>
-            ) : null}
-          </dl>
-        ) : (
-          // Uydurma telefon/e-posta/adres YAZILMAZ; kurum bilgisi girilene kadar dürüst yer tutucu.
-          <p className="text-sm leading-relaxed text-slate-300">{c.contact.pending}</p>
-        )}
-        {SITE_CONTACT.email ? (
-          <a
-            href={`mailto:${SITE_CONTACT.email}?subject=${encodeURIComponent(`NeviiHub ${c.contact.demoTitle}`)}`}
-            className={`mt-6 inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS_RING_DARK}`}
-          >
-            <Mail className="h-4 w-4" aria-hidden />
-            {c.contact.demoCta}
-          </a>
-        ) : null}
-        {social.length > 0 ? (
-          <div className="mt-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{c.contact.follow}</p>
-            <ul className="mt-3 flex flex-wrap justify-center gap-2 text-sm">
-              {social.map((s) => (
-                <li key={s.label}>
-                  {s.href ? (
+            <a
+              href="/deneme"
+              className={`inline-flex items-center rounded-full px-6 py-3 text-sm font-semibold text-white ring-1 ring-white/25 hover:bg-white/10 ${FOCUS_RING_DARK}`}
+            >
+              {c.hero.trial}
+            </a>
+          </div>
+        </div>
+        <div className="flex flex-col justify-center gap-6">
+          {details.length > 0 ? (
+            <ul className="space-y-3">
+              {details.map((d) => (
+                <li key={d.label}>
+                  {d.href ? (
                     <a
-                      href={s.href}
-                      className={`inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-1.5 font-medium text-slate-700 hover:border-amber-600 hover:text-amber-700 ${FOCUS_RING}`}
+                      href={d.href}
+                      className={`nh-lift flex items-center gap-4 rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10 hover:bg-white/[0.1] ${FOCUS_RING_DARK}`}
                     >
-                      <SocialIcon network={socialKey(s.label)} />
-                      {s.label}
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+                        <d.icon className="h-5 w-5" aria-hidden />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs text-slate-400">{d.label}</span>
+                        <span className="block truncate text-sm font-medium text-white">{d.value}</span>
+                      </span>
                     </a>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-white px-4 py-1.5 font-medium text-slate-500">
-                      <SocialIcon network={socialKey(s.label)} />
-                      {s.label}
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
-                        {c.contact.soon}
+                    <div className="flex items-center gap-4 rounded-2xl bg-white/[0.06] p-4 ring-1 ring-white/10">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+                        <d.icon className="h-5 w-5" aria-hidden />
                       </span>
-                    </span>
+                      <span className="min-w-0">
+                        <span className="block text-xs text-slate-400">{d.label}</span>
+                        <span className="block text-sm font-medium text-white">{d.value}</span>
+                      </span>
+                    </div>
                   )}
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
-        {SITE_CONTACT.mapEmbedUrl ? (
-          <iframe
-            src={SITE_CONTACT.mapEmbedUrl}
-            title={c.contact.mapTitle}
-            loading="lazy"
-            className="mt-6 h-64 w-full rounded-xl border border-slate-700"
-          />
-        ) : null}
-      </div>
+          ) : (
+            // Uydurma telefon/e-posta/adres YAZILMAZ; kurum bilgisi girilene kadar dürüst yer tutucu.
+            <p className="text-sm leading-relaxed text-slate-300">{c.contact.pending}</p>
+          )}
+          {social.length > 0 ? (
+            <div>
+              <p className="text-sm text-slate-400">{c.contact.follow}</p>
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {social.map((s) => (
+                  <li key={s.label}>
+                    <a
+                      href={s.href}
+                      aria-label={s.label}
+                      className={`nh-lift flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06] text-slate-200 ring-1 ring-white/10 hover:bg-amber-500 hover:text-slate-950 ${FOCUS_RING_DARK}`}
+                    >
+                      <SocialIcon network={socialKey(s.label)} />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </Reveal>
+      {SITE_CONTACT.mapEmbedUrl ? (
+        <iframe
+          src={SITE_CONTACT.mapEmbedUrl}
+          title={c.contact.mapTitle}
+          loading="lazy"
+          className="relative mt-8 h-64 w-full rounded-2xl border border-white/10"
+        />
+      ) : null}
     </Section>
   );
 }

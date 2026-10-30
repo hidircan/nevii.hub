@@ -116,6 +116,8 @@ export type SaasPendingOrderRecord = {
     termsText: string;
     /** Kabul edilen belge sürümleri (belge → sürüm; geçmiş kabul değişmez). */
     docVersions: Record<string, string>;
+    /** Kabul anında gösterilen doldurulmuş metnin sha256'sı (belge → hash; eski kayıtlarda yok). */
+    docTextHashes?: Record<string, string>;
     /** İşlemdeki sağlayıcı snapshot'ı (onay metni sonradan değişmez). */
     providerId: string;
     providerDisplayName: string;

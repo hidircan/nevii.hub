@@ -45,14 +45,12 @@ export default async function PlatformProfilePage() {
       <Card>
         <h2 className="text-sm font-semibold">Hesap kurtarma</h2>
         <p className="mt-2 text-sm text-[var(--color-text)]">
-          Bu hesapta kayıtlı doğrulayıcı uygulaması, geçiş anahtarı veya kurtarma kodu yok.
-          Kayıtlı olmayan bir gizli adres kimlik doğrulaması sayılmaz.
+          Bu hesapta henüz iki adımlı doğrulama (doğrulayıcı uygulaması veya kurtarma kodu) yok.
         </p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[var(--color-text-muted)]">
-          <li>Şifre unutulursa kayıtlı adrese tek kullanımlık sıfırlama bağlantısı gider. SMTP yapılandırılmamışsa bağlantı gönderilmez.</li>
-          <li>İkinci faktör ancak sahip oturum açtıktan sonra kaydedilebilir. Kayıt için kalıcı bir tablo ve doğrulanmış test veritabanı gerekir; bu turda o yazım kapalıdır.</li>
-          <li>Erişim tamamen kaybolduysa sahip kimliğini platformun dışında kanıtlar. Operatör, canlı veritabanının test projesi olduğu ayrıca doğrulanmışsa mevcut hesabın şifresini sıfırlar. İkinci bir platform sahibi hesabı açılmaz.</li>
-          <li>SMS tek başına yeterli faktör değildir.</li>
+          <li>Şifrenizi unutursanız giriş ekranındaki &quot;Şifremi unuttum&quot; ile kayıtlı adresinize tek kullanımlık bağlantı gider (e-posta gönderimi ayarlı olmalıdır).</li>
+          <li>Kayıtlı e-posta adresinize de erişemiyorsanız hesabınız yalnız sunucu tarafındaki kurtarma betiğiyle sıfırlanır; ikinci bir platform sahibi hesabı açılmaz.</li>
+          <li>Güvenlik için e-posta hesabınızda iki adımlı doğrulamayı açık tutun; platform sahibi hesabının anahtarı odur.</li>
         </ul>
       </Card>
     </div>

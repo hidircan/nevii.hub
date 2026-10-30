@@ -24,8 +24,13 @@ const CSP = [
   "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
+  "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // PayTR kart kaydı formu DOĞRUDAN paytr.com'a POST eder (kart verisi sunucumuza
+  // uğramaz, bkz. saas-billing/paytr-subscription.ts); 'self' tek başına o formu
+  // sessizce engellerdi.
+  "form-action 'self' https://www.paytr.com",
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
 const SECURITY_HEADERS = [
@@ -33,6 +38,8 @@ const SECURITY_HEADERS = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
   {
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), payment=()",

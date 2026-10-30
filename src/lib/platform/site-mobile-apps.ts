@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { z } from "zod";
 import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
@@ -46,7 +47,8 @@ const normAppStore = (v: unknown) => normalizeStoreUrl(v, ["apps.apple.com", "it
 const normPlay = (v: unknown) => normalizeStoreUrl(v, ["play.google.com"]);
 
 /** Site ayarındaki ham değerler (env'siz). */
-export async function getSiteMobileApps(): Promise<MobileAppLinks> {
+/** İstek başına tek okuma (sayfa + generateMetadata + bant aynı satırı paylaşır). */
+export const getSiteMobileApps = cache(async function getSiteMobileApps(): Promise<MobileAppLinks> {
   const row = (await listSettingOverrides({ tenantId: PLATFORM_TENANT_ID })).find(
     (o) => o.scopeType === "platform" && o.scopeId === "*" && o.key === SITE_MOBILE_APPS_KEY
   );
@@ -57,7 +59,7 @@ export async function getSiteMobileApps(): Promise<MobileAppLinks> {
     appStoreVisible: v.appStoreVisible !== false,
     playVisible: v.playVisible !== false,
   };
-}
+});
 
 export type ResolvedMobileAppLinks = {
   appStoreUrl?: string;
@@ -147,4 +149,21 @@ export async function setSiteMobileApps(ctx: ServiceContext, input: unknown) {
   });
   await recordPublishedVersion(ctx, PLATFORM_SCOPE_ID, SITE_MOBILE_APPS_KEY, next, { reason: "Mobil uygulama bağlantıları güncellendi" });
   return ok({ links: next });
+}
+
+/**
+ * Mobil web "uygulamada aç" bandının ortak ayarı (ana sayfa + giriş).
+ * Görünür mağaza bağlantısı da şema da yoksa null (bant çıkmaz).
+ */
+export async function getAppBannerConfig(): Promise<{
+  scheme?: string;
+  appStoreUrl?: string;
+  playStoreUrl?: string;
+} | null> {
+  const [site, resolved] = await Promise.all([getSiteMobileApps(), resolveMobileAppLinks()]);
+  const scheme = process.env.MOBILE_APP_SCHEME || undefined;
+  const appStoreUrl = site.appStoreVisible ? resolved.appStoreUrl : undefined;
+  const playStoreUrl = site.playVisible ? resolved.playStoreUrl : undefined;
+  if (!scheme && !appStoreUrl && !playStoreUrl) return null;
+  return { scheme, appStoreUrl, playStoreUrl };
 }

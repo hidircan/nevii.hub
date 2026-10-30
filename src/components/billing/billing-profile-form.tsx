@@ -143,7 +143,7 @@ export function BillingProfileForm({
       </Field>
       {!individual ? (
         <div className={`grid gap-3 ${compact ? "" : "sm:grid-cols-2"}`}>
-          <Field id="bp-vkn" labelText="Vergi kimlik numarası (VKN)" hintText="10 basamak. Biçim kontrolü vergi doğrulaması değildir.">
+          <Field id="bp-vkn" labelText="Vergi kimlik numarası (VKN)" hintText="Şirket: 10 haneli VKN. Şahıs işletmesi: 11 haneli T.C. kimlik no. Biçim kontrolü vergi doğrulaması değildir.">
             <input id="bp-vkn" value={d.taxId} onChange={set("taxId")} className={input} inputMode="numeric" maxLength={20} />
           </Field>
           <Field id="bp-office" labelText="Vergi dairesi" optional>

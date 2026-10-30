@@ -24,6 +24,14 @@
 
 ---
 
+## 0. Hızlı başlangıç (her AI aracı için — Codex, Cursor, OpenCode, Claude)
+
+Bu dosyanın tamamını okumadan önce: **`docs/agent-memory/NEVII_BRAIN.md`** (tek sayfa proje haritası ve
+kırmızı çizgiler) → `docs/agent-memory/PROJECT_STATE.md` (yalnız en üst snapshot) →
+`.claude/skills/nevii-hub/SKILL.md` (görev yönlendirici; konu skill'leri `.claude/skills/*/SKILL.md`, düz
+Markdown). Geçmiş hatalar `docs/agent-memory/LESSONS_LEARNED.md` — anahtar kelimeyle ara, tamamını okuma.
+Claude Code'da hazır ajan: `.claude/agents/nevii-agent.md`. Aşağıdaki rol hattı büyük/çok adımlı işler içindir.
+
 ## 1. Purpose
 
 Nevii Hub is built by a small team of specialized AI agents working in a strict
