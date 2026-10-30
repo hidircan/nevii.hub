@@ -31,7 +31,7 @@ export const GET = withApiHandler(
       },
     });
   },
-  { permission: "tools:catalog" }
+  { permission: "ai:chat" }
 );
 
 /** POST /api/v1/chat — send message, orchestrate tools via Agent Runtime */
@@ -72,7 +72,7 @@ export const POST = withApiHandler(
       );
     }
   },
-  { permission: "tools:catalog" }
+  { permission: "ai:chat" }
 );
 
 // ensure createConversation is tree-shaken only if used — keep import used for types

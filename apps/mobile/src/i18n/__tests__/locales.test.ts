@@ -168,7 +168,7 @@ describe("yerelleştirilmiş yardımcılar", () => {
     expect(attendance.ledgerStatusBadge("attended").label).toBe("Geldi");
     expect(makeup.makeupStatusBadge("pending").label).toBe("Bekliyor");
     setActiveLocale("en");
-    expect(attendance.ledgerStatusBadge("attended").label).toBe("Present");
+    expect(attendance.ledgerStatusBadge("attended").label).toBe("Attended");
     expect(attendance.ledgerStatusBadge("pending").label).toBe("Not yet finalized");
     expect(makeup.makeupStatusBadge("pending").label).toBe("Pending");
     expect(

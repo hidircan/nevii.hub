@@ -77,7 +77,7 @@ const lightColors: ThemeColors = {
   primaryOn: "#FFFFFF",
   success: "#2E7D32",
   successSoft: "#E6F4E8",
-  warning: "#B45309",
+  warning: "#92400E",
   warningSoft: "#FDEEDD",
   danger: "#B3261E",
   dangerSoft: "#FBEAE9",

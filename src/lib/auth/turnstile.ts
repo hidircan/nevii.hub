@@ -10,6 +10,10 @@ import { randomUUID } from "node:crypto";
  * eksik" görünür. Canlıda Cloudflare'in her zaman geçen test anahtarları da
  * yapılandırma eksiği sayılır.
  *
+ * `TURNSTILE_ENABLED=observe` geçiş aşamasıdır: widget görünür ve token doğrulanır,
+ * sonuç denetim kaydına yazılır ama giriş ENGELLENMEZ. Gerçek anahtarlar ve eski
+ * mobil sürüm payı `true` yapılmadan önce böyle ölçülür; bu aşamada koruma sayılmaz.
+ *
  * Parola doğrulaması, CSRF, oturum ve rate limit'in YERİNE geçmez; ek katmandır.
  * Secret yalnız sunucudadır; token ve secret loglanmaz.
  */
@@ -20,23 +24,25 @@ const MAX_TOKEN_LENGTH = 2048;
 const TEST_KEY = /^[123]x0{10,}[A-Z]{2}$/;
 const ACTION = "login";
 
-export type TurnstileStatus = "off" | "misconfigured" | "active";
+export type TurnstileStatus = "off" | "misconfigured" | "observe" | "active";
 export type TurnstileFailure = "missing" | "invalid" | "expired" | "mismatch" | "unavailable";
 
 const siteKey = () => process.env.TURNSTILE_SITE_KEY?.trim() ?? "";
 const secretKey = () => process.env.TURNSTILE_SECRET_KEY?.trim() ?? "";
 
 export function turnstileStatus(): TurnstileStatus {
-  if (process.env.TURNSTILE_ENABLED !== "true") return "off";
+  const flag = process.env.TURNSTILE_ENABLED;
+  if (flag !== "true" && flag !== "observe") return "off";
   if (!siteKey() || !secretKey()) return "misconfigured";
   const production = process.env.VERCEL_ENV === "production" || process.env.NEVII_DEPLOYMENT_TIER === "production";
   if (production && (TEST_KEY.test(siteKey()) || TEST_KEY.test(secretKey()))) return "misconfigured";
-  return "active";
+  return flag === "true" ? "active" : "observe";
 }
 
-/** Giriş formuna verilecek public anahtar; koruma etkin değilse widget çizilmez. */
+/** Giriş formuna verilecek public anahtar; koruma veya gözlem yoksa widget çizilmez. */
 export function turnstileSiteKeyForWidget(): string | null {
-  return turnstileStatus() === "active" ? siteKey() : null;
+  const status = turnstileStatus();
+  return status === "active" || status === "observe" ? siteKey() : null;
 }
 
 function allowedHostnames(requestHost: string): string[] {

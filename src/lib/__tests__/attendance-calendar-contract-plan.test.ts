@@ -308,7 +308,12 @@ describe("Senaryo 6 — iptal edilmiş sözleşme ödeme kaynağı OLAMAZ", () =
     // İptal edilen sözleşmenin satırları ödeme kaynağı olamaz (8. tur: sözleşmesiz plana da karışmaz).
     const plan = await calendarPlan(2026, 10);
     expect(plan.state).not.toBe("ok");
-    if (plan.state === "student_plan") expect(plan.paymentIds).toEqual([]);
+    // Takvim ayı "bu ay"a denk geldiğinde öğrenci kartındaki aylık planın kendi satırı görünebilir; o satır
+    // sözleşmeye bağlı değildir. Kural: iptal edilen sözleşmenin hiçbir taksiti listede olamaz.
+    if (plan.state === "student_plan") {
+      const contractRows = (await readData()).payments.filter((p) => p.contractId === created.data.contract.id).map((p) => p.id);
+      expect(plan.paymentIds.filter((id) => contractRows.includes(id))).toEqual([]);
+    }
   });
 });
 

@@ -28,6 +28,17 @@ describe("yoklama hata + onay akışı", () => {
     expect(content).not.toMatch(/await apiPost\(`\/api\/v1\/lessons\/\$\{lessonId\}\/ops`, \{ flag \}\);\n    setBusyLessonId\(null\);\n    schedule\.refresh/);
   });
 
+  it("islemler/yoklama: web yazma seti (Geldi/İşlendi/Telafi) + gerekçe akışı; Gelmedi/Mazeretli butonu YOK", async () => {
+    const content = await admin("islemler/yoklama.tsx");
+    // Web panel (Paket 6): sadece attended/processed/makeup yazılabilir —
+    // "Mazeretli" diye bir yoklama statüsü yoktur (2026-10-30 owner).
+    expect(content).toMatch(/"attended" \| "processed" \| "makeup"/);
+    expect(content).toMatch(/reasonPrompt/);
+    expect(content).toMatch(/lesReasonTitle/);
+    expect(content).not.toMatch(/markAttendance\([^)]*"absent"/);
+    expect(content).not.toMatch(/markAttendance\([^)]*"excused"/);
+  });
+
   it("yoklama öğrenci araması sunucu `q` parametresiyle yapılır", async () => {
     const content = await admin("islemler/yoklama.tsx");
     expect(content).toMatch(/\/api\/v1\/students\?q=\$\{encodeURIComponent/);
@@ -35,12 +46,16 @@ describe("yoklama hata + onay akışı", () => {
   });
 });
 
-describe("ders detayı yoklama (iptal üretimi kaldırıldı — 2026-10-16)", () => {
-  it("program/[lessonId]: 5 ops bayrağı + gerekçe akışı; iptal düğmesi/uç noktası YOK", async () => {
+describe("ders detayı yoklama (web yazma seti — 2026-10-30)", () => {
+  it("program/[lessonId]: attended/processed/makeup yazılır; Gelmedi/Mazeretli butonu YOK", async () => {
     const content = await admin("program/[lessonId].tsx");
-    for (const flag of ["attended", "absent", "excused", "makeup", "processed"]) {
+    for (const flag of ["attended", "processed", "makeup"]) {
       expect(content, flag).toContain(`"${flag}"`);
     }
+    // Web panel (Paket 6): "Gelmedi"/"Mazeretli" aksiyon butonları yok —
+    // yalnız geçiş onayı metni için bayrak sözlüğü kalır.
+    expect(content).not.toMatch(/markOps\("absent"\)/);
+    expect(content).not.toMatch(/markOps\("excused"\)/);
     expect(content).not.toContain("/cancel`");
     expect(content).not.toMatch(/lesCancelConfirm|lesCancelTitle|confirmingCancel/);
     expect(content).toMatch(/reasonPrompt/);

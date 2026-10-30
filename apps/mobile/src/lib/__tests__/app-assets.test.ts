@@ -5,12 +5,11 @@ import path from "path";
 
 /**
  * Store build ön koşulu: icon / adaptive icon / splash app.json'da bağlı ve dosyalar
- * gerçekten var. Kaynak, repodaki kanonik NeviiHub favicon'u (`src/app/icon.png`) —
- * yeni/uydurma logo yok. (`public/brand/logo.png` KULLANILMADI: şeffaflık yerine
- * piksellere gömülü damalı desen içeriyor.)
+ * gerçekten var. Kaynak, repodaki varsayılan web ikonu (`public/icon.png`): NeviiOS'ta
+ * logo yüklenmediğinde sitenin de gösterdiği aynı görsel. Yeni/uydurma logo yok.
  */
 const MOBILE = path.join(__dirname, "../../..");
-const CANONICAL = path.join(MOBILE, "../../src/app/icon.png");
+const CANONICAL = path.join(MOBILE, "../../public/icon.png");
 const expo = JSON.parse(readFileSync(path.join(MOBILE, "app.json"), "utf8")).expo;
 
 function png(rel: string) {

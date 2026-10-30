@@ -65,7 +65,7 @@ describe("shouldCreatePaymentReminder", () => {
 
   it("tarama DB'den yalnız gereken kolonları seçer", () => {
     expect(Object.keys(PAYMENT_REMINDER_SELECT).sort()).toEqual(
-      ["amount", "contractId", "description", "dueDate", "id", "installmentPeriodLabel", "paidAmount", "status", "studentId"]
+      ["amount", "contractId", "description", "dueDate", "enrollmentId", "firstCollectionIncludesNextMonth", "id", "installmentPeriodLabel", "paidAmount", "source", "status", "studentId"]
     );
   });
 });

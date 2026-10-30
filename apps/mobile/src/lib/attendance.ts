@@ -3,17 +3,6 @@ import type { Locale } from "../i18n/locales";
 import { getActiveLocale } from "../i18n/locale-store";
 import type { Lesson } from "../types/api";
 
-export type OpsFlag = "attended" | "absent" | "excused";
-const OPS_FLAG: Record<Locale, Record<OpsFlag, string>> = {
-  tr: { attended: "Katıldı", absent: "Gelmedi", excused: "İzinli" },
-  en: { attended: "Attended", absent: "Absent", excused: "Excused" },
-};
-
-/** Yoklama bayrağı etiketi — aktif dile göre. */
-export function opsFlagLabel(flag: OpsFlag, locale: Locale = getActiveLocale()): string {
-  return OPS_FLAG[locale][flag];
-}
-
 type OpsResponse = { needsConfirmation?: boolean; alreadySet?: boolean };
 export type OpsOutcome = { kind: "saved"; message: string } | { kind: "confirm" } | { kind: "error"; message: string };
 

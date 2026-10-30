@@ -22,7 +22,8 @@ const CHIP_KEYS: LedgerDisplayKey[] = [
   "processed",
   "makeup",
   "absent",
-  "excused",
+  // "excused" — Mazeretli yoklama statüsü DEĞİL (2026-10-30 owner). Legacy
+  // satırlar sunucuda listelenebilir ama filtre çipi gösterilmez.
   "cancelled",
   "pending",
   "upcoming",

@@ -40,7 +40,10 @@ export default function AdminYoklama() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyLessonId, setBusyLessonId] = useState<string | null>(null);
   const [opsError, setOpsError] = useState<string | null>(null);
-  const [pendingSwitch, setPendingSwitch] = useState<{ lessonId: string; flag: "attended" | "absent" | "excused"; from: string } | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ lessonId: string; flag: "attended" | "processed" | "makeup"; from: string; reason?: string } | null>(null);
+  /** İşlendi/Telafi web panelde ZORUNLU gerekçe ister (P0-2) — aynı akış. */
+  const [reasonPrompt, setReasonPrompt] = useState<{ lessonId: string; flag: "processed" | "makeup" } | null>(null);
+  const [reasonDraft, setReasonDraft] = useState("");
   const [attendedNotes, setAttendedNotes] = useState<Record<string, string>>({});
 
   // Sunucu araması: 400ms debounce + min 2 karakter (tuş başına istek yok).
@@ -56,17 +59,25 @@ export default function AdminYoklama() {
   // Sunucu `q` ile filtreler — istemci tarafı filtreleme yok.
   const filteredStudents = students.status === "success" ? students.data.students : [];
 
+  // Telafi bayrağı da "yoklama bekliyor" listesinden tutulmaz: işaretlenmiş
+  // bir ders bu listede tekrar yoklama istemez. Web'de de ders yalnız
+  // ops bayraksızken yoklamayı bekler.
   const pendingLessons = useMemo(() => {
     if (schedule.status !== "success") return [];
-    return schedule.data.lessons.filter((l) => isPast(l.endAt, now) && !l.lessonProcessed && !l.studentAttended && !l.studentAbsent && !l.studentExcused);
+    return schedule.data.lessons.filter((l) => isPast(l.endAt, now) && !l.lessonProcessed && !l.studentAttended && !l.studentAbsent && !l.studentExcused && !l.opsMakeupFlag);
   }, [schedule, now]);
 
-  async function markAttendance(lessonId: string, flag: "attended" | "absent" | "excused", confirmSwitch = false) {
+  // Web yazma seti (Paket 6): attended / processed / makeup — "absent"/"excused"
+  // butonları web'de kaldırıldı ve "Mazeretli" diye bir yoklama statüsü yoktur.
+  // POST `/api/v1/lessons/:id/ops` akışı (needsConfirmation/confirmSwitch)
+  // dokunulmadan korunur.
+  async function markAttendance(lessonId: string, flag: "attended" | "processed" | "makeup", confirmSwitch = false, reasonText?: string) {
     setBusyLessonId(lessonId);
     setOpsError(null);
     const res = await apiPost<LessonOpsResponse>(`/api/v1/lessons/${lessonId}/ops`, {
       flag,
       confirmSwitch,
+      ...(reasonText !== undefined ? { reason: reasonText } : {}),
       ...(flag === "attended" && attendedNotes[lessonId] !== undefined ? { attendanceNote: attendedNotes[lessonId] } : {}),
     });
     setBusyLessonId(null);
@@ -77,7 +88,7 @@ export default function AdminYoklama() {
     // Sunucu farklı statüden geçişte onay ister (web ile aynı akış) —
     // sessiz üzerine yazma YOK.
     if (res.data.needsConfirmation) {
-      setPendingSwitch({ lessonId, flag, from: res.data.currentStatus ?? "?" });
+      setPendingSwitch({ lessonId, flag, from: res.data.currentStatus ?? "?", reason: reasonText });
       return;
     }
     schedule.refresh();
@@ -158,11 +169,37 @@ export default function AdminYoklama() {
                     value={attendedNotes[l.id] ?? ""}
                     onChangeText={(value) => setAttendedNotes((current) => ({ ...current, [l.id]: value }))}
                   />
+                  {/* Web işlem sırası (Paket 6): Telafi / İşlendi / Geldi. */}
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                    <Button label={tr("attFlag.flagMakeup")} size="sm" variant="secondary" loading={busyLessonId === l.id} onPress={() => { setReasonDraft(""); setReasonPrompt({ lessonId: l.id, flag: "makeup" }); }} style={{ flex: 1 }} />
+                    <Button label={tr("attFlag.flagProcessed")} size="sm" variant="danger" loading={busyLessonId === l.id} onPress={() => { setReasonDraft(""); setReasonPrompt({ lessonId: l.id, flag: "processed" }); }} style={{ flex: 1 }} />
                     <Button label={tr("attFlag.flagAttended")} size="sm" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "attended")} style={{ flex: 1 }} />
-                    <Button label={tr("attFlag.flagAbsent")} size="sm" variant="danger" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "absent")} style={{ flex: 1 }} />
-                    <Button label={tr("attFlag.flagExcused")} size="sm" variant="secondary" loading={busyLessonId === l.id} onPress={() => markAttendance(l.id, "excused")} style={{ flex: 1 }} />
                   </View>
+                  {reasonPrompt && reasonPrompt.lessonId === l.id ? (
+                    <Card style={{ marginTop: 8 }}>
+                      <TextField
+                        label={tr("adm.lesReasonTitle", { flag: FLAG_KEY[reasonPrompt.flag] ? tr(FLAG_KEY[reasonPrompt.flag]) : reasonPrompt.flag })}
+                        value={reasonDraft}
+                        onChangeText={setReasonDraft}
+                        placeholder={tr("adm.lesReasonPh")}
+                      />
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                        <Button label={tr("ui.cancelDefault")} variant="secondary" style={{ flex: 1 }} onPress={() => setReasonPrompt(null)} />
+                        <Button
+                          label={tr("adm.lesApply")}
+                          style={{ flex: 1 }}
+                          disabled={reasonDraft.trim().length === 0}
+                          loading={busyLessonId === l.id}
+                          onPress={() => {
+                            const { lessonId, flag } = reasonPrompt;
+                            const reasonText = reasonDraft.trim();
+                            setReasonPrompt(null);
+                            void markAttendance(lessonId, flag, false, reasonText);
+                          }}
+                        />
+                      </View>
+                    </Card>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -183,9 +220,9 @@ export default function AdminYoklama() {
         confirmLabel={tr("adm.lesSwitchConfirm")}
         onConfirm={() => {
           if (!pendingSwitch) return;
-          const { lessonId, flag } = pendingSwitch;
+          const { lessonId, flag, reason: savedReason } = pendingSwitch;
           setPendingSwitch(null);
-          void markAttendance(lessonId, flag, true);
+          void markAttendance(lessonId, flag, true, savedReason);
         }}
         onCancel={() => setPendingSwitch(null)}
       />

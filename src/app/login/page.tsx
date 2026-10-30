@@ -12,7 +12,7 @@ import { SiteAppBanner } from "@/components/site/app-banner";
 import { ShowcaseCycle } from "@/components/site/showcase-panel";
 import { appStoreIdFromUrl, getAppBannerConfig, resolveMobileAppLinks } from "@/lib/platform/site-mobile-apps";
 import { getPlatformBrand } from "@/lib/platform/branding";
-import { turnstileSiteKeyForWidget } from "@/lib/auth/turnstile";
+import { turnstileSiteKeyForWidget, turnstileStatus } from "@/lib/auth/turnstile";
 import type { Metadata } from "next";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -135,7 +135,7 @@ export default async function LoginPage({
           <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-muted)]">{copy.signInHelp}</p>
           <div className="mt-8">
             {banners}
-            <LoginForm nextPath={safeNext || undefined} lang={lang} turnstileSiteKey={turnstileSiteKeyForWidget()} />
+            <LoginForm nextPath={safeNext || undefined} lang={lang} turnstileSiteKey={turnstileSiteKeyForWidget()} turnstileRequired={turnstileStatus() === "active"} />
           </div>
           <p className="mt-10 text-xs leading-relaxed text-[var(--color-text-muted)]">
             Hesabınız kurumunuz tarafından açılır. Giriş bilgilerinizi bilmiyorsanız kurumunuzun yöneticisine başvurun.

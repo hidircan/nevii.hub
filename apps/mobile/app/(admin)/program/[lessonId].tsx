@@ -187,13 +187,12 @@ export default function AdminLessonDetail() {
             onChangeText={setAttendedNote}
           />
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Button label={tr("attFlag.flagAttended")} size="sm" loading={opsBusy === "attended"} onPress={() => markOps("attended", false, undefined, attendedNote)} style={{ flex: 1 }} />
-            <Button label={tr("attFlag.flagAbsent")} size="sm" variant="danger" loading={opsBusy === "absent"} onPress={() => markOps("absent")} style={{ flex: 1 }} />
-            <Button label={tr("attFlag.flagExcused")} size="sm" variant="secondary" loading={opsBusy === "excused"} onPress={() => markOps("excused")} style={{ flex: 1 }} />
-          </View>
-          <View style={{ flexDirection: "row", gap: 8 }}>
+            {/* Web panel seti (Paket 6): Telafi / İşlendi / Geldi. "Gelmedi"/
+                "Mazeretli" butonları kaldırıldı — Yoklama statüsü olarak
+                yoklar (İş 2, 2026-10-30 owner). POST `/ops` akışı dokunulmaz. */}
             <Button label={tr("attFlag.flagMakeup")} size="sm" variant="secondary" loading={opsBusy === "makeup"} onPress={() => { setReason(""); setReasonPrompt("makeup"); }} style={{ flex: 1 }} />
-            <Button label={tr("attFlag.flagProcessed")} size="sm" variant="secondary" loading={opsBusy === "processed"} onPress={() => { setReason(""); setReasonPrompt("processed"); }} style={{ flex: 1 }} />
+            <Button label={tr("attFlag.flagProcessed")} size="sm" variant="danger" loading={opsBusy === "processed"} onPress={() => { setReason(""); setReasonPrompt("processed"); }} style={{ flex: 1 }} />
+            <Button label={tr("attFlag.flagAttended")} size="sm" loading={opsBusy === "attended"} onPress={() => markOps("attended", false, undefined, attendedNote)} style={{ flex: 1 }} />
           </View>
           {reasonPrompt ? (
             <Card>

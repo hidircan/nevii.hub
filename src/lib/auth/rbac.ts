@@ -18,6 +18,8 @@ export type Permission =
   | "billing:write"
   | "messages:send"
   | "tools:catalog"
+  /** AI asistan sohbeti: yalnız yöneticiler (öğretmen/öğrenci portalında asistan yok). */
+  | "ai:chat"
   | "demo:reset"
   | "tenant:all"
   | "export:institution"
@@ -74,6 +76,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "institution:features",
     "institution:integrations",
     "tools:catalog",
+    "ai:chat",
   ],
   /**
    * NeviiOS şube müdürü — fail-closed: yalnız tool katmanı şube filtresi
@@ -101,6 +104,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "payments:checkout",
     "messages:send",
     "tools:catalog",
+    "ai:chat",
     "demo:reset",
     "export:institution",
     "institution:settings",
@@ -148,6 +152,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Permission[]> = {
     "payments:checkout",
     "messages:send",
     "tools:catalog",
+    "ai:chat",
     "demo:reset",
     "export:institution",
     "institution:features",

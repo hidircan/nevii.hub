@@ -4,7 +4,17 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-30 akşam (merkezi logo + Site Ayarları + Turnstile; COMMIT/PR/CANLI YOK, migration YOK)
+## Güncel snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 + Turnstile geçişi sürüyor)
+- Canlı: PR #108 (078d686a) + `release/canliya-hazirlik` (bu snapshot'ı taşıyan PR). Migration yok.
+- Turnstile aşamaları: `TURNSTILE_ENABLED` boş = kapalı; `observe` = widget + kayıt, engel yok; `true` = web girişi token olmadan red.
+  Vercel Production'da iki anahtar owner tarafından girildi. Gözlem kaydı: `auth.login_turnstile_observed` (`reason`).
+- SIRA ŞART: Play'de 1.0.2 yayınlanmadan `true` YAPILMAZ, 1.0.1 yeni giriş açamaz. Yayından sonra: NeviiOS `mobile.minVersion` android 1.0.2 → `true` + redeploy.
+- Mobil: release/mobile-review birleşti; yeni giriş ucu, alt sekme safe-area, web ile aynı yoklama statüleri, yeni ikon; EAS Android versionCode 10, internal kanal. Cihazda henüz denenmedi (bu Mac'te Xcode/emülatör yok): owner internal test + Play Console "Promote to production". iOS: App Store hesabı/derleme akışı ayrı, yapılmadı.
+- Güvenlik: hesap bazlı giriş sınırı (`auth/login-throttle.ts`, 10 hata/15 dk, web+mobil ortak, db'de `auth_throttle:login`, migration yok); AI sohbeti `ai:chat` izniyle sunucuda yalnız HYPER/SUPER/SCHOOL_ADMIN.
+- CI: 7 kırmızı test düzeltildi (hepsi tarih bombası veya eski beklenti; ürün hatası değil). Tam okuma tabanı güncellendi: artışlar json/memory yolları + seyrek ücret kuralı silme.
+- Açık (owner): HDR satıcı bilgileri, avukat okuması + yayın, Cloudflare'in gizlilik/alt işleyen metnine eklenmesi, Supabase Pro, PayTR/ETBİS/İYS, Actions kotası (1 Kasım'da sıfırlanır; push başına ~28 dk).
+
+## Snapshot — 2026-10-30 akşam (merkezi logo + Site Ayarları + Turnstile; COMMIT/PR/CANLI YOK, migration YOK)
 - Worktree `nevii-hub-site-brand`, dal `feat/turnstile-site-marka` (taban origin/main 3d0d4113). Değişiklik commit edilmedi; owner onayı bekliyor.
 - Logo kök neden: `platform.logo` kaydediliyordu ama görünür yüzeyin hiçbiri okumuyordu (statik `BRAND.logoPath`, `src/app/icon.png`); ayrıca 200 KB sınırı. Artık `getPlatformBrand()` tek okuyucu, `PlatformLogo` tek render; sharp ile `brand_asset:logo` satırında küçük PNG varyantları; `?v=<sha16>` URL; `unstable_cache` + `revalidateTag`.
 - Site: `site.page` satırı (`platform/site-page.ts`): bölüm sırası/görünürlüğü, listeler (dil bazlı), düğme hedefleri, iletişim. Referanslar kod varsayılanıyla KAPALI; Fiyatlandırma kapatılamaz. `?onizleme=1` yalnız HYPER_ADMIN.
