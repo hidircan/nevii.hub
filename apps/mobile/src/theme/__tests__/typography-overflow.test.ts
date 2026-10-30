@@ -36,16 +36,20 @@ describe("tipografi taşma sözleşmesi", () => {
     expect(content).toMatch(/numberOfLines=\{2\}/);
   });
 
-  it("sekme etiketleri: ortak TabBarLabel (13pt Inter, 2 satır sarma, 4 portal)", async () => {
+  it("sekme etiketleri: ortak TabBarLabel (12pt/15 tek satır, 4 portal)", async () => {
     const label = await src("components/ui/tab-bar-label.tsx");
     expect(label).toMatch(/fontFamily: t\.fonts\.medium/);
-    expect(label).toMatch(/fontSize: 13/);
-    expect(label).toMatch(/numberOfLines=\{2\}/);
+    expect(label).toMatch(/fontSize: 12/);
+    expect(label).toMatch(/lineHeight: 15/);
+    expect(label).toMatch(/numberOfLines=\{1\}/);
     expect(label).toContain("<AppText");
     for (const group of ["(student)", "(parent)", "(teacher)", "(admin)"]) {
       const layout = await fs.readFile(path.join(APP_DIR, group, "_layout.tsx"), "utf-8");
       expect(layout, group).toContain("<TabBarLabel color={color}>{children}</TabBarLabel>");
-      expect(layout, group).toMatch(/minHeight: 64/);
+      // Alt çubuk yüksekliği/paylaşımı TEK kaynaktan (tab-bar.tsx) gelir —
+      // layout'ta sabit minHeight:64 ve manuel paddingBottom YOK (İş 1).
+      expect(layout, group).toMatch(/usePortalTabBarStyle\(/);
+      expect(layout, group).not.toMatch(/minHeight: 64/);
     }
   });
 

@@ -9,21 +9,25 @@ type Props = {
 };
 
 /**
- * Sekme etiketi — 13pt Inter, 64pt'lik çubukta dikey ortalı; dar ekranda
- * 2 satıra sarar (ellipsis YOK; örn. "Öğrencilerim" 320pt genişlikte
- * kırılır). 4 portalda AYNI bileşen kullanılır (tutarlılık); dokunma hedefi
- * korunur. Uzun etiket + büyük yazı boyutunda satır artarsa sekme yükselir.
+ * Sekme etiketi — 12pt Inter, 15pt tek satır (İş 1, 2026-10-30):
+ * daha önce 13pt/2 satırlık sarma vardı; satır sayısının sekmeden sekme
+ * değişmesi simgeleri aynı eksenden kaydırıyordu. Artık tek satır + sabit
+ * `lineHeight`: simgeler aynı dikey eksende, etiketler aynı taban
+ * çizgisinde. Etiket metinleri i18n'de kısa biçimdedir ("Öğrenci", "Ödev");
+ * ekran başlık/erişilebilirlik adı ayrı anahtarlarda korunur.
+ * `AppText` varsayılan `maxFontSizeMultiplier` (1.3) erişilebilirliği
+ * korur — yalnız bu menüde satır taşmasını engelleyecek üst sınır aynıdır.
  */
 export function TabBarLabel({ children, color }: Props) {
   const t = useTheme();
   return (
     <AppText
-      numberOfLines={2}
+      numberOfLines={1}
       ellipsizeMode="tail"
       style={{
         fontFamily: t.fonts.medium,
-        fontSize: 13,
-        lineHeight: 16,
+        fontSize: 12,
+        lineHeight: 15,
         color,
         textAlign: "center",
       }}
