@@ -39,7 +39,7 @@ export function CheckoutProfileStep({
         <div className="flex flex-wrap gap-3">
           <Link
             href={continueHref}
-            className="rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-700"
+            className="rounded-xl bg-[#5c3d00] px-6 py-3 text-sm font-semibold text-white hover:bg-[#4a3208]"
           >
             Bu bilgilerle ödemeye devam et →
           </Link>
@@ -52,7 +52,7 @@ export function CheckoutProfileStep({
           </button>
         </div>
         <p className="text-xs text-slate-500">
-          Tüm profilinizi <Link href="/abonelik/fatura-bilgilerim" className="font-semibold text-amber-700 hover:underline">Fatura Bilgilerim</Link> sayfasından da yönetebilirsiniz.
+          Tüm profilinizi <Link href="/abonelik/fatura-bilgilerim" className="font-semibold text-[#5c3d00] hover:underline">Fatura Bilgilerim</Link> sayfasından da yönetebilirsiniz.
         </p>
       </div>
     );

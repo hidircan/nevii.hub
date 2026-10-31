@@ -18,7 +18,7 @@ function Notice({ title, text, href, cta }: { title: string; text: string; href:
       <main className="mx-auto max-w-2xl px-4 py-20 text-center">
         <h1 className="text-3xl">{title}</h1>
         <p className="mt-3 text-sm text-slate-600">{text}</p>
-        <Link href={href} className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">
+        <Link href={href} className="mt-6 inline-block rounded-xl bg-[#5c3d00] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208]">
           {cta}
         </Link>
       </main>
@@ -60,7 +60,7 @@ export default async function OrderPreviewPage({ searchParams }: { searchParams:
   const address = [b.addressLine, [b.district, b.city].filter(Boolean).join(" / "), b.country].filter(Boolean).join(", ");
 
   const details = (
-    <section aria-labelledby="bilgileriniz" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-900/10 sm:p-7">
+    <section aria-labelledby="bilgileriniz" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#5c3d00]/10 sm:p-7">
       <div className="flex items-center justify-between gap-3">
         <h2 id="bilgileriniz" className="text-xl">Bilgileriniz</h2>
         <Link href={editHref} className="rounded-lg border border-slate-300 px-3.5 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
@@ -69,7 +69,7 @@ export default async function OrderPreviewPage({ searchParams }: { searchParams:
       </div>
       <div className="mt-5 grid gap-6 sm:grid-cols-2 sm:gap-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Kurum ve yetkili</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-[#5c3d00]">Kurum ve yetkili</p>
           <dl className="mt-3 space-y-3">
             <Field label="Kurum">{r.institutionName}</Field>
             <Field label="Yetkili">{r.ownerName}</Field>
@@ -78,7 +78,7 @@ export default async function OrderPreviewPage({ searchParams }: { searchParams:
           </dl>
         </div>
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Fatura</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-[#5c3d00]">Fatura</p>
           <dl className="mt-3 space-y-3">
             <Field label="Fatura alıcısı">{b.legalTitle}</Field>
             {b.taxId ? <Field label="Vergi kimlik no">{b.taxId}</Field> : null}
@@ -95,14 +95,14 @@ export default async function OrderPreviewPage({ searchParams }: { searchParams:
   return (
     <div className="nh-site min-h-screen bg-[#fbf8f2] text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
       <CheckoutTimeoutGuard token={token} validatePath={`/api/v1/billing/orders?t=${encodeURIComponent(token)}`} />
-      <header className="border-b border-amber-900/10 bg-white">
+      <header className="border-b border-[#5c3d00]/10 bg-white">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5 rounded-lg text-lg font-extrabold tracking-tight">
             <PlatformLogo height={32} />
             NeviiHub
           </Link>
           <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
-            <Lock aria-hidden className="h-4 w-4 text-amber-700" />
+            <Lock aria-hidden className="h-4 w-4 text-[#5c3d00]" />
             Güvenli bağlantı
           </p>
         </div>
@@ -139,7 +139,7 @@ export default async function OrderPreviewPage({ searchParams }: { searchParams:
           ) : (
             <div className="space-y-6">
               {details}
-              <p className="rounded-2xl bg-white p-5 text-sm text-slate-600 ring-1 ring-amber-900/10">
+              <p className="rounded-2xl bg-white p-5 text-sm text-slate-600 ring-1 ring-[#5c3d00]/10">
                 Paket fiyatı şu an çözülemedi ({plan ? "fiyat yayında değil" : "paket yayında değil"}). Kaydınız ödeme beklemeye devam ediyor, bilgileriniz kaybolmadı.
               </p>
             </div>

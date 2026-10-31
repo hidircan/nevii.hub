@@ -83,7 +83,7 @@ export function SetupLinkPanel({ token, maskedEmail }: { token: string; maskedEm
       </p>
       {link ? (
         <div className="mt-4 rounded-xl bg-slate-900 p-4">
-          <p className="text-xs font-bold uppercase tracking-wider text-amber-300">
+          <p className="text-xs font-bold uppercase tracking-wider text-white/75">
             Demo bağlantısı — gerçek kurulumda e-postayla gider
           </p>
           <a href={link} className="mt-1 block break-all text-sm font-medium text-white underline">
@@ -91,7 +91,7 @@ export function SetupLinkPanel({ token, maskedEmail }: { token: string; maskedEm
           </a>
         </div>
       ) : (
-        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+        <p className="mt-4 rounded-xl bg-[#f6f0e4] p-3 text-sm text-[#5c3d00] ring-1 ring-[#e3d6bc]">
           Bağlantı bu ekranda görünmüyorsa yeniden gönderin; önceki bağlantı geçersiz olur.
         </p>
       )}

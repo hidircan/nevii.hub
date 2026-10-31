@@ -11,15 +11,15 @@ export function CheckoutSteps({ current }: { current: number }) {
             aria-current={i === current ? "step" : undefined}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 ring-1 ${
               i === current
-                ? "bg-amber-600 text-white ring-amber-600"
+                ? "bg-[#5c3d00] text-white ring-[#5c3d00]"
                 : i < current
-                  ? "bg-amber-50 text-amber-800 ring-amber-200"
+                  ? "bg-[#f6f0e4] text-[#5c3d00] ring-[#e3d6bc]"
                   : "bg-white text-slate-500 ring-slate-200"
             }`}
           >
             <span
               className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                i === current ? "bg-white/25" : i < current ? "bg-amber-200" : "bg-slate-100"
+                i === current ? "bg-white/25" : i < current ? "bg-[#e3d6bc]" : "bg-slate-100"
               }`}
             >
               {i < current ? "✓" : i + 1}

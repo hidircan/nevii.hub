@@ -21,7 +21,7 @@ export default async function OrderResultPage({
   const view = await getOrderPublicView({ token: t ?? "" });
   if (!view.ok) {
     return (
-      <div className="min-h-screen bg-white text-slate-900">
+      <div className="nh-site min-h-screen bg-white text-slate-900">
         <main className="mx-auto max-w-2xl px-4 py-16 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Kayıt bulunamadı</h1>
           <p className="mt-2 text-sm text-slate-600">
@@ -29,7 +29,7 @@ export default async function OrderResultPage({
           </p>
           <Link
             href="/#fiyatlandirma"
-            className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700"
+            className="mt-6 inline-block rounded-xl bg-[#5c3d00] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208]"
           >
             Paketlere dön
           </Link>
@@ -51,7 +51,7 @@ export default async function OrderResultPage({
   const previewHref = `/satin-al/onizleme?t=${encodeURIComponent(t ?? "")}`;
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="nh-site min-h-screen bg-white text-slate-900">
       <ClearCheckoutOnPaid active={paid} />
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
@@ -60,7 +60,7 @@ export default async function OrderResultPage({
         </div>
       </header>
 
-      <div className="border-b border-amber-100 bg-gradient-to-b from-amber-50 to-white">
+      <div className="border-b border-[#e3d6bc] bg-gradient-to-b from-[#fbf8f2] to-white">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
           <h1 className="text-3xl font-semibold tracking-tight">
             {paid ? "Ödemeniz başarıyla alındı" : checking ? "Ödemeniz kontrol ediliyor" : "Ödeme tamamlanamadı"}
@@ -104,7 +104,7 @@ export default async function OrderResultPage({
                           : "Faturanız düzenlendi; e-posta gönderimi bekleniyor."}
                   </p>
                   {o.invoice?.state === "failed" ? (
-                    <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                    <p className="mt-2 rounded-xl bg-[#f6f0e4] p-3 text-sm text-[#5c3d00] ring-1 ring-[#e3d6bc]">
                       Belge düzenlenirken bir sorun oluştu. Ödemeniz geçerli; yeniden ödeme alınmaz.
                       Destek ekibi belgeyi tamamlayacak.
                     </p>
@@ -131,7 +131,7 @@ export default async function OrderResultPage({
                   veya bilgilerinizi düzenleyebilirsiniz.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Link href={previewHref} className="rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">
+                  <Link href={previewHref} className="rounded-xl bg-[#5c3d00] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208]">
                     Önizlemeye dön
                   </Link>
                   <Link href={editHref} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100">
@@ -142,7 +142,7 @@ export default async function OrderResultPage({
             )}
           </div>
 
-          <aside aria-label="Sipariş özeti" className="h-fit rounded-2xl border border-amber-200/70 bg-white p-5 shadow-lg shadow-amber-900/5 md:sticky md:top-6">
+          <aside aria-label="Sipariş özeti" className="h-fit rounded-2xl border border-[#e3d6bc] bg-white p-5 shadow-lg shadow-[#5c3d00]/10 md:sticky md:top-6">
             <h2 className="text-base font-semibold">Sipariş özeti</h2>
             <div className="mt-3">
               {o.totals ? (

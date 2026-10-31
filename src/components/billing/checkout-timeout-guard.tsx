@@ -125,9 +125,9 @@ export function CheckoutTimeoutGuard({
     <div ref={wrapRef} className="contents" aria-hidden={!(showWarn || showExpired)}>
       {showWarn && !showExpired ? (
         <div role="alertdialog" aria-labelledby="idle-warn-t" aria-describedby="idle-warn-d" className="fixed inset-x-0 top-0 z-50 flex justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-xl">
-            <p id="idle-warn-t" className="font-semibold text-amber-900">İşleminize devam etmek istiyor musunuz?</p>
-            <p id="idle-warn-d" className="mt-1 text-sm text-amber-800">
+          <div className="w-full max-w-md rounded-2xl border border-[#5c3d00]/40 bg-[#f6f0e4] p-5 shadow-xl">
+            <p id="idle-warn-t" className="font-semibold text-[#5c3d00]">İşleminize devam etmek istiyor musunuz?</p>
+            <p id="idle-warn-d" className="mt-1 text-sm text-[#5c3d00]">
               Güvenlik için işlem <strong>{fmtLeft(left)}</strong> içinde zaman aşımına uğrayacak.
               Kaydınız silinmez; devam ederseniz kaldığınız yerden sürer.
             </p>
@@ -136,7 +136,7 @@ export function CheckoutTimeoutGuard({
               onClick={() => void extend()}
               disabled={checking}
               autoFocus
-              className="mt-3 w-full rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+              className="mt-3 w-full rounded-xl bg-[#5c3d00] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208] disabled:opacity-60"
             >
               {checking ? "Kontrol ediliyor…" : "Devam et"}
             </button>

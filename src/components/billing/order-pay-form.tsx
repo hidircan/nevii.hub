@@ -40,13 +40,13 @@ function ConsentRow({ checked, onChange, required, title, note, children }: {
   children?: ReactNode;
 }) {
   return (
-    <div className={`rounded-2xl border p-4 transition-colors ${checked ? "border-amber-400 bg-amber-50/60" : "border-slate-200 bg-white"}`}>
+    <div className={`rounded-2xl border p-4 transition-colors ${checked ? "border-[#5c3d00]/40 bg-[#f6f0e4]/60" : "border-slate-200 bg-white"}`}>
       <label className="flex cursor-pointer gap-3">
-        <input type="checkbox" checked={checked} aria-required={required} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-amber-600" />
+        <input type="checkbox" checked={checked} aria-required={required} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#5c3d00]" />
         <span className="min-w-0 flex-1">
           <span className="flex items-start justify-between gap-3">
             <span className="text-sm font-semibold leading-snug text-slate-900">{title}</span>
-            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${required ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"}`}>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${required ? "bg-[#efe6d3] text-[#5c3d00]" : "bg-[#f6f0e4] text-slate-600"}`}>
               {required ? "Zorunlu" : "İsteğe bağlı"}
             </span>
           </span>
@@ -178,15 +178,15 @@ export function OrderPayForm({
       <button
         type="button"
         onClick={() => openDocById(id)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:border-amber-400 hover:text-amber-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:border-[#5c3d00]/40 hover:text-[#4a3208] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5c3d00]"
       >
-        <FileText aria-hidden className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+        <FileText aria-hidden className="h-3.5 w-3.5 shrink-0 text-[#5c3d00]" />
         {label}
       </button>
     </li>
   );
   const docLink = (id: string, label: string) => (
-    <button type="button" onClick={() => openDocById(id)} className="rounded font-medium text-amber-800 underline underline-offset-2 hover:text-amber-900">
+    <button type="button" onClick={() => openDocById(id)} className="rounded font-medium text-[#5c3d00] underline underline-offset-2 hover:text-[#4a3208]">
       {label}
     </button>
   );
@@ -197,15 +197,15 @@ export function OrderPayForm({
       <div className="min-w-0 space-y-6">
         {children}
 
-        <section aria-labelledby="onaylar" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-900/10 sm:p-7">
+        <section aria-labelledby="onaylar" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#5c3d00]/10 sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="onaylar" className="text-xl">Onaylar</h2>
-            <p aria-live="polite" className={`rounded-full px-3 py-1 text-xs font-semibold ${remaining === 0 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+            <p aria-live="polite" className={`rounded-full px-3 py-1 text-xs font-semibold ${remaining === 0 ? "bg-[#5c3d00] text-white" : "bg-[#efe6d3] text-[#5c3d00]"}`}>
               {remaining === 0 ? "Zorunlu onaylar tamam" : `${2 - remaining} / 2 zorunlu onay`}
             </p>
           </div>
           {!docsApproved ? (
-            <p role="status" className="mt-4 rounded-xl bg-amber-50 px-4 py-2.5 text-xs leading-relaxed text-amber-900 ring-1 ring-amber-200">
+            <p role="status" className="mt-4 rounded-xl bg-[#f6f0e4] px-4 py-2.5 text-xs leading-relaxed text-[#5c3d00] ring-1 ring-[#e3d6bc]">
               Demo ortamı: sözleşme metinleri taslak, hukuk incelemesi bekliyor. Bu ödeme simülasyonu gerçek tahsilat değildir.
             </p>
           ) : null}
@@ -249,10 +249,10 @@ export function OrderPayForm({
       </div>
 
       <aside aria-label="Sipariş özeti" className="lg:sticky lg:top-6">
-        <div className="overflow-hidden rounded-3xl bg-white shadow-xl shadow-amber-950/10 ring-1 ring-amber-900/10">
+        <div className="overflow-hidden rounded-3xl bg-white shadow-xl shadow-[#5c3d00]/10 ring-1 ring-[#5c3d00]/10">
           <div className="relative overflow-hidden bg-[#5c3d00] px-6 py-6 text-white">
             <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full opacity-70 blur-2xl" style={{ background: "radial-gradient(closest-side, #a56a00, transparent)" }} />
-            <p className="relative text-xs font-bold uppercase tracking-[0.14em] text-amber-300">Ödenecek toplam</p>
+            <p className="relative text-xs font-bold uppercase tracking-[0.14em] text-white/75">Ödenecek toplam</p>
             <p className="relative mt-2 whitespace-nowrap text-[2.25rem] font-semibold leading-none tabular-nums">{summary.totalDisplay}</p>
             <p className="relative mt-2 text-sm text-white/75">KDV dahil · {summary.planLabel}, {summary.intervalLabel}</p>
           </div>
@@ -277,11 +277,11 @@ export function OrderPayForm({
                   <p className="mt-2 text-xs text-slate-500">Kaydınız ödeme beklemeye devam ediyor; bilgileriniz kaybolmadı. Entegrasyon hazır olduğunda aynı bağlantıdan devam edebilirsiniz.</p>
                 </div>
               ) : providerState?.kind === "mock" ? (
-                <div className="rounded-2xl bg-slate-900 p-4 ring-1 ring-slate-700">
-                  <p className="text-xs font-bold uppercase tracking-wider text-amber-300">Mock ödeme: gerçek tahsilat değildir</p>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-300">Bu demo panelidir; kart bilgisi istenmez ve karta dokunulmaz. “Mock ödemeyi tamamla”, sağlayıcıdan doğrulanmış bildirim gelmiş gibi simüle eder.</p>
-                  {error ? <p role="alert" className="mt-3 text-sm font-medium text-red-300">{error}</p> : null}
-                  <button type="button" onClick={completeMock} disabled={busy === "mock"} className="mt-4 w-full rounded-xl bg-amber-500 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-60">
+                <div className="rounded-2xl bg-[#f6f0e4] p-4 ring-1 ring-[#e3d6bc]">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#5c3d00]">Mock ödeme: gerçek tahsilat değildir</p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-700">Bu demo panelidir; kart bilgisi istenmez ve karta dokunulmaz. “Mock ödemeyi tamamla”, sağlayıcıdan doğrulanmış bildirim gelmiş gibi simüle eder.</p>
+                  {error ? <p role="alert" className="mt-3 text-sm font-medium text-red-700">{error}</p> : null}
+                  <button type="button" onClick={completeMock} disabled={busy === "mock"} className="mt-4 w-full rounded-xl bg-[#5c3d00] px-5 py-3 text-sm font-semibold text-white hover:bg-[#4a3208] disabled:opacity-60">
                     {busy === "mock" ? "Tamamlanıyor…" : "Mock ödemeyi tamamla"}
                   </button>
                 </div>
@@ -292,7 +292,7 @@ export function OrderPayForm({
                     type="button"
                     onClick={pay}
                     disabled={busy === "pay" || remaining > 0}
-                    className="w-full rounded-xl bg-amber-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                    className="w-full rounded-xl bg-[#5c3d00] px-5 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[#4a3208] disabled:cursor-not-allowed disabled:bg-[#efe6d3] disabled:text-[#5c3d00]/60 disabled:shadow-none"
                   >
                     {busy === "pay" ? "Ödeme başlatılıyor…" : "Ödemeyi tamamla"}
                   </button>
@@ -305,19 +305,19 @@ export function OrderPayForm({
 
             <ul className="mt-5 space-y-2.5 text-xs leading-relaxed text-slate-600">
               <li className="flex gap-2">
-                <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+                <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5c3d00]" />
                 <span>
                   {isMock ? "Demo ortamı: gerçek kart işlenmez, çekim yetkisi verilmez." : `Kart bilgileriniz ${providerDisplayName.replace(/^Ödeme/, "ödeme")} altyapısında işlenir; NeviiHub sunucularında kart numarası saklanmaz.`}
                   {providerTermsUrl && !isMock ? (
                     <>
                       {" "}
-                      <a href={providerTermsUrl} target="_blank" rel="noreferrer" className="font-medium text-amber-800 underline underline-offset-2">Ödeme koşulları</a>
+                      <a href={providerTermsUrl} target="_blank" rel="noreferrer" className="font-medium text-[#5c3d00] underline underline-offset-2">Ödeme koşulları</a>
                     </>
                   ) : null}
                 </span>
               </li>
               <li className="flex gap-2">
-                <RotateCcw aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+                <RotateCcw aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5c3d00]" />
                 <span>Dilediğinizde iptal edebilirsiniz; ödenmiş süre sonuna kadar erişiminiz sürer.</span>
               </li>
             </ul>

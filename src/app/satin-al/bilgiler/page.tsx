@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import Link from "@/components/link";
 import { getPublishedCatalog } from "@/lib/platform/commercial-catalog";
 import { getPricedPlan } from "@/lib/saas-billing/catalog";
@@ -28,7 +29,7 @@ export default async function OrderInfoPage({
     const r = await getOrderByToken({ token: editToken });
     if (!r.ok || r.data.status !== "awaiting_payment") {
       return (
-        <div className="min-h-screen bg-white text-slate-900">
+        <div className="nh-site min-h-screen bg-white text-slate-900">
           <main className="mx-auto max-w-2xl px-4 py-16 text-center">
             <h1 className="text-2xl font-semibold tracking-tight">Kayıt bulunamadı</h1>
             <p className="mt-2 text-sm text-slate-600">
@@ -36,7 +37,7 @@ export default async function OrderInfoPage({
             </p>
             <Link
               href="/#fiyatlandirma"
-              className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700"
+              className="mt-6 inline-block rounded-xl bg-[#5c3d00] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208]"
             >
               Paketlere dön
             </Link>
@@ -56,7 +57,7 @@ export default async function OrderInfoPage({
 
   if (!plan || !priced || !priced.approved) {
     return (
-      <div className="min-h-screen bg-white text-slate-900">
+      <div className="nh-site min-h-screen bg-white text-slate-900">
         <main className="mx-auto max-w-2xl px-4 py-16 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Bu seçimle devam edilemiyor</h1>
           <p className="mt-2 text-sm text-slate-600">
@@ -64,7 +65,7 @@ export default async function OrderInfoPage({
           </p>
           <Link
             href="/#fiyatlandirma"
-            className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700"
+            className="mt-6 inline-block rounded-xl bg-[#5c3d00] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208]"
           >
             Paketlere dön
           </Link>
@@ -78,7 +79,7 @@ export default async function OrderInfoPage({
   const faturaHref = `/satin-al/fatura?plan=${encodeURIComponent(plan.key)}&interval=${interval}`;
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="nh-site min-h-screen bg-white text-slate-900">
       <CheckoutTimeoutGuard
         token={editToken}
         validatePath={editToken ? `/api/v1/billing/orders?t=${encodeURIComponent(editToken)}` : null}
@@ -86,13 +87,13 @@ export default async function OrderInfoPage({
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="rounded-lg text-lg font-extrabold tracking-tight">NeviiHub</Link>
-          <Link href={`/satin-al?plan=${encodeURIComponent(plan.key)}&interval=${interval}`} className="rounded-lg text-sm font-semibold text-amber-700 hover:text-amber-800">
+          <Link href={`/satin-al?plan=${encodeURIComponent(plan.key)}&interval=${interval}`} className="rounded-lg text-sm font-semibold text-[#5c3d00] hover:text-[#4a3208]">
             ← Paket detayına dön
           </Link>
         </div>
       </header>
 
-      <div className="border-b border-amber-100 bg-gradient-to-b from-amber-50 to-white">
+      <div className="border-b border-[#e3d6bc] bg-gradient-to-b from-[#fbf8f2] to-white">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
           <p className="text-sm text-slate-500">
             <Link href="/#fiyatlandirma" className="rounded hover:text-slate-800">Paketler ve Fiyatlar</Link>
@@ -111,7 +112,7 @@ export default async function OrderInfoPage({
           </p>
           <div className="mt-5"><CheckoutSteps current={1} /></div>
           {priced.sandbox && priced.amountMinor > 0 ? (
-            <p className="mt-5 max-w-2xl rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-amber-300 ring-1 ring-slate-700" role="note">
+            <p className="mt-5 max-w-2xl rounded-xl bg-[#5c3d00] px-4 py-2.5 text-sm font-medium text-white" role="note">
               ÖRNEK FİYAT — bu tutar demo amaçlıdır, gerçek satış fiyatı değildir.
             </p>
           ) : null}
@@ -156,12 +157,12 @@ export default async function OrderInfoPage({
                   Kayıtlı kurum hesabınızla giriş yapın; kayıtlı bilgilerinizle aynı seçimle ödemeye devam edin.
                   Yeni kayıt açılmaz.
                 </p>
-                <div className="mt-4 max-w-sm"><LoginForm nextPath={faturaHref} /></div>
+                <div className="mt-4 max-w-sm" style={{ "--color-primary": "#5c3d00" } as CSSProperties}><LoginForm nextPath={faturaHref} /></div>
               </section>
             ) : null}
           </div>
 
-          <aside aria-label="Sipariş özeti" className="h-fit rounded-2xl border border-amber-200/70 bg-white p-5 shadow-lg shadow-amber-900/5 md:sticky md:top-6">
+          <aside aria-label="Sipariş özeti" className="h-fit rounded-2xl border border-[#e3d6bc] bg-white p-5 shadow-lg shadow-[#5c3d00]/10 md:sticky md:top-6">
             <h2 className="text-base font-semibold">Sipariş özeti</h2>
             <div className="mt-3">
               <OrderSummaryRows
