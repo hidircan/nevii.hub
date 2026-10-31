@@ -229,7 +229,7 @@ describe("getCollectionRoi — genişletilmiş metrikler (lostThisMonth/closedTh
 
   it("geçen ay kapanan vakalar bu ayın closedThisMonth'una girmez", async () => {
     const lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    lastMonth.setDate(0); // setMonth(-1) ayın 31'inde aynı aya taşar
     await upsertFollowUpCase({
       tenantId: "demo-tenant",
       paymentId: "p1",
@@ -351,7 +351,7 @@ describe("EPIC 1 — getCollectionRoi genişletilmiş metrikler (sentThisMonth/r
 
   it("geçen ay gönderilen vaka bu ayın sentThisMonth'una girmez", async () => {
     const lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    lastMonth.setDate(0); // setMonth(-1) ayın 31'inde aynı aya taşar
     await upsertFollowUpCase({
       tenantId: "demo-tenant",
       paymentId: "p1",

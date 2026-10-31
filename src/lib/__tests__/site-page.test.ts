@@ -169,7 +169,7 @@ describe("yetki, kalıcılık ve tek kaynak", () => {
   it("fiyat ve hukuki metin yapı ayarında tutulmaz", async () => {
     const source = readFileSync(path.join(ROOT, "src/lib/platform/site-page.ts"), "utf-8");
     expect(source).not.toMatch(/amountMinor|displayTotal|legal-doc/);
-    const sections = readFileSync(path.join(ROOT, "src/components/site/sections.tsx"), "utf-8");
-    expect(sections).toContain("getPublishedCatalog");
+    const views = readFileSync(path.join(ROOT, "src/lib/saas-billing/pricing-views.ts"), "utf-8");
+    expect(views).toContain("getPublishedCatalog");
   });
 });

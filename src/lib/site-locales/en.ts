@@ -4,7 +4,7 @@ import type { SiteLocaleContent } from "./types";
 export const enContent: SiteLocaleContent = {
   locale: "en",
   meta: {
-    title: "NeviiHub — Management platform for music schools",
+    title: "NeviiHub — Management platform for education businesses",
     description:
       "Scheduling, attendance, makeup lessons, contracts and collections, with teacher and parent portals.",
   },
@@ -21,7 +21,7 @@ export const enContent: SiteLocaleContent = {
     { label: "Contact", href: "#iletisim" },
   ],
   hero: {
-    headline: "Your entire music school on one platform",
+    headline: "Your entire school on one platform",
     subline:
       "Scheduling, attendance, makeup lessons, contract and collection management — together with teacher and parent portals. Dedicated, multi-branch and secure.",
     login: "Sign in",

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   __resetSaasBillingStoreForTests,
@@ -48,11 +50,14 @@ describe("teklif isteği (quote)", () => {
     expect(d2.ok).toBe(false);
   });
 
-  it("db modda fail-closed", async () => {
-    process.env.STORE_MODE = "db";
-    const { isDbMode } = await import("../config");
-    if (!isDbMode) return;
-    const r = await submitQuoteRequest({ input: BASE });
+  it("gizli tuzak alanı dolu gelirse kaydetmez, hata Türkçe nedenini söyler", async () => {
+    const r = await submitQuoteRequest({ input: { ...BASE, website: "http://spam.example" } });
     expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.message).toContain("Kurum adı");
+  });
+
+  it("DB modunda da kapalı değil: kapı kod tabanından kalktı", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/saas-billing/quotes.ts"), "utf8");
+    expect(src).not.toContain("isDbMode");
   });
 });

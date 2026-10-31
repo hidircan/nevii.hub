@@ -119,6 +119,8 @@ export async function saveSellerProfile(
   };
   const { saveSellerProfile: persist } = await import("./store");
   await persist(record);
+  const { invalidatePublicSite } = await import("../platform/public-cache");
+  invalidatePublicSite();
   const { appendPlatformAudit } = await import("../platform/store");
   await appendPlatformAudit({
     actorUserId: ctx.userId,

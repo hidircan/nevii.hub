@@ -69,8 +69,8 @@ export default async function PrivacyPage() {
       <LegalSection heading="4. Verilerin paylaşımı">
         <p>
           Verileriniz üçüncü kişilerle pazarlama amacıyla paylaşılmaz. Sınırlı paylaşım yalnızca hizmetin çalışması için
-          zorunlu taraflarla yapılır: barındırma (hosting) sağlayıcısı, push bildirim altyapısı, ödeme kuruluşu
-          (yalnızca ödeme işlemi için) ve yasal zorunluluk hâlinde yetkili kamu kurumları.
+          zorunlu taraflarla yapılır: barındırma (hosting) sağlayıcısı, giriş güvenliği doğrulaması (Cloudflare), push
+          bildirim altyapısı, ödeme kuruluşu (yalnızca ödeme işlemi için) ve yasal zorunluluk hâlinde yetkili kamu kurumları.
         </p>
       </LegalSection>
       <LegalSection heading="5. Saklama süreleri">

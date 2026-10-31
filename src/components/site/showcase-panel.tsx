@@ -152,17 +152,17 @@ const WEEK_LESSONS: { day: number; row: number; span: number; label: string; ton
 ];
 
 const ATTENDANCE_ROWS: { name: string; lesson: string; status: string; tone: string }[] = [
-  { name: "Elif K.", lesson: "Piyano · 10:00", status: "Geldi", tone: "bg-green-100 text-green-800" },
-  { name: "Can D.", lesson: "Keman · 11:30", status: "Geldi", tone: "bg-green-100 text-green-800" },
-  { name: "Deniz A.", lesson: "Gitar · 13:00", status: "Telafi", tone: "bg-yellow-100 text-yellow-800" },
-  { name: "Selin B.", lesson: "Yoga · 15:00", status: "İşlendi", tone: "bg-red-100 text-red-800" },
-  { name: "Zeynep T.", lesson: "Bale · 16:30", status: "Geldi", tone: "bg-green-100 text-green-800" },
+  { name: "Elif K.", lesson: "Piyano · 10:00", status: "Geldi", tone: "bg-emerald-100 text-emerald-800" },
+  { name: "Can D.", lesson: "Keman · 11:30", status: "Geldi", tone: "bg-emerald-100 text-emerald-800" },
+  { name: "Deniz A.", lesson: "Gitar · 13:00", status: "Telafi", tone: "bg-amber-200 text-amber-900" },
+  { name: "Selin B.", lesson: "Yoga · 15:00", status: "İşlendi", tone: "bg-rose-100 text-rose-900" },
+  { name: "Zeynep T.", lesson: "Bale · 16:30", status: "Geldi", tone: "bg-emerald-100 text-emerald-800" },
 ];
 
 const COLLECTION_BARS = [46, 62, 54, 78, 70, 92];
 const COLLECTION_MONTHS = ["Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas"];
 const COLLECTION_RULES: { label: string; status: string; tone: string }[] = [
-  { label: "Piyano · Elif K.", status: "Ödendi", tone: "bg-green-100 text-green-800" },
+  { label: "Piyano · Elif K.", status: "Ödendi", tone: "bg-emerald-100 text-emerald-800" },
   { label: "Keman · Can D.", status: "Vadesi bugün", tone: "bg-amber-100 text-amber-900" },
   { label: "Gitar · Deniz A.", status: "Bekliyor", tone: "bg-slate-100 text-slate-700" },
 ];
@@ -174,7 +174,7 @@ const NOTIFICATIONS: { title: string; body: string }[] = [
   { title: "Ödeme alındı", body: "Makbuz hazır" },
 ];
 
-const SIDEBAR_ITEMS = ["Ders programı", "Yoklama", "Ödemeler"];
+const SIDEBAR_ITEMS = ["Ders Programı", "Yoklama Takvimi", "Ödemeler"];
 
 /**
  * Ana sayfa ürün sahnesi: panel penceresinde sırayla program, yoklama ve tahsilat;
@@ -188,7 +188,7 @@ export function ProductStage({ modules }: { modules: string[] }) {
         style={{ background: "radial-gradient(closest-side, #fcd34d, transparent)" }}
       />
       <div className="nh-stage relative">
-        <div className="overflow-hidden rounded-[1.25rem] bg-[#4a3208] p-2 shadow-2xl shadow-amber-900/30 ring-1 ring-black/10 sm:p-3">
+        <div className="overflow-hidden rounded-[1.25rem] bg-[#5c3d00] p-2 shadow-2xl shadow-amber-900/30 ring-1 ring-black/10 sm:p-3">
           <div className="flex items-center gap-3 px-2 pb-2 pt-1 text-xs text-white/70">
             <span className="flex gap-1.5">
               <i className="h-2.5 w-2.5 rounded-full bg-white/25" />
@@ -199,21 +199,21 @@ export function ProductStage({ modules }: { modules: string[] }) {
           </div>
           <div className="flex h-[23rem] overflow-hidden rounded-xl bg-[#faf7f0] text-left text-slate-900 sm:h-[29rem]">
             <div className="hidden w-44 shrink-0 flex-col gap-1 border-r border-amber-900/10 bg-white/70 p-3 sm:flex">
-              <p className="mb-2 px-2 text-sm font-extrabold tracking-tight">NeviiHub</p>
+              <p className="brand-mark mb-2 px-2 text-xl leading-none text-[#a56a00]">NeviiHub</p>
               {SIDEBAR_ITEMS.map((item, i) => (
                 <span key={item} className="relative rounded-lg px-2 py-2 text-xs font-medium text-slate-600">
                   <span className="nh-side-on absolute inset-0 rounded-lg bg-amber-100" style={stageAt(i)} />
                   <span className="relative">{item}</span>
                 </span>
               ))}
-              <span className="px-2 py-2 text-xs text-slate-400">Öğrenciler</span>
-              <span className="px-2 py-2 text-xs text-slate-400">Telafi merkezi</span>
-              <span className="px-2 py-2 text-xs text-slate-400">Raporlar</span>
+              {["Telafi Merkezi", "Öğrenciler", "Finans Özeti", "Raporlar", "İnsan Kaynakları", "NeviiHub AI"].map((item) => (
+                <span key={item} className="px-2 py-2 text-xs text-slate-400">{item}</span>
+              ))}
             </div>
             {/* Telefon sağ tarafa biner; içerik onun altında kalmasın. */}
             <div className="relative min-w-0 flex-1 md:mr-24 lg:mr-20">
               <div className="nh-cycle absolute inset-0 flex flex-col p-4 sm:p-6" style={stageAt(0)}>
-                <p className="text-lg font-semibold">Ders programı</p>
+                <p className="text-lg font-semibold">Ders Programı</p>
                 <p className="text-xs text-slate-500">Bu hafta · tüm şubeler</p>
                 <div className="mt-4 grid flex-1 grid-cols-5 grid-rows-[auto_repeat(5,minmax(0,1fr))] gap-1.5 sm:gap-2">
                   {["Pzt", "Sal", "Çar", "Per", "Cum"].map((d) => (
@@ -233,7 +233,7 @@ export function ProductStage({ modules }: { modules: string[] }) {
                 </div>
               </div>
               <div className="nh-cycle absolute inset-0 p-4 sm:p-6" style={stageAt(1)}>
-                <p className="text-lg font-semibold">Yoklama</p>
+                <p className="text-lg font-semibold">Yoklama Takvimi</p>
                 <p className="text-xs text-slate-500">Tek dokunuşla işaretlenir, hakedişe ve rapora yansır</p>
                 <ul className="mt-4 space-y-2">
                   {ATTENDANCE_ROWS.map((r, i) => (
@@ -254,7 +254,7 @@ export function ProductStage({ modules }: { modules: string[] }) {
                 </ul>
               </div>
               <div className="nh-cycle absolute inset-0 flex flex-col p-4 sm:p-6" style={stageAt(2)}>
-                <p className="text-lg font-semibold">Tahsilat</p>
+                <p className="text-lg font-semibold">Ödemeler</p>
                 <p className="text-xs text-slate-500">Vadesi gelen, ödenen ve bekleyen tek ekranda</p>
                 <div className="mt-4 flex min-h-0 flex-1 items-end gap-2 rounded-xl bg-white p-3 shadow-sm ring-1 ring-amber-900/5 sm:gap-3 sm:p-4">
                   {COLLECTION_BARS.map((h, i) => (

@@ -165,7 +165,7 @@ export function PackageEditor({ initial }: { initial: PackageEditorInitial }) {
       router.push(`/platform/paketler/${encodeURIComponent(newKey)}/duzenle`);
       return;
     }
-    setSaved(isNew ? "Paket taslağa eklendi; denetim kaydı yazıldı." : "Paket taslağa kaydedildi; denetim kaydı yazıldı.");
+    setSaved(isNew ? "Paket taslağa eklendi. Ana sayfaya yansıması için Paketler ekranından yayınlayın." : "Paket taslağa kaydedildi. Ana sayfaya yansıması için Paketler ekranından yayınlayın.");
     router.refresh();
   }
 

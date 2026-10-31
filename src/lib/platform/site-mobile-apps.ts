@@ -4,7 +4,8 @@ import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
-import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
+import { readPublicSetting } from "./public-cache";
+import { appendPlatformAudit, upsertSettingOverride } from "./store";
 
 /**
  * Mobil uygulama mağaza bağlantıları — TEK etkin kaynak.
@@ -48,8 +49,7 @@ const normPlay = (v: unknown) => normalizeStoreUrl(v, ["play.google.com"]);
 /** Site ayarındaki ham değerler (env'siz). */
 /** İstek başına tek okuma (sayfa + generateMetadata + bant aynı satırı paylaşır). */
 export const getSiteMobileApps = cache(async function getSiteMobileApps(): Promise<MobileAppLinks> {
-  const row = await getSettingOverride("platform", "*", SITE_MOBILE_APPS_KEY);
-  const v = (row?.value ?? {}) as Partial<Record<string, unknown>>;
+  const v = ((await readPublicSetting(SITE_MOBILE_APPS_KEY)) ?? {}) as Partial<Record<string, unknown>>;
   return {
     appStoreUrl: typeof v.appStoreUrl === "string" && v.appStoreUrl.trim() ? normAppStore(v.appStoreUrl) : null,
     playStoreUrl: typeof v.playStoreUrl === "string" && v.playStoreUrl.trim() ? normPlay(v.playStoreUrl) : null,

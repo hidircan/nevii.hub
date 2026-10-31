@@ -1688,3 +1688,8 @@ olmalı. tsc bunu yakalamaz, gözle denetlenir.
 - Düzeltme: önbellek kapalı + `postbuild` kapısı (`scripts/check-built-css.mjs`): keyframes eksikse derleme durur, önceki sağlam sürüm yayında kalır. Görsel iş bittiğinde canlı CSS'i kaynakla karşılaştır; yalnız yerelde bakmak yetmez.
 - Kritik görünümü tek stil kuralına bağlama: sahnelerde varsayılan `visibility: hidden`, başlık rengi satır içi `--text-primary` (CSS düşse de okunur kalır).
 
+## 2026-10-31 — Depo kalıcı olunca eski "DB modda kapalı" kapısı kaldı
+- `saas-billing/store.ts` teklifleri `SettingOverride`'a yazmaya başladı (5d97e735) ama `quotes.ts` hâlâ DB modunda `FORBIDDEN` dönüyordu: canlıdaki teklif formu her talebi reddetti, testler `STORE_MODE=json` çalıştığı için görmedi.
+- Depo davranışı değişince üst katmandaki `isDbMode` kapılarını da ara. Yeni bir herkese açık forma güvenmeden önce ucun DB modundaki yolunu oku.
+- Otomasyonda `window.print()` tıklaması tarayıcıyı süresiz kilitler: `print` işlevini saplayarak doğrula.
+

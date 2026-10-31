@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { printText } from "@/lib/print-text";
 
 type Revision = {
   version: string;
@@ -28,6 +29,8 @@ export type LegalDocRow = {
   version: string;
   scope: string;
   about: string;
+  /** Yürürlükteki veya hazır metin, satıcı bilgisiyle dolu. */
+  bodyText: string | null;
   approved: boolean;
   state: DocState | null;
   /** Hazır taslak ({{SATICI_*}} yer tutuculu; gösterimde satıcı profiliyle dolar). */
@@ -50,7 +53,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ docId: string; bodyText: string; source: "neviios" | "neviiads-aktarim" } | null>(null);
-  const [preview, setPreview] = useState<Revision | null>(null);
+  const [preview, setPreview] = useState<{ title: string; label: string; text: string } | null>(null);
 
   async function post(body: unknown) {
     setBusy(true);
@@ -73,6 +76,36 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
   }
 
   const refresh = () => window.location.reload();
+
+  const withoutRevision = docs.filter((d) => d.template && !d.state?.revisions.length);
+  const unpublished = docs.flatMap((d) => {
+    const latest = d.state?.revisions.at(-1);
+    return latest && d.state?.publishedVersion !== latest.version ? [{ docId: d.id, version: latest.version }] : [];
+  });
+
+  async function loadAllTemplates() {
+    for (const d of withoutRevision) {
+      if (!(await post({ action: "revise", docId: d.id, bodyText: d.template, source: "neviios" }))) return;
+    }
+    refresh();
+  }
+
+  async function publishAll() {
+    if (!window.confirm(`Son sürümü yayında olmayan ${unpublished.length} belge için hukuki inceleme ve ticari onay "onaylandı" olarak kaydedilip yayınlanacak. Müşteriye bu metinler sunulur; zorunlu belgelerin tümü yayındaysa gerçek satış açılır. Metinleri okudunuz mu? Önce bir avukata okutmanızı öneririz.`)) return;
+    for (const { docId, version } of unpublished) {
+      for (const field of ["legalReview", "commercial"]) {
+        if (!(await post({ action: "review", docId, version, field, value: "onaylandi" }))) return;
+      }
+      if (!(await post({ action: "publish", docId, version }))) return;
+    }
+    refresh();
+  }
+
+  function print(title: string, text: string) {
+    if (!printText(title, text)) {
+      setNotice({ kind: "error", text: "Tarayıcı yeni pencereyi engelledi. Bu site için açılır pencereye izin verip tekrar deneyin." });
+    }
+  }
   const input = "w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 text-sm focus:border-[var(--color-primary)] focus:outline-none";
   const inputLabel = "mb-1 block text-xs font-medium text-[var(--color-text-muted)]";
   const btn = "rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60";
@@ -84,6 +117,22 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
         <p role={notice.kind === "error" ? "alert" : "status"} className={`rounded-[var(--radius-md)] px-4 py-2.5 text-sm border ${notice.kind === "error" ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)] border-[var(--color-danger)]" : "bg-[var(--color-success-soft)] text-[var(--color-success)] border-[var(--color-success)]"}`}>
           {notice.text}
         </p>
+      ) : null}
+
+      {withoutRevision.length > 0 || unpublished.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          {withoutRevision.length > 0 ? (
+            <button disabled={busy} className={btn} onClick={loadAllTemplates}>
+              Hazır taslakların tümünü yükle ({withoutRevision.length})
+            </button>
+          ) : null}
+          {unpublished.length > 0 ? (
+            <button disabled={busy} className={btn} onClick={publishAll}>
+              Tümünü onayla ve yayınla ({unpublished.length})
+            </button>
+          ) : null}
+          <p className="text-xs text-[var(--color-text-muted)]">Metinler satıcı profilinizle otomatik dolar. Her adım denetim kaydına yazılır.</p>
+        </div>
       ) : null}
 
       {docs.map((d) => {
@@ -109,6 +158,11 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                 </p>
               </div>
               <div className="flex gap-1">
+                {d.bodyText ? (
+                  <button disabled={busy} className={btnGhost} onClick={() => setPreview({ title: d.title, label: st?.publishedVersion ? `Yürürlükte: sürüm ${st.publishedVersion}` : "Hazır taslak", text: d.bodyText ?? "" })}>
+                    Oku / PDF
+                  </button>
+                ) : null}
                 <button disabled={busy} className={btnGhost} onClick={() => setOpen(expanded ? null : d.id)}>
                   {expanded ? "Kapat" : "Yönet"}
                 </button>
@@ -128,7 +182,7 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
                             {st.publishedVersion === r.version ? " · YAYINDA" : ""}
                           </p>
                           <div className="flex flex-wrap gap-1">
-                            <button disabled={busy} className={btnGhost} onClick={() => setPreview(r)}>Önizle</button>
+                            <button disabled={busy} className={btnGhost} onClick={() => setPreview({ title: d.title, label: `Sürüm ${r.version} · ${SOURCE_TR[r.source]}`, text: r.bodyText })}>Önizle / PDF</button>
                             {st.publishedVersion === r.version ? (
                               <button
                                 disabled={busy}
@@ -249,12 +303,17 @@ export function LegalDocsManager({ docs }: { docs: LegalDocRow[] }) {
       {preview ? (
         <div role="dialog" aria-modal="true" aria-labelledby="legal-preview-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-md)] bg-[var(--color-surface)] p-6 shadow-xl">
-            <h3 id="legal-preview-title" className="text-base font-semibold">Önizleme — sürüm {preview.version}</h3>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">{SOURCE_TR[preview.source]} · ham metin ({"{{SATICI_*}}"} alanları müşteri ekranında satıcı profiliyle dolar)</p>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{preview.bodyText}</p>
-            <button type="button" onClick={() => setPreview(null)} autoFocus className={`${btn} mt-4`}>
-              Kapat
-            </button>
+            <h3 id="legal-preview-title" className="text-base font-semibold">{preview.title}</h3>
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">{preview.label} · satıcı profilinizle dolu hâli</p>
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{preview.text}</p>
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={() => setPreview(null)} autoFocus className={btn}>
+                Kapat
+              </button>
+              <button type="button" onClick={() => print(preview.title, preview.text)} className={btnGhost}>
+                PDF olarak indir / yazdır
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

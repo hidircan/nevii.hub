@@ -39,6 +39,8 @@ function withShared(locale: SiteLocaleContent): SiteContent {
   const { email, phone, address, mapEmbedUrl } = SITE_CONTACT;
   return {
     ...locale,
+    // Karşılamadaki öne çıkanlar kapalı; NeviiOS › Site ayarları › Listeler'den yeniden eklenebilir.
+    hero: { ...locale.hero, highlights: [] },
     about: { ...locale.about, note: SITE_ABOUT_NOTE },
     start: SITE_START,
     stats: STATS_COPY[locale.locale],

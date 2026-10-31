@@ -14,6 +14,7 @@
  * Yayın, iki onayı da ister (fail-closed). Bu tur local sentetik
  * demoyla sınırlıdır; gerçek public yayın ayrı onay ister.
  */
+import { invalidatePublicSite } from "../platform/public-cache";
 import { z } from "zod";
 import { fail, ok, type ServiceResult } from "../services/result";
 import type { ServiceContext } from "../services/context";
@@ -61,6 +62,18 @@ function stateOf(states: LegalDocState[], docId: string): LegalDocState {
   );
 }
 
+/** Metinlerdeki {{SATICI_*}} alanlarını dolduran kayıtlı satıcı profili. */
+export async function getLegalSellerFields() {
+  const { getEffectiveSeller } = await import("./seller-profile");
+  const seller = await getEffectiveSeller();
+  return {
+    ...seller.snapshot,
+    mersisNo: seller.stored?.mersisNo ?? null,
+    kepAddress: seller.stored?.kepAddress ?? null,
+    phone: seller.stored?.phone ?? null,
+  };
+}
+
 /**
  * Yürürlükteki belge görünümü: temel kayıt + yayınlanmış metin; yayın yoksa
  * hazır taslak (`draft: true`, onaysız). Metin satıcı profiliyle doldurulur.
@@ -78,14 +91,7 @@ export async function getEffectiveDocs(): Promise<
   }[]
 > {
   const { listLegalDocStates } = await import("./store");
-  const { getEffectiveSeller } = await import("./seller-profile");
-  const [states, seller] = await Promise.all([listLegalDocStates(), getEffectiveSeller()]);
-  const sellerFields = {
-    ...seller.snapshot,
-    mersisNo: seller.stored?.mersisNo ?? null,
-    kepAddress: seller.stored?.kepAddress ?? null,
-    phone: seller.stored?.phone ?? null,
-  };
+  const [states, sellerFields] = await Promise.all([listLegalDocStates(), getLegalSellerFields()]);
   return LEGAL_DOCS.filter((d) => d.appliesB2B).map((d) => {
     const st = stateOf(states, d.id);
     const pub = st.publishedVersion ? st.revisions.find((r) => r.version === st.publishedVersion) : undefined;
@@ -258,6 +264,7 @@ export async function publishDocRevision(
     st.updatedAt = now;
     await saveLegalDocState(st);
     await audit(ctx, st.docId, "saas.legal_doc.unpublish", {});
+    invalidatePublicSite();
     return ok(st);
   }
   const rev = st.revisions.find((r) => r.version === parsed.data.version);
@@ -271,5 +278,6 @@ export async function publishDocRevision(
   st.updatedAt = now;
   await saveLegalDocState(st);
   await audit(ctx, st.docId, "saas.legal_doc.publish", { version: rev.version });
+  invalidatePublicSite();
   return ok(st);
 }

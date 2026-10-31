@@ -4,7 +4,7 @@ import type { SiteLocaleContent } from "./types";
 export const deContent: SiteLocaleContent = {
   locale: "de",
   meta: {
-    title: "NeviiHub — Verwaltungsplattform für Musikschulen",
+    title: "NeviiHub — Verwaltungsplattform für Bildungseinrichtungen",
     description:
       "Stundenplanung, Anwesenheit, Nachholstunden, Verträge und Inkasso — mit Lehrer- und Elternportalen.",
   },
@@ -21,7 +21,7 @@ export const deContent: SiteLocaleContent = {
     { label: "Kontakt", href: "#iletisim" },
   ],
   hero: {
-    headline: "Ihre gesamte Musikschule auf einer Plattform",
+    headline: "Ihre gesamte Bildungseinrichtung auf einer Plattform",
     subline:
       "Stundenplanung, Anwesenheit, Nachholstunden, Vertrags- und Inkassoverwaltung — zusammen mit Lehrer- und Elternportalen. Eigenständig, mehrstandortfähig und sicher.",
     login: "Anmelden",

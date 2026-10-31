@@ -23,6 +23,8 @@ import {
   StepsSection,
 } from "@/components/site/sections";
 import { SiteAppBanner } from "@/components/site/app-banner";
+import { PointerGlow } from "@/components/site/pointer-glow";
+import { BlogTeaserSection, ModulesSection, SectorsSection, SetupSection, TailorSection, TourSection, TrustSection } from "@/components/site/home-sections";
 import { BRAND } from "@/lib/brand";
 import { getPlatformBrand } from "@/lib/platform/branding";
 import { resolveSitePage, type SiteSectionId } from "@/lib/platform/site-page";
@@ -116,8 +118,14 @@ async function LandingContent() {
   const views: Record<SiteSectionId, React.ReactNode> = {
     about: <AboutSection c={c} />,
     stats: <StatsSection c={c} />,
-    start: <StepsSection c={c} />,
-    features: <FeaturesSection c={c} />,
+    tour: <TourSection />,
+    // Türkçede ayrıntı sayfalarına giden tanıtım bölümleri; diğer dillerde kısa çevrili bölümler.
+    start: c.locale === "tr" ? <SetupSection /> : <StepsSection c={c} />,
+    features: c.locale === "tr" ? <ModulesSection /> : <FeaturesSection c={c} />,
+    sectors: <SectorsSection />,
+    tailor: <TailorSection />,
+    trust: <TrustSection />,
+    blog: <BlogTeaserSection />,
     platform: <PlatformSection c={c} />,
     references: <ReferencesSection c={c} />,
     pricing: <PricingSection c={c} />,
@@ -130,7 +138,7 @@ async function LandingContent() {
   return (
     // Bu ekran her zaman AÇIK temadır (cihaz koyu temada olsa bile) — bkz.
     // sections.tsx tema notu; logo beyaz güvenli alan kartında durur.
-    <div className="min-h-screen bg-white text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
+    <div className="nh-site min-h-screen bg-white text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
       <a
         href="#icerik"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-amber-600 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
@@ -141,6 +149,7 @@ async function LandingContent() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: siteJsonLd(c, sections) }}
       />
+      <PointerGlow />
       <SiteHeader c={c} />
       <main id="icerik">
         <HeroSection c={c} />

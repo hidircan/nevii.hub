@@ -1,4 +1,5 @@
 import type { ServiceContext } from "../services/context";
+import { invalidatePublicSite } from "./public-cache";
 import { listPolicyVersions, newPolicyVersionId, savePolicyVersion } from "./store-ext";
 import type { JsonValue, PolicyVersion } from "./types";
 
@@ -41,7 +42,7 @@ export async function recordPublishedVersion(
   }
   const draft = opts?.fromDraftId ? history.find((h) => h.id === opts.fromDraftId) : undefined;
   const next = Math.max(0, ...history.map((h) => h.version)) + 1;
-  return savePolicyVersion({
+  const saved = await savePolicyVersion({
     id: draft?.id ?? newPolicyVersionId(),
     scopeId,
     key,
@@ -55,4 +56,7 @@ export async function recordPublishedVersion(
     publishedAt: now,
     rollbackOfVersion: opts?.rollbackOfVersion ?? null,
   });
+  // Site ve katalog yayınları ziyaretçiye hemen yansır (public-cache.ts).
+  if (key === COMMERCIAL_CATALOG_KEY || key.startsWith("site.")) invalidatePublicSite();
+  return saved;
 }

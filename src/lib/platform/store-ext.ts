@@ -124,6 +124,22 @@ export async function listPolicyVersions(scopeId: string, key?: string): Promise
     .sort((a, b) => a.key.localeCompare(b.key) || b.version - a.version);
 }
 
+/** Yayındaki tek sürüm: sürüm geçmişinin gövdelerini taşımaz. */
+export async function getPublishedPolicyVersion(scopeId: string, key: string): Promise<PolicyVersion | null> {
+  if (isDbMode) {
+    try {
+      const row = await (await prisma()).policyVersion.findFirst({
+        where: { scopeId, key, status: "published" },
+        orderBy: { version: "desc" },
+      });
+      return row ? mapPolicy(row) : null;
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  return (await listPolicyVersions(scopeId, key)).find((v) => v.status === "published") ?? null;
+}
+
 export async function savePolicyVersion(row: PolicyVersion): Promise<PolicyVersion> {
   if (isDbMode) {
     try {

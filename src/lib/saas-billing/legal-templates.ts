@@ -191,7 +191,7 @@ e) Kampanya ve yenilik bildirimleri — m.5/1 (açık rıza) ve 6563 sayılı Ka
 
 4. AKTARIM
 Kişisel verileriniz yukarıdaki amaçlarla sınırlı olarak; ödeme işlemleri için lisanslı ödeme kuruluşuna (PayTR Ödeme ve Elektronik Para Kuruluşu A.Ş. veya kullanılan diğer lisanslı kuruluş), e-Fatura/e-Arşiv için özel entegratöre ve muhasebe hizmeti alınan mali müşavire, yasal talep hâlinde yetkili kamu kurum ve kuruluşlarına aktarılabilir.
-Hizmet'in barındırılması ve e-posta gönderimi için kullanılan bulut altyapı sağlayıcılarının (uygulama barındırma: Vercel Inc.; veritabanı: Supabase Inc., Avrupa Birliği — Frankfurt bölgesi; işlem e-postası sağlayıcısı) sunucuları yurt dışında bulunabilir. Bu aktarımlar KVKK m.9 uyarınca Kurul'ca ilan edilen standart sözleşmeler ve kanunda öngörülen diğer güvencelerle yapılır.
+Hizmet'in barındırılması ve e-posta gönderimi için kullanılan bulut altyapı sağlayıcılarının (uygulama barındırma: Vercel Inc.; veritabanı: Supabase Inc., Avrupa Birliği — Frankfurt bölgesi; giriş güvenliği doğrulaması: Cloudflare, Inc.; işlem e-postası sağlayıcısı) sunucuları yurt dışında bulunabilir. Bu aktarımlar KVKK m.9 uyarınca Kurul'ca ilan edilen standart sözleşmeler ve kanunda öngörülen diğer güvencelerle yapılır.
 
 5. TOPLAMA YÖNTEMİ
 Verileriniz satın alma, deneme, teklif ve iletişim formları, Hizmet içi hesap ve abonelik ekranları, ödeme kuruluşunun bildirimleri ve e-posta yazışmaları aracılığıyla elektronik ortamda toplanır.
@@ -263,6 +263,7 @@ g) Kurum'un makul talebi üzerine, yılda bir defayı aşmamak, önceden yazıl�
 Kurum, aşağıdaki alt işleyenlerin kullanılmasına genel onay verir. Liste değiştiğinde Kurum'a en az 15 gün önceden e-postayla bildirilir; Kurum makul gerekçeyle itiraz ederse ve uzlaşma sağlanamazsa aboneliğini iptal ederek kullanılmayan tam Dönem(ler) için orantılı iade alabilir.
 - Uygulama barındırma: Vercel Inc. (ABD; uygulama sunucuları Avrupa — Frankfurt bölgesi).
 - Veritabanı ve yedekleme: Supabase Inc. (ABD şirketi; veriler Avrupa Birliği — Frankfurt bölgesinde).
+- Giriş güvenliği: Cloudflare, Inc. (ABD; Turnstile doğrulaması) — web girişinde IP adresi ve tarayıcı sinyalleri.
 - İşlem e-postası: Hizmet'e tanımlı SMTP e-posta sağlayıcısı (davet, şifre sıfırlama, bildirim e-postaları).
 - Mobil anlık bildirim: Expo / 650 Industries Inc. (ABD) — yalnızca cihaz bildirim anahtarı ve bildirim metni.
 - Ödeme (yalnızca Kurum'un kendi tahsilatlarında ve ilgili özellik açıksa): Kurum'un seçtiği lisanslı ödeme kuruluşu.

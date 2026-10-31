@@ -5,7 +5,7 @@ import { requireHyperAdmin } from "./access";
 import { FEATURE_CATALOG, PLAN_FEATURE_DEFAULTS, isFeatureFlagKey } from "./features";
 import { PLAN_CATALOG } from "./entitlements";
 import { appendPlatformAudit, getPlatformTenant, listPlatformTenants, upsertPlatformTenant } from "./store";
-import { listPolicyVersions, newPolicyVersionId, savePolicyVersion } from "./store-ext";
+import { getPublishedPolicyVersion, listPolicyVersions, newPolicyVersionId, savePolicyVersion } from "./store-ext";
 import { resolveSetting } from "./resolve";
 import { COMMERCIAL_CATALOG_KEY, PLATFORM_SCOPE_ID } from "./policy-version-log";
 import {
@@ -178,7 +178,7 @@ async function versions(): Promise<PolicyVersion[]> {
 
 /** Yayındaki katalog (kullanıcıya görünen). Hiç yayın yoksa yerleşik katalog, sürüm null. */
 export async function getPublishedCatalog(): Promise<{ catalog: CommercialCatalog; version: number | null }> {
-  const pub = (await versions()).find((v) => v.status === "published");
+  const pub = await getPublishedPolicyVersion(PLATFORM_SCOPE_ID, COMMERCIAL_CATALOG_KEY);
   if (pub) {
     const valid = validateCatalog(pub.value);
     if (valid.ok) return { catalog: valid.data, version: pub.version };

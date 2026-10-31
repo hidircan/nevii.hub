@@ -4,7 +4,16 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 Google incelemesinde; Turnstile gözlemde)
+## Güncel snapshot — 2026-10-31 (kurumsal site + hukuk + paket yayını; PR #110 açık, MERGE/CANLI owner'da, migration YOK)
+- Dal `fix/canli-css-vitrin` (worktree `nevii-hub-site-brand`). Canlıda #109 (78045f60); Play'de 1.0.2 yayında, `TURNSTILE_ENABLED=true`, `mobile.minVersion` 1.0.2.
+- Paket hatası: düzenleme taslağa gider, ana sayfa yalnız yayınlanan kataloğu okur. Kod doğru; Paketler ekranına sabit uyarı + "Önizle ve yayınla" kondu. Owner'ın taslağı yayınlaması gerekir.
+- Herkese açık okuma önbelleği: `platform/public-cache.ts` (etiket `public-site`, 1 saat; katalog/`site.*`/hukuki yayın/satıcı profili anında temizler). Satın alma tutarı önbellek KULLANMAZ.
+- Yeni site: `/ozellikler` (31), `/sektorler` (9), `/blog` (10), `/hukuk` (8), kaydırmalı ürün turu, "Sizi arayalım". İçerik `lib/marketing/*`, ekranlar `components/site/product-screens.tsx`. Yeni sayfalar yalnız Türkçe; TR'ye özel bölümler diğer dillerde gizli.
+- Teklif/"Sizi arayalım" DB modunda eski kapı yüzünden reddediliyordu (canlıdaki `/teklif` dahil) → kapı kalktı, talepler NeviiOS › Başvurular'a düşer.
+- Hukuk: Cloudflare alt işleyen olarak eklendi (KVKK + DPA sürüm d3, `/gizlilik`); Hukuki Belgeler'de toplu yükle/yayınla ve PDF. Metinler yayınlanana dek `/hukuk/*` noindex, gerçek satış kapalı.
+- Açık (owner): #110 merge; paket taslağını yayınla; hukuki metinleri yükle + avukat okuması + yayın; Supabase Data API/anon yetki kontrolü; Nilüfer/Ezgi şifre değişimi. CSP `unsafe-inline` bilerek duruyor (nonce her sayfaya middleware ister, kota ve hydration riski).
+
+## Snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 Google incelemesinde; Turnstile gözlemde)
 - Canlı: PR #108 + #109 (78045f60). Dal `fix/canli-css-vitrin`: bayat CSS kök çözümü, ürün sahnesi animasyonu, anonim canlı rakamlar (`platform/site-stats.ts`, saatlik önbellek). Migration yok.
 - `apps/mobile` 1.0.2/vc10 owner tarafından Google incelemesine gönderildi.
 - Turnstile aşamaları: `TURNSTILE_ENABLED` boş = kapalı; `observe` = widget + kayıt, engel yok; `true` = web girişi token olmadan red.

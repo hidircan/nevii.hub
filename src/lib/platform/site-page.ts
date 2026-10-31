@@ -6,6 +6,7 @@ import { getSiteContent, SITE_DEFAULT_LINKS, type SiteContent, type SiteLinkKey,
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
 import { resolveSiteContent } from "./site-content-overrides";
+import { readPublicSetting } from "./public-cache";
 import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
 import type { JsonValue } from "./types";
 
@@ -21,15 +22,20 @@ export const SITE_PAGE_KEY = "site.page";
 export const SITE_SECTIONS = [
   { id: "about", label: "Hakkında", anchor: "hakkimizda" },
   { id: "stats", label: "Canlı rakamlar", anchor: "rakamlar" },
-  { id: "start", label: "Başlangıç adımları", anchor: "nasil-baslarsiniz" },
-  { id: "features", label: "Özellikler", anchor: "ozellikler" },
-  { id: "platform", label: "Platform tanıtımı", anchor: "platform" },
+  { id: "tour", label: "Kaydırmalı ürün turu", anchor: "urun-turu" },
+  { id: "platform", label: "Üç portal anlatımı", anchor: "platform" },
+  { id: "features", label: "Tüm özellikler", anchor: "ozellikler" },
+  { id: "sectors", label: "Sektörler", anchor: "sektorler" },
+  { id: "tailor", label: "Size uyarlanır", anchor: "uyarlama" },
   { id: "references", label: "Referanslar", anchor: "referanslar" },
   { id: "pricing", label: "Paketler ve fiyatlar", anchor: "fiyatlandirma" },
   { id: "purchase", label: "Nasıl satın alınır", anchor: "satin-alma" },
+  { id: "start", label: "Kurulum desteği ve sizi arayalım", anchor: "nasil-baslarsiniz" },
   { id: "mobile", label: "Mobil uygulama", anchor: "mobil-uygulama" },
   { id: "media", label: "Tanıtım görselleri", anchor: "medya" },
+  { id: "trust", label: "Güven ve güvenlik", anchor: "guven" },
   { id: "faq", label: "Sıkça sorulan sorular", anchor: "sss" },
+  { id: "blog", label: "Blog", anchor: "blog" },
   { id: "contact", label: "İletişim", anchor: "iletisim" },
 ] as const;
 
@@ -38,6 +44,8 @@ export type SiteSectionId = (typeof SITE_SECTIONS)[number]["id"];
 const SECTION_IDS = SITE_SECTIONS.map((s) => s.id) as SiteSectionId[];
 /** Referanslar gerçek kurum eklenene kadar kapalı başlar; satır yokken de bu geçerlidir. */
 const DEFAULT_HIDDEN: SiteSectionId[] = ["references"];
+/** Metinleri yalnız Türkçe yazılmış bölümler; diğer dillerde görünmez. */
+const TR_ONLY: SiteSectionId[] = ["tour", "sectors", "tailor", "trust", "blog"];
 /** Satın alma ekranları `/#fiyatlandirma`ya döner; bu bölüm kapatılamaz. */
 export const ALWAYS_VISIBLE: SiteSectionId[] = ["pricing"];
 
@@ -69,8 +77,8 @@ export const SITE_LIST_DEFS: ListDef[] = [
     { key: "href", label: "Hedef", kind: "link", required: true },
   ] },
   { key: "highlights", label: "Karşılama öne çıkanları", max: 8, fields: [{ key: "text", label: "Metin", kind: "text", required: true }] },
-  { key: "startSteps", label: "Başlangıç adımları", max: 6, fields: titled },
-  { key: "groups", label: "Özellik grupları", max: 12, fields: [...titled, { key: "points", label: "Maddeler (her satıra bir tane)", kind: "lines" }] },
+  { key: "startSteps", label: "Başlangıç adımları (yabancı dil sayfaları)", max: 6, fields: titled },
+  { key: "groups", label: "Özellik grupları (yabancı dil sayfaları)", help: "Türkçe ana sayfada yerini ayrıntı sayfalı Tüm özellikler bölümü alır.", max: 12, fields: [...titled, { key: "points", label: "Maddeler (her satıra bir tane)", kind: "lines" }] },
   { key: "surfaces", label: "Platform tanıtımı", help: "Görsel anlatım en fazla üç kartı destekler.", max: 3, fields: [...titled, { key: "points", label: "Maddeler (her satıra bir tane)", kind: "lines" }] },
   { key: "steps", label: "Satın alma adımları", max: 8, fields: titled },
   { key: "referenceItems", label: "Referanslar", help: "Yalnız gerçek kurumları, izin aldıktan sonra ekleyin.", max: 24, fields: [
@@ -220,7 +228,7 @@ function normalizeSettings(value: unknown): SitePageSettings {
 
 /** İstek başına tek okuma. */
 export const getSitePageSettings = cache(async function getSitePageSettings(): Promise<SitePageSettings> {
-  return normalizeSettings((await getSettingOverride("platform", "*", SITE_PAGE_KEY))?.value);
+  return normalizeSettings(await readPublicSetting(SITE_PAGE_KEY));
 });
 
 /** Düzenleyicinin göstereceği satırlar: koddaki içerik satır biçiminde. */
@@ -259,7 +267,8 @@ export const resolveSitePage = cache(async function resolveSitePage(locale: Site
       return [key, pointsToHidden(href) ? null : href];
     })
   ) as SiteContent["links"];
-  return { c, sections: settings.order.filter((id) => !settings.hidden.includes(id)) };
+  const sections = settings.order.filter((id) => !settings.hidden.includes(id) && (locale === "tr" || !TR_ONLY.includes(id)));
+  return { c, sections };
 });
 
 /** NeviiOS düzenleyicisinin başlangıç verisi. */

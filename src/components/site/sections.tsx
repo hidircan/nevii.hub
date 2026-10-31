@@ -27,7 +27,6 @@ import { PlatformLogo } from "@/components/platform-logo";
 import { SITE_CONTACT } from "@/lib/site-content";
 import { SITE_LOCALES, type SiteContent, type SiteLocale } from "@/lib/site-locales";
 import { getSiteSocial, SITE_SOCIAL_LABELS, type SiteSocialNetwork } from "@/lib/platform/site-social";
-import type { PricingPlanView } from "./pricing-plans";
 import { Reveal } from "./reveal";
 import { ProductStage, SceneBody, STORY_SCENES } from "./showcase-panel";
 import type { CSSProperties } from "react";
@@ -108,7 +107,7 @@ function socialKey(label: string): string {
 
 /** Koyu zeminli İletişim bölümü için: halka açık amber, ofset koyu zemine uyar. */
 const FOCUS_RING_DARK =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#5c3d00]";
 
 const PORTAL_ICONS = [LayoutDashboard, GraduationCap, Users] as const;
 
@@ -199,6 +198,9 @@ export function LanguageSwitcher({ locale, label, compact }: { locale: SiteLocal
   );
 }
 
+/** Sayfa içi çapalar başka sayfalardan da ana sayfanın ilgili bölümüne gider. */
+const navHref = (href: string) => (href.startsWith("#") ? `/${href}` : href);
+
 export function SiteHeader({ c }: { c: SiteContent }) {
   return (
     <header id="ust" className="sticky top-0 z-30 px-3 pt-3 sm:px-4">
@@ -214,7 +216,7 @@ export function SiteHeader({ c }: { c: SiteContent }) {
             {c.nav.filter((item) => item.href !== "#ust" && item.href !== "/").map((item, i) => (
               <a
                 key={i}
-                href={item.href}
+                href={navHref(item.href)}
                 className={`nh-navlink relative whitespace-nowrap rounded-full px-2.5 py-2 text-[13px] font-medium text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}
               >
                 {item.label}
@@ -227,7 +229,7 @@ export function SiteHeader({ c }: { c: SiteContent }) {
             </span>
             {c.links.headerDemo ? (
               <a
-                href={c.links.headerDemo}
+                href={navHref(c.links.headerDemo)}
                 className={`hidden rounded-full px-4 py-2 text-sm font-semibold text-amber-800 ring-1 ring-amber-300 hover:bg-amber-50 sm:inline-block ${FOCUS_RING}`}
               >
                 {c.header.demo}
@@ -249,7 +251,7 @@ export function SiteHeader({ c }: { c: SiteContent }) {
           {c.nav.map((item, i) => (
             <a
               key={i}
-              href={item.href}
+              href={navHref(item.href)}
               className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 ${FOCUS_RING}`}
             >
               {item.label}
@@ -269,30 +271,31 @@ export function HeroSection({ c }: { c: SiteContent }) {
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(70%_60%_at_50%_0%,#fef3c7_0%,#ffffff_60%)]"
       />
+      <div aria-hidden className="nh-dots pointer-events-none absolute inset-0 -z-10" />
       <div className="mx-auto max-w-3xl text-center">
-        <p className="flex flex-wrap items-center justify-center gap-2 sm:gap-2.5">
+        <p className="nh-rise flex flex-wrap items-center justify-center gap-3 sm:gap-4">
           <PlatformLogo height={64} />
           <span className="text-[2.75rem] font-extrabold normal-case leading-none tracking-tight text-slate-900 sm:text-5xl">
             {BRAND.shortName}
           </span>
         </p>
-        <h1 className="mt-6 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">{c.hero.headline}</h1>
-        <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+        <h1 className="nh-rise mt-12 text-4xl font-semibold tracking-tight text-slate-900 sm:mt-16 sm:text-6xl" style={{ "--nh-delay": "90ms" } as CSSProperties}>{c.hero.headline}</h1>
+        <p className="nh-rise mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg" style={{ "--nh-delay": "170ms" } as CSSProperties}>
           {c.hero.subline}
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href={c.links.heroLogin ?? "/login"}
-            className={`rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS_RING}`}
-          >
-            {c.hero.login}
-          </Link>
+        <div className="nh-rise mt-9 flex flex-wrap items-center justify-center gap-3" style={{ "--nh-delay": "240ms" } as CSSProperties}>
           <a
             href={c.links.heroTrial ?? "/deneme"}
-            className={`rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 ${FOCUS_RING}`}
+            className={`rounded-xl bg-amber-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS_RING}`}
           >
             {c.hero.trial}
           </a>
+          <Link
+            href={c.links.heroLogin ?? "/login"}
+            className={`rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 ${FOCUS_RING}`}
+          >
+            {c.hero.login}
+          </Link>
         </div>
         {c.links.heroTour ? (
           <p className="mt-4 text-sm">
@@ -301,14 +304,16 @@ export function HeroSection({ c }: { c: SiteContent }) {
             </a>
           </p>
         ) : null}
-        <ul className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-slate-700">
-          {c.hero.highlights.map((h, i) => (
-            <li key={i} className="inline-flex items-center gap-1.5">
-              <Check className="h-4 w-4 text-amber-600" aria-hidden />
-              {h}
-            </li>
-          ))}
-        </ul>
+        {c.hero.highlights.length > 0 ? (
+          <ul className="mx-auto mt-8 flex max-w-2xl flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-slate-700">
+            {c.hero.highlights.map((h, i) => (
+              <li key={i} className="inline-flex items-center gap-1.5">
+                <Check className="h-4 w-4 text-amber-600" aria-hidden />
+                {h}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       {/* Gerçek ürün ekranı — tanımlıysa gösterilir, yoksa hero görselsiz kalır. */}
       {c.heroShowcase ? (
@@ -336,7 +341,7 @@ export function AboutSection({ c }: { c: SiteContent }) {
   return (
     <Section id="hakkimizda" className="bg-white">
       <SectionHeading title={c.about.title} description={c.about.description} />
-      <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">{c.about.note}</p>
+      {c.about.note ? <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-slate-500">{c.about.note}</p> : null}
     </Section>
   );
 }
@@ -356,13 +361,13 @@ export async function StatsSection({ c }: { c: SiteContent }) {
   return (
     <Section
       id="rakamlar"
-      className="relative overflow-hidden bg-[#4a3208]"
+      className="relative overflow-hidden bg-[#5c3d00]"
       style={{ "--text-primary": "#ffffff" } as CSSProperties}
     >
       <div
         aria-hidden
         className="nh-drift pointer-events-none absolute -right-1/4 -top-1/2 h-[160%] w-[70%] rounded-full opacity-40 blur-3xl"
-        style={{ background: "radial-gradient(closest-side, #d97706, transparent)" }}
+        style={{ background: "radial-gradient(closest-side, #a56a00, transparent)" }}
       />
       <Reveal className="relative text-center">
         <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">{c.stats.title}</h2>
@@ -542,56 +547,9 @@ export function ReferencesSection({ c }: { c: SiteContent }) {
 }
 
 export async function PricingSection({ c }: { c: SiteContent }) {
-  const { getPublishedCatalog } = await import("@/lib/platform/commercial-catalog");
-  const { getPricedPlan } = await import("@/lib/saas-billing/catalog");
+  const { getPricingViews } = await import("@/lib/saas-billing/pricing-views");
   const { PricingPlans } = await import("./pricing-plans");
-  const { catalog } = await getPublishedCatalog();
-  const labelOf = new Map(catalog.modules.map((m) => [m.key, m.label]));
-  const views: PricingPlanView[] = [];
-  let anyDemo = false;
-  for (const p of catalog.plans) {
-    if (p.status !== "active" || p.legacy) continue;
-    const monthly = await getPricedPlan(p.key, "monthly");
-    const yearly = await getPricedPlan(p.key, "yearly");
-    if (!monthly || !yearly) continue;
-    const customQuote = monthly.customQuote;
-    let savingsPercent: number | null = null;
-    if (
-      !customQuote &&
-      monthly.approved &&
-      yearly.approved &&
-      monthly.amountMinor > 0 &&
-      yearly.amountMinor > 0 &&
-      yearly.amountMinor < 12 * monthly.amountMinor
-    ) {
-      savingsPercent = Math.round((1 - yearly.amountMinor / (12 * monthly.amountMinor)) * 100);
-    }
-    if (monthly.sandbox && monthly.amountMinor > 0) anyDemo = true;
-    views.push({
-      key: p.key,
-      label: p.label,
-      description: p.description || null,
-      limits: { students: p.limits.students, users: p.limits.users, branches: p.limits.branches },
-      moduleLabels: p.includedModules.map((k) => labelOf.get(k) ?? k),
-      customQuote,
-      savingsPercent,
-      monthly: {
-        amountMinor: monthly.amountMinor,
-        displayTotal: monthly.displayTotal,
-        approved: monthly.approved,
-        sandbox: monthly.sandbox,
-        taxNote: monthly.taxNote,
-      },
-      yearly: {
-        amountMinor: yearly.amountMinor,
-        displayTotal: yearly.displayTotal,
-        displayMonthlyEquivalent: yearly.displayMonthlyEquivalent,
-        approved: yearly.approved,
-        sandbox: yearly.sandbox,
-        taxNote: yearly.taxNote,
-      },
-    });
-  }
+  const { views, anyDemo } = await getPricingViews();
   return (
     <Section id="fiyatlandirma" className="bg-slate-50">
       <SectionHeading title={c.pricing.title} description={c.pricing.description} />
@@ -724,17 +682,17 @@ export async function ContactSection({ c }: { c: SiteContent }) {
   ].filter((d): d is NonNullable<typeof d> => d !== null);
   return (
     // Başlık rengi globals.css'te `--text-primary`tan gelir; satır içi verilince temaya ve CSS derlemesine bağlı kalmaz.
-    <Section id="iletisim" className="relative overflow-hidden bg-slate-950" style={{ "--text-primary": "#ffffff" } as CSSProperties}>
+    <Section id="iletisim" className="relative overflow-hidden bg-[#5c3d00]" style={{ "--text-primary": "#ffffff" } as CSSProperties}>
       <div
         aria-hidden
         className="nh-drift pointer-events-none absolute -left-1/4 top-0 h-[120%] w-[70%] rounded-full opacity-30 blur-3xl"
-        style={{ background: "radial-gradient(closest-side, #d97706, transparent)" }}
+        style={{ background: "radial-gradient(closest-side, #a56a00, transparent)" }}
       />
-      <Reveal className="relative grid gap-10 rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl backdrop-blur sm:p-12 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
+      <Reveal className="relative grid gap-10 rounded-3xl border border-white/15 bg-white/[0.06] p-8 shadow-2xl backdrop-blur sm:p-12 lg:grid-cols-[1.2fr_1fr] lg:gap-16">
         <div>
           <Eyebrow tone="dark">{c.contact.title}</Eyebrow>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{c.contact.demoTitle}</h2>
-          <p className="mt-4 max-w-md text-base leading-relaxed text-slate-300">{c.contact.description}</p>
+          <p className="mt-4 max-w-md text-base leading-relaxed text-white/80">{c.contact.description}</p>
           <div className="mt-8 flex flex-wrap gap-3">
             {info.email ? (
               <a
@@ -767,7 +725,7 @@ export async function ContactSection({ c }: { c: SiteContent }) {
                         <d.icon className="h-5 w-5" aria-hidden />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-xs text-slate-400">{d.label}</span>
+                        <span className="block text-xs text-white/60">{d.label}</span>
                         <span className="block truncate text-sm font-medium text-white">{d.value}</span>
                       </span>
                     </a>
@@ -777,7 +735,7 @@ export async function ContactSection({ c }: { c: SiteContent }) {
                         <d.icon className="h-5 w-5" aria-hidden />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-xs text-slate-400">{d.label}</span>
+                        <span className="block text-xs text-white/60">{d.label}</span>
                         <span className="block text-sm font-medium text-white">{d.value}</span>
                       </span>
                     </div>
@@ -787,11 +745,11 @@ export async function ContactSection({ c }: { c: SiteContent }) {
             </ul>
           ) : (
             // Uydurma telefon/e-posta/adres YAZILMAZ; kurum bilgisi girilene kadar dürüst yer tutucu.
-            <p className="text-sm leading-relaxed text-slate-300">{c.contact.pending}</p>
+            <p className="text-sm leading-relaxed text-white/80">{c.contact.pending}</p>
           )}
           {social.length > 0 ? (
             <div>
-              <p className="text-sm text-slate-400">{c.contact.follow}</p>
+              <p className="text-sm text-white/70">{c.contact.follow}</p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {social.map((s) => (
                   <li key={s.label}>
@@ -851,6 +809,14 @@ export async function MobileAppSection({ c }: { c: SiteContent }) {
   );
 }
 
+const FOOTER_PRODUCT = [
+  { href: "/ozellikler", label: "Özellikler" },
+  { href: "/sektorler", label: "Sektörler" },
+  { href: "/#fiyatlandirma", label: "Paketler" },
+  { href: "/blog", label: "Blog" },
+  { href: "/deneme", label: "30 gün ücretsiz dene" },
+];
+
 export async function SiteFooter({ c }: { c: SiteContent }) {
   const social = await socialWithHrefs();
   const { getSiteMobileApps, resolveMobileAppLinks } = await import("@/lib/platform/site-mobile-apps");
@@ -859,6 +825,27 @@ export async function SiteFooter({ c }: { c: SiteContent }) {
   const playUrl = site.playVisible ? resolved.playStoreUrl : undefined;
   return (
     <footer className="border-t border-slate-200 bg-white px-6 py-10">
+      <div className="mx-auto mb-8 grid max-w-6xl gap-8 border-b border-slate-200 pb-8 sm:grid-cols-2">
+        <nav aria-label="Ürün">
+          <p className="text-sm font-semibold text-slate-900">Ürün</p>
+          <ul className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600">
+            {FOOTER_PRODUCT.map((l) => (
+              <li key={l.href}><Link href={l.href} className={`hover:text-slate-900 ${FOCUS_RING}`}>{l.label}</Link></li>
+            ))}
+          </ul>
+        </nav>
+        <nav aria-label="Yasal">
+          <p className="text-sm font-semibold text-slate-900">Yasal</p>
+          <ul className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600">
+            <li><Link href="/kullanim-kosullari" className={`hover:text-slate-900 ${FOCUS_RING}`}>Kullanım Koşulları</Link></li>
+            <li><Link href="/gizlilik" className={`hover:text-slate-900 ${FOCUS_RING}`}>Gizlilik Politikası</Link></li>
+            <li><Link href="/hukuk/kvkk-aydinlatma" className={`hover:text-slate-900 ${FOCUS_RING}`}>KVKK Aydınlatma Metni</Link></li>
+            <li><Link href="/hukuk/abonelik-sozlesmesi" className={`hover:text-slate-900 ${FOCUS_RING}`}>Abonelik Sözleşmesi</Link></li>
+            <li><Link href="/hukuk/iptal-iade" className={`hover:text-slate-900 ${FOCUS_RING}`}>İptal ve İade</Link></li>
+            <li><Link href="/hukuk" className={`hover:text-slate-900 ${FOCUS_RING}`}>Tüm yasal metinler</Link></li>
+          </ul>
+        </nav>
+      </div>
       <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-left">
         <div className="flex items-center gap-2.5">
           <SiteLogo size={28} />
@@ -866,7 +853,7 @@ export async function SiteFooter({ c }: { c: SiteContent }) {
         </div>
         <nav aria-label="Alt menü" className="flex flex-wrap justify-center gap-x-4 gap-y-2">
           {c.nav.map((item, i) => (
-            <a key={i} href={item.href} className={`text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}>
+            <a key={i} href={navHref(item.href)} className={`text-sm text-slate-600 hover:text-slate-900 ${FOCUS_RING}`}>
               {item.label}
             </a>
           ))}

@@ -1,22 +1,25 @@
 import { EmptyState, PageHeader } from "@/components/ui";
 import { requireHyperAdminPage } from "@/lib/platform/session";
-import { getEffectiveDocs } from "@/lib/saas-billing/legal-doc-store";
+import { getEffectiveDocs, getLegalSellerFields } from "@/lib/saas-billing/legal-doc-store";
 import { listLegalDocStates } from "@/lib/saas-billing/store";
 import { LegalDocsManager } from "@/components/platform/legal-docs-manager";
-import { LEGAL_TEMPLATES } from "@/lib/saas-billing/legal-templates";
+import { LEGAL_TEMPLATES, renderLegalText } from "@/lib/saas-billing/legal-templates";
 
 export const dynamic = "force-dynamic";
 
 export default async function LegalDocsPage() {
   await requireHyperAdminPage("/platform/hukuki-belgeler");
-  const [docs, states] = await Promise.all([
+  const [docs, states, seller] = await Promise.all([
     getEffectiveDocs().catch(() => null),
     listLegalDocStates().catch(() => []),
+    getLegalSellerFields().catch(() => null),
   ]);
-  if (!docs) {
+  if (!docs || !seller) {
     return <EmptyState title="Belgeler yüklenemedi" description="Kayıtlar okunamadı." />;
   }
-  const byId = new Map(states.map((s) => [s.docId, s]));
+  const byId = new Map(
+    states.map((s) => [s.docId, { ...s, revisions: s.revisions.map((r) => ({ ...r, bodyText: renderLegalText(r.bodyText, seller) })) }])
+  );
   return (
     <div>
       <PageHeader
