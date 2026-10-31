@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
  * POST /api/v1/billing/quote/request
  * Herkese açık teklif isteği. Abonelik AÇMAZ, davet ÜRETMEZ, kart İSTEMEZ;
  * platform ekibi inceler (NeviiOS "Teklif istekleri"). IP rate-limit +
- * e-posta tekilliği. DB modda kapalı (tablo yok).
+ * e-posta tekilliği.
  */
 export async function POST(request: Request) {
   if (!consumeQuoteRateLimit(clientIp(request))) {

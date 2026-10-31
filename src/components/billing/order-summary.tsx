@@ -48,9 +48,9 @@ export function OrderSummaryRows({
         <span className="min-w-0 text-slate-600">{taxLabel}</span>
         <strong className="shrink-0 whitespace-nowrap tabular-nums">{taxDisplay}</strong>
       </p>
-      <p className="flex items-baseline justify-between gap-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
-        <span className="shrink-0 font-semibold">Ödenecek toplam</span>
-        <strong className="whitespace-nowrap text-xl tabular-nums">{totalDisplay}</strong>
+      <p className="rounded-xl bg-[#f6f0e4] px-4 py-3 ring-1 ring-[#e3d6bc]">
+        <span className="block text-xs font-semibold text-[#5c3d00]">Ödenecek toplam</span>
+        <strong className="mt-0.5 block whitespace-nowrap text-2xl tabular-nums">{totalDisplay}</strong>
       </p>
       {demoNote ? <p className="text-xs leading-relaxed text-slate-500">{demoNote}</p> : null}
     </div>

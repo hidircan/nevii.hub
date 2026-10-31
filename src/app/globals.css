@@ -1285,16 +1285,86 @@ a[href],
 @media (prefers-reduced-motion: reduce) {
   .nh-rise, .nh-pulse, .nh-drift { animation: none !important; }
 }
-/* Giriş vitrini: 3 sahne × 4 sn çapraz geçiş. */
+/*
+ * Ürün vitrini (giriş + ana sayfa): 3 sahne, her biri döngünün üçte biri. Yalnız transform/opacity
+ * (GPU); JS, istek ve veri okuması yok. Animasyon çalışmazsa YALNIZ ilk sahne görünür:
+ * `visibility` sayesinde sahneler hiçbir koşulda üst üste binemez.
+ */
+.nh-cycle { opacity: 0; visibility: hidden; }
+.nh-cycle:first-child { opacity: 1; visibility: visible; }
 @keyframes nh-cycle {
-  0% { opacity: 0; transform: translateY(6px); }
-  4%, 30% { opacity: 1; transform: none; }
-  34%, 100% { opacity: 0; transform: translateY(-4px); }
+  0% { opacity: 0; visibility: visible; transform: translateY(12px) scale(0.985); }
+  3%, 30% { opacity: 1; visibility: visible; transform: none; }
+  33.33%, 100% { opacity: 0; visibility: hidden; transform: translateY(-10px) scale(1.01); }
 }
-.nh-cycle { opacity: 0; animation: nh-cycle 12s ease-in-out infinite both; animation-delay: var(--nh-cycle-delay, 0s); }
-@media (prefers-reduced-motion: reduce) {
-  .nh-cycle { animation: none !important; }
-  .nh-cycle:first-child { opacity: 1; }
+@keyframes nh-enter-x {
+  0%, 1% { opacity: 0; transform: translateX(-16px); }
+  5%, 100% { opacity: 1; transform: none; }
+}
+@keyframes nh-pop {
+  0%, 1% { opacity: 0; transform: scale(0.72); }
+  5%, 100% { opacity: 1; transform: none; }
+}
+@keyframes nh-stamp {
+  0%, 6% { opacity: 0; transform: scale(1.7); }
+  9%, 100% { opacity: 1; transform: none; }
+}
+@keyframes nh-grow {
+  0%, 1% { transform: scaleY(0); }
+  9%, 100% { transform: none; }
+}
+@keyframes nh-bar {
+  0% { transform: scaleX(0); }
+  33.33% { transform: scaleX(1); }
+  33.34%, 100% { transform: scaleX(0); }
+}
+@keyframes nh-side {
+  0%, 33.33% { opacity: 1; }
+  33.34%, 100% { opacity: 0; }
+}
+@keyframes nh-notif {
+  0%, 2% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  6%, 88% { opacity: 1; transform: none; }
+  94%, 100% { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes nh-float {
+  from { transform: translateY(-8px) rotate(2.2deg); }
+  to { transform: translateY(8px) rotate(1deg); }
+}
+@keyframes nh-marquee {
+  to { transform: translateX(-50%); }
+}
+@keyframes nh-stage-in {
+  from { opacity: 0.35; transform: perspective(1400px) rotateX(14deg) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+.nh-side-on { opacity: 0; }
+.nh-enter-x, .nh-pop, .nh-stamp, .nh-notif { --nh-i: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .nh-cycle, .nh-enter-x, .nh-pop, .nh-stamp, .nh-grow, .nh-bar-fill, .nh-side-on, .nh-notif {
+    animation-duration: var(--nh-loop, 15s);
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+  }
+  .nh-cycle { animation-name: nh-cycle; animation-timing-function: ease-in-out; animation-delay: var(--nh-at, 0s); }
+  /* Sıra gelmeden yanmasın: gecikmede 0% karesi (opacity 1) uygulanmaz. */
+  .nh-side-on { animation-name: nh-side; animation-timing-function: step-end; animation-delay: var(--nh-at, 0s); animation-fill-mode: none; }
+  .nh-bar-fill { animation-name: nh-bar; animation-timing-function: linear; animation-delay: var(--nh-at, 0s); }
+  .nh-enter-x, .nh-pop, .nh-stamp, .nh-grow, .nh-notif {
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-delay: calc(var(--nh-at, 0s) + var(--nh-i, 0) * 130ms);
+  }
+  .nh-enter-x { animation-name: nh-enter-x; }
+  .nh-pop { animation-name: nh-pop; }
+  .nh-stamp { animation-name: nh-stamp; }
+  .nh-grow { animation-name: nh-grow; transform-origin: bottom; }
+  .nh-notif { animation-name: nh-notif; animation-delay: calc(var(--nh-i, 0) * 1.1s); }
+  .nh-float { animation: nh-float 7s ease-in-out infinite alternate; }
+  .nh-marquee { animation: nh-marquee 46s linear infinite; }
+  .nh-marquee-wrap:hover .nh-marquee { animation-play-state: paused; }
+  @supports (animation-timeline: view()) {
+    .nh-stage { animation: nh-stage-in linear both; animation-timeline: view(); animation-range: entry 0% cover 34%; }
+  }
 }
 
 /*
@@ -1339,7 +1409,6 @@ a[href],
 }
 
 /* Kurumsal site ortak efektleri (2026-10-30) — yalnız CSS. */
-.site-dark h1, .site-dark h2, .site-dark h3 { color: #fff; }
 @keyframes nh-header-bar {
   from { background-color: rgb(255 255 255 / 0.55); box-shadow: none; }
   to { background-color: rgb(255 255 255 / 0.92); box-shadow: 0 12px 32px -18px rgb(36 28 20 / 0.35); }
@@ -1358,3 +1427,52 @@ a[href],
   .nh-lift, .nh-lift:hover { transition: none; transform: none; }
   .nh-navlink::after { transition: none; }
 }
+
+/*
+ * Kaydırmalı ürün turu: ekran sabit kalır, sahne ve içindeki öğeler kaydırmayla oynar. Yalnız CSS;
+ * desteklemeyen tarayıcı, dar ekran ve "hareketi azalt" sade kart düzeni görür.
+ */
+.nh-tour-fallback { display: block; }
+@keyframes nh-s-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: none; } }
+@keyframes nh-s-x { from { opacity: 0; transform: translateX(-22px); } to { opacity: 1; transform: none; } }
+@keyframes nh-s-grow { from { transform: scaleY(0); } to { transform: none; } }
+@keyframes nh-s-width { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes nh-view-up { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .nh-view-up { animation: nh-view-up linear both; animation-timeline: view(); animation-range: entry 0% entry 60%; }
+    @media (min-width: 1024px) {
+      .nh-tour-fallback { display: none; }
+      .nh-tour { display: grid; }
+      .nh-tour-step { animation: nh-story-focus linear both; animation-timeline: view(); }
+      .nh-tour-layer { opacity: 0; animation: nh-story-fade linear both; animation-timeline: var(--nh-tl); }
+      .nh-tour-layer:first-child { animation-name: nh-story-fade-first; }
+      .nh-tour-layer:last-child { animation-name: nh-story-fade-last; }
+      .nh-tour-layer .nh-sp, .nh-tour-layer .nh-sx, .nh-tour-layer .nh-sg, .nh-tour-layer .nh-sw {
+        animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+        animation-fill-mode: both;
+        animation-timeline: var(--nh-tl);
+        animation-range: cover calc(24% + var(--nh-i, 0) * 1.3%) cover calc(36% + var(--nh-i, 0) * 1.3%);
+      }
+      .nh-tour-layer .nh-sp { animation-name: nh-s-pop; }
+      .nh-tour-layer .nh-sx { animation-name: nh-s-x; }
+      .nh-tour-layer .nh-sg { animation-name: nh-s-grow; transform-origin: bottom; }
+      .nh-tour-layer .nh-sw { animation-name: nh-s-width; }
+    }
+  }
+}
+
+/* Fareyi izleyen ışık + karşılamanın noktalı dokusu. Yalnız transform; tıklamayı engellemez. */
+.nh-glow {
+  position: fixed; top: 0; left: 0; z-index: 20; width: 640px; height: 640px; border-radius: 9999px;
+  background: radial-gradient(closest-side, rgb(217 119 6 / 0.09), transparent);
+  pointer-events: none; opacity: 0; transition: opacity 400ms ease; will-change: transform;
+}
+.nh-dots {
+  background-image: radial-gradient(rgb(92 61 0 / 0.14) 1px, transparent 1px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(70% 55% at 50% 22%, #000, transparent);
+}
+
+/* Gloock tek ağırlıklıdır: kalın istenirse tarayıcı sahte kalınlık üretir ve harfler birbirine girer. */
+.nh-site h1, .nh-site h2, .nh-site h3 { font-weight: 400; letter-spacing: 0; line-height: 1.14; }

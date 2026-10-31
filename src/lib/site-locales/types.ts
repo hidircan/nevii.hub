@@ -105,6 +105,7 @@ export type SiteLocaleContent = {
 export type SiteSharedContent = {
   about: { title: string; description: string; note: string };
   start: { eyebrow: string; title: string };
+  stats: { title: string; description: string; teachers: string; students: string; parents: string; admins: string; branches: string };
   startSteps: StepItem[];
   referenceItems: ReferenceItem[];
   heroShowcase: { imageUrl: string; imageAlt: string; caption: string } | null;

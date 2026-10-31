@@ -64,6 +64,16 @@ export async function getPricedPlan(
   interval: SaasBillingInterval
 ): Promise<SaasPricedPlan | null> {
   const { catalog, version } = await getPublishedCatalog();
+  return pricePlanFromCatalog(catalog, version, planKey, interval);
+}
+
+/** Saf hesap: aynı katalogdan birden çok paket fiyatlanırken her seferinde yeniden okumaz. */
+export function pricePlanFromCatalog(
+  catalog: Awaited<ReturnType<typeof getPublishedCatalog>>["catalog"],
+  version: number | null,
+  planKey: string,
+  interval: SaasBillingInterval
+): SaasPricedPlan | null {
   const plan = catalog.plans.find((p) => p.key === planKey);
   if (!plan || plan.status !== "active") return null;
   const customQuote = plan.pricing === "custom_quote";

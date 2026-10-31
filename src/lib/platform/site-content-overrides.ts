@@ -4,6 +4,7 @@ import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
+import { readPublicSetting } from "./public-cache";
 import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
 import { getSiteContent } from "../site-locales";
 import type { SiteContent, SiteLocale } from "../site-locales";
@@ -42,6 +43,8 @@ export const EDITABLE_CONTENT_FIELDS: ContentField[] = [
   F("Hakkında", "about.title", "Başlık"),
   F("Hakkında", "about.description", "Açıklama", { multiline: true }),
   F("Hakkında", "about.note", "Alt not (varsayılanı İngilizce özet)", { multiline: true }),
+  F("Canlı rakamlar", "stats.title", "Başlık"),
+  F("Canlı rakamlar", "stats.description", "Açıklama", { multiline: true }),
   F("Başlangıç adımları", "start.eyebrow", "Üst etiket"),
   F("Başlangıç adımları", "start.title", "Başlık"),
   F("Özellikler", "features.title", "Başlık"),
@@ -126,8 +129,11 @@ export type ContentOverrides = Partial<Record<SiteLocale, Record<string, string>
 
 /** İstek başına tek okuma (generateMetadata + sayfa aynı satırı paylaşır). */
 export const getSiteContentOverrides = cache(async function getSiteContentOverrides(): Promise<ContentOverrides> {
-  const row = await getSettingOverride("platform", "*", SITE_CONTENT_KEY);
-  const v = (row?.value ?? {}) as Record<string, unknown>;
+  return parseOverrides(await readPublicSetting(SITE_CONTENT_KEY));
+});
+
+function parseOverrides(value: unknown): ContentOverrides {
+  const v = (value ?? {}) as Record<string, unknown>;
   const out: ContentOverrides = {};
   for (const locale of ["tr", "en", "de", "fr", "es"] as const) {
     const bucket = v[locale];
@@ -139,7 +145,7 @@ export const getSiteContentOverrides = cache(async function getSiteContentOverri
     if (Object.keys(clean).length > 0) out[locale] = clean;
   }
   return out;
-});
+}
 
 /** Etkin site içeriği: kod varsayılanı + kayıtlı düzenlemeler. */
 export async function resolveSiteContent(locale: SiteLocale): Promise<SiteContent> {
@@ -167,7 +173,8 @@ export async function setSiteContentOverrides(ctx: ServiceContext, input: unknow
   const parsed = inputSchema.safeParse(input);
   if (!parsed.success) return fail("VALIDATION_ERROR", "Geçersiz site metni yükü.");
   const { locale, values } = parsed.data;
-  const before = await getSiteContentOverrides();
+  // Yazarken önbellekten değil depodan: başka dilin kaydı ezilmesin.
+  const before = parseOverrides((await getSettingOverride("platform", "*", SITE_CONTENT_KEY))?.value);
   const code = getSiteContent(locale);
   const next: Record<string, string> = { ...(before[locale] ?? {}) };
   for (const [path, text] of Object.entries(values)) {

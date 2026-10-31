@@ -17,9 +17,10 @@ export type NavItem = { label: string; href: string };
 export const SITE_NAV: NavItem[] = [
   { label: "Ana Sayfa", href: "#ust" },
   { label: "Hakkımızda", href: "#hakkimizda" },
-  { label: "Özellikler", href: "#ozellikler" },
+  { label: "Özellikler", href: "/ozellikler" },
+  { label: "Sektörler", href: "/sektorler" },
   { label: "Paketler", href: "#fiyatlandirma" },
-  { label: "Satın Alma", href: "#satin-alma" },
+  { label: "Blog", href: "/blog" },
   { label: "Ücretsiz Dene", href: "/deneme" },
   { label: "Referanslar", href: "#referanslar" },
   { label: "İletişim", href: "#iletisim" },
@@ -45,9 +46,8 @@ export type StepItem = { title: string; description: string };
 
 export const SITE_START = { eyebrow: "Başlangıç", title: "Üç adımda yayında" };
 
-/** Yabancı ziyaretçiler (yatırımcı, program başvuruları) için kısa İngilizce özet. */
-export const SITE_ABOUT_NOTE =
-  "In English: NeviiHub is an AI-first operating system for music schools. Scheduling, attendance, makeup lessons, contracts, tuition collection and parent and teacher portals live in one place. AI agents prepare reminders, payment follow-ups and reports through the same permission checks as school staff, and a person approves every message before it is sent. Live since October 2026 in İzmir, Türkiye.";
+/** Hakkında bölümünün isteğe bağlı alt notu; boşsa görünmez (NeviiOS › Site ayarları). */
+export const SITE_ABOUT_NOTE = "";
 
 export const SITE_STEPS: StepItem[] = [
   {
@@ -226,7 +226,7 @@ export const SITE_PLATFORM_SURFACES: PlatformSurface[] = [
       "Ödevler, müfredat ilerlemesi ve dönemsel değerlendirmeler",
       "Ödeme bilgileri, sözleşmeler ve indirilebilir belgeler",
       "Değerlendirme sonuçları ve kurum duyuruları",
-      "Her kullanıcı yalnız kendi kaydını görür; veriler kurum sınırında izole",
+      "Veli yalnız kendi çocuğunun, öğrenci yalnız kendi kaydını görür",
     ],
   },
 ];

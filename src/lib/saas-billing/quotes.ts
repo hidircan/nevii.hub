@@ -4,13 +4,12 @@
  * - Satın alma (/abonelik) ve denemeden (/deneme) FARKLI akıştır: anında
  *   erişim veya otomatik davet ÜRETMEZ; platform ekibi inceler, kurumla
  *   iletişime geçip NeviiAds teklifi → checkout daveti yolunu işletir.
- * - YALNIZ JSON/memory deposunda tutulur (`saas-billing.json` içinde
- *   `quotes` dizisi; eski dosyalarda yoksa boş sayılır — şema değişikliği
- *   ve migration YOK). DB modda fail-closed: kayıt reddedilir.
- * - Spam/abuse: IP başına rate-limit route'ta, e-posta başına tek bekleyen kayıt.
+ * - Kalıcılık depo katmanında: JSON/memory'de `quotes` dizisi, DB'de
+ *   `SettingOverride` (`saas_billing:quotes`) — migration yok.
+ * - Spam/abuse: IP başına rate-limit route'ta, gizli tuzak alanı, e-posta başına
+ *   tek bekleyen kayıt ve üst sınır (saldırı tabloyu ve posta kotasını şişiremez).
  */
 import { z } from "zod";
-import { isDbMode } from "../config";
 import { uid } from "../utils";
 import { fail, ok, type ServiceResult } from "../services/result";
 
@@ -43,7 +42,11 @@ const quoteRequestSchema = z.object({
     .nullable()
     .optional(),
   note: z.string().trim().max(500).nullable().optional(),
+  /** Tuzak: insana görünmez, dolu gelirse bot sayılır. */
+  website: z.string().max(0).optional(),
 });
+
+const MAX_PENDING_QUOTES = 200;
 
 /** IP başına basit süreç-içi rate-limit (trial ile aynı desen). */
 const quoteAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -68,22 +71,22 @@ export async function submitQuoteRequest(args: {
   input: unknown;
   nowIso?: string;
 }): Promise<ServiceResult<SaasQuoteRequestRecord>> {
-  if (isDbMode) {
-    return fail("FORBIDDEN", "Teklif isteği bu ortamda kapalı (DB tablosu yok).");
-  }
   const parsed = quoteRequestSchema.safeParse(args.input);
   if (!parsed.success) {
-    return fail("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Geçersiz başvuru.");
+    return fail("VALIDATION_ERROR", "Kurum adı, ad soyad, telefon ve geçerli bir e-posta gerekli. Bilgileri kontrol edip tekrar deneyin.");
   }
   const v = parsed.data;
   const now = args.nowIso ?? new Date().toISOString();
   const { listSaasQuoteRequests, saveSaasQuoteRequest } = await import("./store");
-  const recent = await listSaasQuoteRequests(200);
+  const recent = await listSaasQuoteRequests(MAX_PENDING_QUOTES);
   const dup = recent.find(
     (r) => r.ownerEmail.toLowerCase() === v.ownerEmail.toLowerCase() && r.status === "pending"
   );
   if (dup) {
-    return fail("VALIDATION_ERROR", "Bu e-posta ile zaten bekleyen bir istek bulunuyor.");
+    return fail("VALIDATION_ERROR", "Bu e-postayla bekleyen bir talebiniz var; ekibimiz en kısa sürede size dönecek.");
+  }
+  if (recent.filter((r) => r.status === "pending").length >= MAX_PENDING_QUOTES) {
+    return fail("VALIDATION_ERROR", "Şu anda çok fazla bekleyen talep var. Lütfen info@neviihub.com adresine yazın.");
   }
   const record: SaasQuoteRequestRecord = {
     id: uid("saas_qt"),
@@ -110,9 +113,6 @@ export async function decideQuoteRequest(args: {
   decidedBy: string;
   nowIso?: string;
 }): Promise<ServiceResult<SaasQuoteRequestRecord>> {
-  if (isDbMode) {
-    return fail("FORBIDDEN", "Teklif isteği bu ortamda kapalı (DB tablosu yok).");
-  }
   const { getSaasQuoteRequest, saveSaasQuoteRequest } = await import("./store");
   const rec = await getSaasQuoteRequest(args.id);
   if (!rec) return fail("NOT_FOUND", "Teklif isteği bulunamadı.");

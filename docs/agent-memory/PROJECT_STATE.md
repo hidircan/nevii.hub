@@ -4,12 +4,24 @@ Kısa tutulur (~50 satır): oturum sonunda yalnız "Güncel snapshot" bölümün
 `archive/`'e taşınır. Ayrıntı → ilgili `docs/testing/UAT_*.md`, `docs/operations/*`. Yönlendirici: `nevii-hub` skill.
 Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_2026-09-24.md`.
 
-## Güncel snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 + Turnstile geçişi sürüyor)
-- Canlı: PR #108 (078d686a) + `release/canliya-hazirlik` (bu snapshot'ı taşıyan PR). Migration yok.
+## Güncel snapshot — 2026-10-31 (kurumsal site + hukuk + paket yayını; PR #110 açık, MERGE/CANLI owner'da, migration YOK)
+- Dal `fix/canli-css-vitrin` (worktree `nevii-hub-site-brand`). Canlıda #109 (78045f60); Play'de 1.0.2 yayında, `TURNSTILE_ENABLED=true`, `mobile.minVersion` 1.0.2.
+- Paket hatası: düzenleme taslağa gider, ana sayfa yalnız yayınlanan kataloğu okur. Kod doğru; Paketler ekranına sabit uyarı + "Önizle ve yayınla" kondu. Owner'ın taslağı yayınlaması gerekir.
+- Herkese açık okuma önbelleği: `platform/public-cache.ts` (etiket `public-site`, 1 saat; katalog/`site.*`/hukuki yayın/satıcı profili anında temizler). Satın alma tutarı önbellek KULLANMAZ.
+- Yeni site: `/ozellikler` (31), `/sektorler` (9), `/blog` (10), `/hukuk` (8), kaydırmalı ürün turu, "Sizi arayalım". İçerik `lib/marketing/*`, ekranlar `components/site/product-screens.tsx`. Yeni sayfalar yalnız Türkçe; TR'ye özel bölümler diğer dillerde gizli.
+- Teklif/"Sizi arayalım" DB modunda eski kapı yüzünden reddediliyordu (canlıdaki `/teklif` dahil) → kapı kalktı, talepler NeviiOS › Başvurular'a düşer.
+- Hukuk: Cloudflare alt işleyen olarak eklendi (KVKK + DPA sürüm d3, `/gizlilik`); Hukuki Belgeler'de toplu yükle/yayınla ve PDF. Metinler yayınlanana dek `/hukuk/*` noindex, gerçek satış kapalı.
+- Blog: 22 hazır yazı (`lib/marketing/blog-posts/`, her kategoride en az iki), NeviiOS › Blog (`/platform/blog`) ile yazma, kapak, taslak/yayın. Kayıt `SettingOverride` (`brand_asset:blog`, özet ve gövde ayrı satır), görsel `brand_asset:blog_image`, en fazla 1600 px ve 300 KB WebP, `/blog/gorsel/[id]` CDN'de 1 yıl. Tanıtım metinlerinde sunucu konumu ve kurumlar arası ayrım YOK (owner kuralı, test kilidi); yasal metinlerde zorunlu olarak duruyor.
+- Satın alma önizleme ekranı yenilendi (`satin-al/onizleme`, `order-pay-form.tsx`): solda bilgiler ve onaylar, sağda tutar ve ödeme düğmesi. Ödeme öncesi bilgiler açık (`getOrderReview`; aynı jeton düzenleme ekranını zaten açıyordu), ödeme sonrası sonuç ekranı maskeli. Onay kuralları ve ödeme çağrısı değişmedi.
+- Açık (owner): #110 merge; paket taslağını yayınla; hukuki metinleri yükle + avukat okuması + yayın; Supabase Data API/anon yetki kontrolü; Nilüfer/Ezgi şifre değişimi. CSP `unsafe-inline` bilerek duruyor (nonce her sayfaya middleware ister, kota ve hydration riski).
+
+## Snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 Google incelemesinde; Turnstile gözlemde)
+- Canlı: PR #108 + #109 (78045f60). Dal `fix/canli-css-vitrin`: bayat CSS kök çözümü, ürün sahnesi animasyonu, anonim canlı rakamlar (`platform/site-stats.ts`, saatlik önbellek). Migration yok.
+- `apps/mobile` 1.0.2/vc10 owner tarafından Google incelemesine gönderildi.
 - Turnstile aşamaları: `TURNSTILE_ENABLED` boş = kapalı; `observe` = widget + kayıt, engel yok; `true` = web girişi token olmadan red.
   Vercel Production'da iki anahtar owner tarafından girildi. Gözlem kaydı: `auth.login_turnstile_observed` (`reason`).
 - SIRA ŞART: Play'de 1.0.2 yayınlanmadan `true` YAPILMAZ, 1.0.1 yeni giriş açamaz. Yayından sonra: NeviiOS `mobile.minVersion` android 1.0.2 → `true` + redeploy.
-- Mobil: release/mobile-review birleşti; yeni giriş ucu, alt sekme safe-area, web ile aynı yoklama statüleri, yeni ikon; EAS Android versionCode 10, internal kanal. Cihazda henüz denenmedi (bu Mac'te Xcode/emülatör yok): owner internal test + Play Console "Promote to production". iOS: App Store hesabı/derleme akışı ayrı, yapılmadı.
+- Mobil: release/mobile-review birleşti; yeni giriş ucu, alt sekme safe-area, web ile aynı yoklama statüleri, yeni ikon; EAS Android versionCode 10. iOS: App Store hesabı/derleme akışı ayrı, yapılmadı.
 - Güvenlik: hesap bazlı giriş sınırı (`auth/login-throttle.ts`, 10 hata/15 dk, web+mobil ortak, db'de `auth_throttle:login`, migration yok); AI sohbeti `ai:chat` izniyle sunucuda yalnız HYPER/SUPER/SCHOOL_ADMIN.
 - CI: 7 kırmızı test düzeltildi (hepsi tarih bombası veya eski beklenti; ürün hatası değil). Tam okuma tabanı güncellendi: artışlar json/memory yolları + seyrek ücret kuralı silme.
 - Açık (owner): HDR satıcı bilgileri, avukat okuması + yayın, Cloudflare'in gizlilik/alt işleyen metnine eklenmesi, Supabase Pro, PayTR/ETBİS/İYS, Actions kotası (1 Kasım'da sıfırlanır; push başına ~28 dk).

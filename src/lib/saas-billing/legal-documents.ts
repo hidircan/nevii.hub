@@ -65,7 +65,7 @@ export const LEGAL_DOCS: readonly LegalDoc[] = [
   {
     id: "kvkk-notice",
     title: "KVKK Aydınlatma Metni",
-    version: "2026-10-30-d2",
+    version: "2026-10-31-d3",
     scope: "notice",
     about: "Bilgilerinizin hangi amaçla işlendiği, kimlerle paylaşılmadığı ve haklarınız hakkında bilgilendirme. Aydınlatma bir rıza kutusu değildir.",
     appliesB2B: true,
@@ -83,7 +83,7 @@ export const LEGAL_DOCS: readonly LegalDoc[] = [
   {
     id: "dpa-note",
     title: "Veri İşleme Sözleşmesi (KVKK m.12)",
-    version: "2026-10-30-d2",
+    version: "2026-10-31-d3",
     scope: "notice",
     about: "Kurum veri sorumlusu, NeviiHub veri işleyendir; alt yükleniciler, yurt dışı aktarım ve ihlal bildirimi. Hizmet Sözleşmesi'nin ekidir.",
     appliesB2B: true,

@@ -16,9 +16,9 @@ import type { SiteLocaleContent } from "./types";
 export const trContent: SiteLocaleContent = {
   locale: "tr",
   meta: {
-    title: "NeviiHub — Müzik kurumları için yönetim platformu",
+    title: "NeviiHub — Eğitim kurumları için yönetim platformu",
     description:
-      "Program, yoklama, telafi, sözleşme ve tahsilat yönetimi; öğretmen ve veli portallarıyla birlikte.",
+      "Kurs, okul, akademi ve stüdyolar için ders programı, yoklama, online başvuru, tahsilat, finans, bordro ve yapay zekâ: hepsi güvenli tek platformda.",
   },
   skip: "İçeriğe geç",
   header: { login: "Giriş Yap", languageLabel: "Dil", demo: "Demo İste" },
@@ -34,7 +34,7 @@ export const trContent: SiteLocaleContent = {
   about: {
     title: "Kurumunuzun günlük işleyişi için tasarlandı",
     description:
-      "NeviiHub; ders planlamasından yoklamaya, sözleşmeden tahsilata kadar kurumun tüm operasyonunu tek bir yerde toplar. Her kurum kendi verisini görür, her rol yalnızca yetkili olduğu kadarını.",
+      "NeviiHub; ders planlamasından yoklamaya, sözleşmeden tahsilata kadar kurumun tüm operasyonunu tek bir yerde toplar. Herkes yalnızca işine yarayan ekranı görür.",
   },
   features: {
     title: "Kurumun tüm işi, tek platformda",
@@ -50,7 +50,7 @@ export const trContent: SiteLocaleContent = {
   },
   pricing: {
     title: "Paketler ve Fiyatlar",
-    description: "Aynı katalog checkout ekranını da besler; gördüğünüz tutar satın almada yeniden doğrulanır.",
+    description: "Kurumunuzun büyüklüğüne uygun paketi seçin. Gördüğünüz tutar satın alma adımında yeniden doğrulanır, sürpriz ücret çıkmaz.",
   },
   pricingPlaceholder: {
     title: SITE_PRICING_PLACEHOLDER.title,

@@ -4,7 +4,8 @@ import { fail, ok } from "../services/result";
 import type { ServiceContext } from "../services/context";
 import { requireHyperAdmin } from "./access";
 import { PLATFORM_SCOPE_ID, recordPublishedVersion } from "./policy-version-log";
-import { appendPlatformAudit, getSettingOverride, upsertSettingOverride } from "./store";
+import { readPublicSetting } from "./public-cache";
+import { appendPlatformAudit, upsertSettingOverride } from "./store";
 
 /**
  * Herkese açık sitenin sosyal medya bağlantıları.
@@ -49,8 +50,7 @@ function normalizeUrl(raw: unknown): string | null {
 
 /** Herkese açık okuma — yetki istemez, yalnız URL listesi döner. */
 export const getSiteSocial = cache(async function getSiteSocial(): Promise<SiteSocialLinks> {
-  const row = await getSettingOverride("platform", "*", SITE_SOCIAL_KEY);
-  const v = (row?.value ?? {}) as Partial<Record<SiteSocialNetwork, unknown>>;
+  const v = ((await readPublicSetting(SITE_SOCIAL_KEY)) ?? {}) as Partial<Record<SiteSocialNetwork, unknown>>;
   const out: SiteSocialLinks = { ...EMPTY };
   for (const n of SITE_SOCIAL_NETWORKS) {
     const norm = normalizeUrl(v[n]);

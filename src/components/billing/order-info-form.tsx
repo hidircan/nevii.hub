@@ -118,10 +118,10 @@ export function OrderInfoForm({
     };
   }, [f, key, planKey, interval]);
   const input =
-    "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20";
+    "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-[#5c3d00]/40 focus:outline-none focus:ring-2 focus:ring-[#5c3d00]";
   const label = "mb-1 block text-sm font-medium text-slate-700";
   const req = (
-    <span aria-hidden className="text-amber-700">
+    <span aria-hidden className="text-[#5c3d00]">
       {" "}
       *
     </span>
@@ -231,15 +231,15 @@ export function OrderInfoForm({
   return (
     <form onSubmit={submit} className="space-y-6">
       {resumeToken && !editToken ? (
-        <div role="note" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
-          <p className="font-semibold text-amber-900">Devam eden kaydınız var.</p>
-          <p className="mt-1 text-amber-800">
+        <div role="note" className="rounded-xl border border-[#e3d6bc] bg-[#f6f0e4] p-4 text-sm">
+          <p className="font-semibold text-[#5c3d00]">Devam eden kaydınız var.</p>
+          <p className="mt-1 text-[#5c3d00]">
             Ödeme bekleyen kaydınıza kaldığınız yerden devam edebilir veya yeni bir kayıt başlatabilirsiniz.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <a
               href={`/satin-al/bilgiler?t=${encodeURIComponent(resumeToken)}`}
-              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              className="rounded-lg bg-[#5c3d00] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4a3208]"
             >
               Kaydıma devam et
             </a>
@@ -251,7 +251,7 @@ export function OrderInfoForm({
                 clearCheckoutSession();
                 window.location.reload();
               }}
-              className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              className="rounded-lg border border-[#5c3d00]/40 bg-white px-4 py-2 text-sm font-semibold text-[#5c3d00] hover:bg-[#efe6d3]"
             >
               Yeni kayıt başlat
             </button>
@@ -366,7 +366,7 @@ export function OrderInfoForm({
               }}
               placeholder="Kayıttaki e-posta"
               aria-label="Kayıttaki e-posta"
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-600/20"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-[#5c3d00]/40 focus:outline-none focus:ring-2 focus:ring-[#5c3d00]"
             />
             <button
               type="button"
@@ -383,7 +383,7 @@ export function OrderInfoForm({
       <button
         type="submit"
         disabled={busy}
-        className="w-full rounded-xl bg-amber-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60 sm:w-auto sm:px-8"
+        className="w-full rounded-xl bg-[#5c3d00] px-5 py-3.5 text-sm font-semibold text-white hover:bg-[#4a3208] disabled:opacity-60 sm:w-auto sm:px-8"
       >
         {busy ? "Kaydediliyor…" : editToken ? "Değişiklikleri kaydet ve önizlemeye dön" : "Kaydı oluştur ve devam et"}
       </button>

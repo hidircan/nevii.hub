@@ -11,11 +11,11 @@ import { OrderSummaryRows } from "@/components/billing/order-summary";
 export const dynamic = "force-dynamic";
 
 const FOCUS =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#5c3d00] focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 
 function CheckIcon() {
   return (
-    <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden viewBox="0 0 16 16" className="mt-0.5 h-4 w-4 shrink-0 text-[#5c3d00]" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
       <path d="m3 8.5 3.5 3.5L13 4.5" />
     </svg>
   );
@@ -40,7 +40,7 @@ export default async function BuyPage({
 
   if (!plan || !priced) {
     return (
-      <div className="min-h-screen bg-white text-slate-900">
+      <div className="nh-site min-h-screen bg-white text-slate-900">
         <main className="mx-auto max-w-2xl px-4 py-16 text-center">
           <h1 className="text-2xl font-semibold tracking-tight">Paket bulunamadı</h1>
           <p className="mt-2 text-sm text-slate-600">
@@ -48,7 +48,7 @@ export default async function BuyPage({
           </p>
           <Link
             href="/#fiyatlandirma"
-            className={`mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS}`}
+            className={`mt-6 inline-block rounded-xl bg-[#5c3d00] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#4a3208] ${FOCUS}`}
           >
             Paketlere dön
           </Link>
@@ -73,18 +73,18 @@ export default async function BuyPage({
   ];
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="nh-site min-h-screen bg-white text-slate-900">
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className={`rounded-lg text-lg font-extrabold tracking-tight ${FOCUS}`}>NeviiHub</Link>
-          <Link href="/#fiyatlandirma" className={`rounded-lg text-sm font-semibold text-amber-700 hover:text-amber-800 ${FOCUS}`}>
+          <Link href="/#fiyatlandirma" className={`rounded-lg text-sm font-semibold text-[#5c3d00] hover:text-[#4a3208] ${FOCUS}`}>
             ← Tüm paketler
           </Link>
         </div>
       </header>
 
       {/* Başlık bandı */}
-      <div className="relative overflow-hidden border-b border-amber-100 bg-gradient-to-b from-amber-50 to-white">
+      <div className="relative overflow-hidden border-b border-[#e3d6bc] bg-gradient-to-b from-[#fbf8f2] to-white">
         <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_80%_at_50%_0%,#fde68a55_0%,#ffffff00_70%)]" />
         <div className="relative mx-auto max-w-5xl px-4 py-10 sm:px-6">
           <Reveal>
@@ -95,14 +95,14 @@ export default async function BuyPage({
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{plan.label}</h1>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
+              <span className="rounded-full bg-[#efe6d3] px-3 py-1 text-xs font-bold text-[#5c3d00] ring-1 ring-[#e3d6bc]">
                 {interval === "yearly" ? "Yıllık" : "Aylık"}
               </span>
             </div>
             {plan.description ? <p className="mt-2 max-w-2xl text-slate-600">{plan.description}</p> : null}
             <div className="mt-5"><CheckoutSteps current={0} /></div>
             {demoPrice ? (
-              <p className="mt-5 max-w-2xl rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-amber-300 ring-1 ring-slate-700" role="note">
+              <p className="mt-5 max-w-2xl rounded-xl bg-[#5c3d00] px-4 py-2.5 text-sm font-medium text-white" role="note">
                 ÖRNEK FİYAT — bu tutar demo amaçlıdır, gerçek satış fiyatı değildir.
               </p>
             ) : null}
@@ -118,7 +118,7 @@ export default async function BuyPage({
                 <h2 id="satin-al-limit" className="text-lg font-semibold">Kullanım limitleri</h2>
                 <ul className="mt-4 grid gap-3 sm:grid-cols-3">
                   {stats.map((s) => (
-                    <li key={s.label} className="rounded-xl bg-gradient-to-b from-amber-50 to-white p-4 text-center ring-1 ring-amber-100">
+                    <li key={s.label} className="rounded-xl bg-gradient-to-b from-[#fbf8f2] to-white p-4 text-center ring-1 ring-[#e3d6bc]">
                       <p className="text-2xl font-bold tabular-nums text-slate-900">{s.value}</p>
                       <p className="mt-1 text-xs font-medium text-slate-600">{s.label}</p>
                     </li>
@@ -149,7 +149,7 @@ export default async function BuyPage({
                           className="group rounded-xl bg-slate-50 ring-1 ring-slate-100 open:bg-white open:shadow-sm open:ring-slate-200"
                         >
                           <summary className={`flex cursor-pointer list-none items-center gap-2.5 rounded-xl p-3.5 text-sm font-semibold text-slate-900 ${FOCUS}`}>
-                            <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 shrink-0 text-amber-600 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                            <svg aria-hidden viewBox="0 0 12 12" className="h-3 w-3 shrink-0 text-[#5c3d00] transition-transform group-open:rotate-90" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                               <path d="m4 2 4 4-4 4" />
                             </svg>
                             {m.label}
@@ -181,8 +181,8 @@ export default async function BuyPage({
           </div>
 
           <Reveal delayMs={120} className="h-fit md:sticky md:top-6">
-            <aside aria-labelledby="satin-al-ozet" className="overflow-hidden rounded-2xl border border-amber-200/70 bg-white shadow-lg shadow-amber-900/5">
-              <div className="border-b border-amber-100 bg-gradient-to-b from-amber-50 to-white px-5 py-4">
+            <aside aria-labelledby="satin-al-ozet" className="overflow-hidden rounded-2xl border border-[#e3d6bc] bg-white shadow-lg shadow-[#5c3d00]/10">
+              <div className="border-b border-[#e3d6bc] bg-gradient-to-b from-[#fbf8f2] to-white px-5 py-4">
                 <h2 id="satin-al-ozet" className="text-base font-semibold text-slate-900">Sipariş özeti</h2>
                 <div className="mt-3 flex gap-1 rounded-xl bg-slate-200/60 p-1 text-sm font-semibold" role="group" aria-label="Ödeme periyodu">
                   <Link
@@ -208,14 +208,14 @@ export default async function BuyPage({
                     <p className="mt-1 text-sm text-slate-600">Bu paket kurumunuza özel fiyatlanır; sepette sabit tutar yoktur.</p>
                     <Link
                       href={`/teklif?plan=${encodeURIComponent(plan.key)}`}
-                      className={`mt-4 block rounded-xl bg-amber-600 px-5 py-2.5 text-center text-sm font-semibold text-white hover:bg-amber-700 ${FOCUS}`}
+                      className={`mt-4 block rounded-xl bg-[#5c3d00] px-5 py-2.5 text-center text-sm font-semibold text-white hover:bg-[#4a3208] ${FOCUS}`}
                     >
                       Teklif iste
                     </Link>
                   </div>
                 ) : noPrice ? (
                   <div>
-                    <p className="rounded-xl bg-amber-50 p-3 text-sm font-medium text-amber-800 ring-1 ring-amber-200">
+                    <p className="rounded-xl bg-[#f6f0e4] p-3 text-sm font-medium text-[#5c3d00] ring-1 ring-[#e3d6bc]">
                       Bu paketin onaylı fiyatı henüz yayınlanmadı; satın alma kapalı.
                     </p>
                     <Link
@@ -240,7 +240,7 @@ export default async function BuyPage({
                     />
                     <Link
                       href={buyHref}
-                      className={`mt-5 block rounded-xl bg-amber-600 px-5 py-3.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-amber-700 ${FOCUS}`}
+                      className={`mt-5 block rounded-xl bg-[#5c3d00] px-5 py-3.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-[#4a3208] ${FOCUS}`}
                     >
                       Devam et →
                     </Link>
@@ -251,7 +251,7 @@ export default async function BuyPage({
                   </div>
                 )}
                 <div className="mt-5 border-t border-slate-100 pt-4 text-center text-sm">
-                  <Link href="/deneme" className={`rounded font-semibold text-amber-700 hover:text-amber-800 ${FOCUS}`}>
+                  <Link href="/deneme" className={`rounded font-semibold text-[#5c3d00] hover:text-[#4a3208] ${FOCUS}`}>
                     Önce 30 gün ücretsiz dene
                   </Link>
                 </div>

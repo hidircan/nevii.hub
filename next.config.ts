@@ -58,6 +58,9 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   experimental: {
+    // Vercel önceki derlemenin önbelleğini geri yükler; Turbopack'in derleme önbelleği bu yüzden
+    // globals.css'in ESKİ halini üretti ve 30 Ekim'de eklenen kurallar canlıya çıkmadı (yerelde temizdi).
+    turbopackFileSystemCacheForBuild: false,
     // Server Actions default to a 1MB request body cap — too small for a
     // base64-encoded logo upload: `validateProfilePhoto` already allows up
     // to 2MB of actual file bytes, which is ~2.7MB once base64-encoded

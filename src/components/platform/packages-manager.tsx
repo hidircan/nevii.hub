@@ -61,6 +61,22 @@ export function PackagesManager({ data }: { data: CatalogOverviewData }) {
         </p>
       ) : null}
 
+      {data.draftId ? (
+        <div role="status" className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--color-warning)] bg-[var(--color-warning-soft)] px-4 py-3">
+          <p className="text-sm font-semibold text-[var(--color-text)]">
+            Yayınlanmamış değişikliğiniz var: ana sayfa ve satın alma hâlâ eski paketleri gösteriyor. Yansıması için yayınlayın.
+          </p>
+          <Button
+            onClick={async () => {
+              const d = await op<{ notes: string[]; blockers: string[]; changedKeys: string[] }>({ op: "preview", draftId: data.draftId });
+              if (d) setPreview(d);
+            }}
+          >
+            Önizle ve yayınla
+          </Button>
+        </div>
+      ) : null}
+
       <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <p>
@@ -448,7 +464,7 @@ export function PackagesManager({ data }: { data: CatalogOverviewData }) {
                 disabled={preview.blockers.length > 0}
                 onClick={async () => {
                   setPreview(null);
-                  await op({ op: "publish", draftId: data.draftId, confirm: true }, "Katalog yayınlandı: yeni sürüm + denetim kaydı.");
+                  await op({ op: "publish", draftId: data.draftId, confirm: true }, "Katalog yayınlandı; ana sayfa ve satın alma artık bu paketleri gösteriyor.");
                 }}
               >
                 Onayla ve yayınla

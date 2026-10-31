@@ -66,6 +66,7 @@ export async function generateMetadata(): Promise<Metadata> {
   // dosya kuralı buradaki ayarı ezer ve logo değişimi sekmeye hiç yansımazdı.
   const brand = await getPlatformBrand();
   return {
+    metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://neviihub.com"),
     title: `${BRAND.name} — ${BRAND.tagline}`,
     description: BRAND.description,
     icons: { icon: brand.iconUrl, apple: brand.appleIconUrl },
