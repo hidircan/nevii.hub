@@ -12,6 +12,7 @@ Tam tarihçe (2026-08-30 → 09-24): `archive/PROJECT_STATE_LOG_2026-08-30_to_20
 - Teklif/"Sizi arayalım" DB modunda eski kapı yüzünden reddediliyordu (canlıdaki `/teklif` dahil) → kapı kalktı, talepler NeviiOS › Başvurular'a düşer.
 - Hukuk: Cloudflare alt işleyen olarak eklendi (KVKK + DPA sürüm d3, `/gizlilik`); Hukuki Belgeler'de toplu yükle/yayınla ve PDF. Metinler yayınlanana dek `/hukuk/*` noindex, gerçek satış kapalı.
 - Blog: 22 hazır yazı (`lib/marketing/blog-posts/`, her kategoride en az iki), NeviiOS › Blog (`/platform/blog`) ile yazma, kapak, taslak/yayın. Kayıt `SettingOverride` (`brand_asset:blog`, özet ve gövde ayrı satır), görsel `brand_asset:blog_image`, en fazla 1600 px ve 300 KB WebP, `/blog/gorsel/[id]` CDN'de 1 yıl. Tanıtım metinlerinde sunucu konumu ve kurumlar arası ayrım YOK (owner kuralı, test kilidi); yasal metinlerde zorunlu olarak duruyor.
+- Satın alma önizleme ekranı yenilendi (`satin-al/onizleme`, `order-pay-form.tsx`): solda bilgiler ve onaylar, sağda tutar ve ödeme düğmesi. Ödeme öncesi bilgiler açık (`getOrderReview`; aynı jeton düzenleme ekranını zaten açıyordu), ödeme sonrası sonuç ekranı maskeli. Onay kuralları ve ödeme çağrısı değişmedi.
 - Açık (owner): #110 merge; paket taslağını yayınla; hukuki metinleri yükle + avukat okuması + yayın; Supabase Data API/anon yetki kontrolü; Nilüfer/Ezgi şifre değişimi. CSP `unsafe-inline` bilerek duruyor (nonce her sayfaya middleware ister, kota ve hydration riski).
 
 ## Snapshot — 2026-10-30 gece (logo/site canlıda; mobil 1.0.2 Google incelemesinde; Turnstile gözlemde)

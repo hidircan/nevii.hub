@@ -452,6 +452,22 @@ describe("belge kabulü + sağlayıcı snapshot'ı (§4-§5)", () => {
   });
 });
 
+describe("önizleme ekranı", () => {
+  it("ödeme beklerken müşteri girdiği bilgileri açık görür, ödeme sonrası jeton açık bilgi vermez", async () => {
+    const { getOrderReview } = await import("../saas-billing/pending-orders");
+    const { saveSaasPendingOrder } = await import("../saas-billing/store");
+    const r = await createPendingOrder({ input: base("onizleme@t.com", "testkey-review") });
+    if (!r.ok || r.data.outcome !== "created") throw new Error("kayıt açılamadı");
+    const review = await getOrderReview({ token: r.data.token });
+    expect(review.ok && review.data.ownerEmail).toBe("onizleme@t.com");
+    expect(review.ok && review.data.billing.taxId).toBe("1234567890");
+
+    await saveSaasPendingOrder({ ...r.data.order, status: "paid" });
+    expect((await getOrderReview({ token: r.data.token })).ok).toBe(false);
+    expect((await getOrderReview({ token: "yanlis-jeton" })).ok).toBe(false);
+  });
+});
+
 describe("sahip görünümü (§7)", () => {
   it("oturumsuz/yanlış rol/başka tenant → FORBIDDEN; maskeli görünüm etkilenmez", async () => {
     const { getOrderOwnerView } = await import("../saas-billing/pending-orders");

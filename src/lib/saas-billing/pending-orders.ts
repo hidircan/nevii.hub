@@ -706,6 +706,18 @@ export async function getOrderOwnerView(args: {
 }
 
 /**
+ * Önizleme ekranı: müşteri az önce girdiği bilgileri açık görür. Aynı jeton düzenleme ekranını da açtığı için
+ * ödeme öncesinde maskeleme koruma sağlamıyordu. Ödeme sonrası jeton açık bilgi vermez, sonuç ekranı maskeli kalır.
+ */
+export async function getOrderReview(args: { token: string; nowIso?: string }) {
+  const cur = await getOrderByToken({ token: args.token, nowIso: args.nowIso });
+  if (!cur.ok) return cur;
+  const o = cur.data;
+  if (o.status !== "awaiting_payment") return fail("FORBIDDEN", "Bu kayıt artık ödeme beklemiyor. Paket seçiminden yeniden başlayın.");
+  return ok({ institutionName: o.institutionName, ownerName: o.ownerName, ownerEmail: o.ownerEmail, ownerPhone: o.ownerPhone, billing: o.billing });
+}
+
+/**
  * Sürdürme bağlantısı isteği (§2-C + §11): bağlantısını kaybeden alıcı,
  * kayıttaki e-postasına yeni bir devam bağlantısı ister.
  * - E-posta eşleşmesi YETKİ vermez; posta kutusuna giden YENİ token (eski

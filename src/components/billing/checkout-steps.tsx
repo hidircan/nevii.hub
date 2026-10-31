@@ -6,7 +6,7 @@ export function CheckoutSteps({ current }: { current: number }) {
     <ol aria-label="Satın alma adımları" className="flex flex-wrap items-center gap-2 text-xs font-semibold">
       {STEPS.map((s, i) => (
         <li key={s} className="flex items-center gap-2">
-          {i > 0 ? <span aria-hidden className="h-px w-6 bg-slate-300 sm:w-10" /> : null}
+          {i > 0 ? <span aria-hidden className="hidden h-px w-10 bg-slate-300 sm:block" /> : null}
           <span
             aria-current={i === current ? "step" : undefined}
             className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 ring-1 ${

@@ -1,166 +1,149 @@
+import type { CSSProperties, ReactNode } from "react";
+import { Lock } from "lucide-react";
 import Link from "@/components/link";
-import { requireSessionContext } from "@/lib/auth/session";
-import { getCheckoutDocContext, getOrderOwnerView, getOrderPublicView } from "@/lib/saas-billing/pending-orders";
+import { PlatformLogo } from "@/components/platform-logo";
+import { getCheckoutDocContext, getOrderPublicView, getOrderReview } from "@/lib/saas-billing/pending-orders";
 import { getPricedPlan, renewalNoteFor } from "@/lib/saas-billing/catalog";
 import { CheckoutSteps } from "@/components/billing/checkout-steps";
 import { CheckoutTimeoutGuard } from "@/components/billing/checkout-timeout-guard";
-import { OrderSummaryRows } from "@/components/billing/order-summary";
 import { OrderPayForm } from "@/components/billing/order-pay-form";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Önizleme ve ödeme | NeviiHub", robots: { index: false, follow: false } };
+
+function Notice({ title, text, href, cta }: { title: string; text: string; href: string; cta: string }) {
+  return (
+    <div className="nh-site min-h-screen bg-[#fbf8f2] text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
+      <main className="mx-auto max-w-2xl px-4 py-20 text-center">
+        <h1 className="text-3xl">{title}</h1>
+        <p className="mt-3 text-sm text-slate-600">{text}</p>
+        <Link href={href} className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700">
+          {cta}
+        </Link>
+      </main>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm font-medium text-slate-900">{children}</dd>
+    </div>
+  );
+}
+
 /**
- * Satın alma 3. adım: Bilgi önizlemesi ve ödemeyi tamamlama (token'lı).
- * Kimlik bilgileri maskeli gösterilir; fiyat sunucuda yeniden çözülür.
+ * Satın alma 3. adım: bilgileri kontrol, onaylar, ödeme (token'lı). Fiyat sunucuda yeniden çözülür.
  */
-export default async function OrderPreviewPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ t?: string }>;
-}) {
-  const { t } = await searchParams;
-  const view = await getOrderPublicView({ token: t ?? "" });
-  if (!view.ok) {
-    return (
-      <div className="min-h-screen bg-white text-slate-900">
-        <main className="mx-auto max-w-2xl px-4 py-16 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Kayıt bulunamadı</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Bağlantı eksik veya süresi dolmuş. Paket seçiminden yeniden başlayın.
-          </p>
-          <Link
-            href="/#fiyatlandirma"
-            className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700"
-          >
-            Paketlere dön
-          </Link>
-        </main>
-      </div>
-    );
-  }
+export default async function OrderPreviewPage({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
+  const token = (await searchParams).t ?? "";
+  const missing = (
+    <Notice title="Kayıt bulunamadı" text="Bağlantı eksik veya süresi dolmuş. Paket seçiminden yeniden başlayın." href="/#fiyatlandirma" cta="Paketlere dön" />
+  );
+  const view = await getOrderPublicView({ token });
+  if (!view.ok) return missing;
   const o = view.data;
-  // §7: kurum sahibi KENDİ oturumunda tam adres görür (yanlış adresi fark
-  // edip "Bilgileri düzenle" ile düzeltebilir); diğer herkes maskeli görür.
-  const session = await requireSessionContext().catch(() => null);
-  const ownerView = session ? await getOrderOwnerView({ token: t ?? "", session }) : null;
-  const ownerEmail = ownerView && ownerView.ok ? ownerView.data.ownerEmail : o.ownerEmailMasked;
-  const invoiceEmail = ownerView && ownerView.ok ? ownerView.data.invoiceEmail : o.billing.invoiceEmailMasked;
-  const taxId = ownerView && ownerView.ok ? (ownerView.data.taxId ?? "—") : o.billing.taxIdMasked;
   if (o.status === "paid") {
-    return (
-      <div className="min-h-screen bg-white text-slate-900">
-        <main className="mx-auto max-w-2xl px-4 py-16 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Bu kayıt zaten ödendi</h1>
-          <p className="mt-2 text-sm text-slate-600">Sonuç ekranından devam edebilirsiniz.</p>
-          <Link
-            href={`/satin-al/sonuc?t=${encodeURIComponent(t ?? "")}`}
-            className="mt-6 inline-block rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-amber-700"
-          >
-            Sonuç ekranına git
-          </Link>
-        </main>
-      </div>
-    );
+    return <Notice title="Bu kayıt zaten ödendi" text="Sonuç ekranından devam edebilirsiniz." href={`/satin-al/sonuc?t=${encodeURIComponent(token)}`} cta="Sonuç ekranına git" />;
   }
+  const review = await getOrderReview({ token });
+  if (!review.ok) return missing;
+  const r = review.data;
+  const b = r.billing;
   const plan = await getPricedPlan(o.planKey, o.interval);
-  const renewalNote = renewalNoteFor(o.interval);
   const docCtx = await getCheckoutDocContext();
-  const editHref = `/satin-al/bilgiler?t=${encodeURIComponent(t ?? "")}`;
-  const termsText = o.totals
-    ? `${o.planLabel} (${o.interval === "yearly" ? "yıllık" : "aylık"}), KDV dahil toplam ${o.totals.displayTotal}.`
-    : `${o.planLabel} (${o.interval === "yearly" ? "yıllık" : "aylık"}).`;
+  const intervalLabel = o.interval === "yearly" ? "yıllık" : "aylık";
+  const editHref = `/satin-al/bilgiler?t=${encodeURIComponent(token)}`;
+  const address = [b.addressLine, [b.district, b.city].filter(Boolean).join(" / "), b.country].filter(Boolean).join(", ");
+
+  const details = (
+    <section aria-labelledby="bilgileriniz" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-amber-900/10 sm:p-7">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="bilgileriniz" className="text-xl">Bilgileriniz</h2>
+        <Link href={editHref} className="rounded-lg border border-slate-300 px-3.5 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-50">
+          Düzenle
+        </Link>
+      </div>
+      <div className="mt-5 grid gap-6 sm:grid-cols-2 sm:gap-8">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Kurum ve yetkili</p>
+          <dl className="mt-3 space-y-3">
+            <Field label="Kurum">{r.institutionName}</Field>
+            <Field label="Yetkili">{r.ownerName}</Field>
+            <Field label="Hesap e-postası">{r.ownerEmail}</Field>
+            {r.ownerPhone ? <Field label="Telefon">{r.ownerPhone}</Field> : null}
+          </dl>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Fatura</p>
+          <dl className="mt-3 space-y-3">
+            <Field label="Fatura alıcısı">{b.legalTitle}</Field>
+            {b.taxId ? <Field label="Vergi kimlik no">{b.taxId}</Field> : null}
+            {b.nationalId ? <Field label="T.C. kimlik no">{b.nationalId}</Field> : null}
+            {b.taxOffice ? <Field label="Vergi dairesi">{b.taxOffice}</Field> : null}
+            <Field label="Adres">{address}</Field>
+            <Field label="Fatura e-postası">{b.invoiceEmail}</Field>
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
-      <CheckoutTimeoutGuard token={t ?? ""} validatePath={`/api/v1/billing/orders?t=${encodeURIComponent(t ?? "")}`} />
-      <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="rounded-lg text-lg font-extrabold tracking-tight">NeviiHub</Link>
-          <Link href={editHref} className="rounded-lg text-sm font-semibold text-amber-700 hover:text-amber-800">
-            ← Bilgileri düzenle
+    <div className="nh-site min-h-screen bg-[#fbf8f2] text-slate-900" style={{ "--text-primary": "#0f172a" } as CSSProperties}>
+      <CheckoutTimeoutGuard token={token} validatePath={`/api/v1/billing/orders?t=${encodeURIComponent(token)}`} />
+      <header className="border-b border-amber-900/10 bg-white">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5 rounded-lg text-lg font-extrabold tracking-tight">
+            <PlatformLogo height={32} />
+            NeviiHub
           </Link>
+          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-600">
+            <Lock aria-hidden className="h-4 w-4 text-amber-700" />
+            Güvenli bağlantı
+          </p>
         </div>
       </header>
 
-      <div className="border-b border-amber-100 bg-gradient-to-b from-amber-50 to-white">
-        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-          <p className="text-sm text-slate-500">
-            <span>{o.planLabel}</span>
-            <span aria-hidden="true"> / </span>
-            <span aria-current="page">Önizleme ve ödeme</span>
-          </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight">Önizleme ve ödeme</h1>
-          <p className="mt-2 max-w-2xl text-slate-600">
-            Bilgilerinizi kontrol edin, koşulları onaylayın ve ödemeyi tamamlayın.
-          </p>
-          <div className="mt-5"><CheckoutSteps current={2} /></div>
-        </div>
-      </div>
-
-      <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-        <div className="grid gap-8 md:grid-cols-[1fr_320px]">
-          <div className="space-y-6">
-            <section aria-label="Kayıt özeti" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold">Kayıt özeti</h2>
-                <Link href={editHref} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100">
-                  Bilgileri düzenle
-                </Link>
-              </div>
-              <dl className="mt-4 grid gap-x-6 gap-y-2.5 text-sm">
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Kurum</dt><dd className="text-right font-medium">{o.institutionName}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Yetkili</dt><dd className="text-right font-medium">{o.ownerName}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Hesap e-postası</dt><dd className="font-medium">{ownerEmail}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Fatura alıcısı</dt><dd className="text-right font-medium">{o.billing.legalTitle}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Vergi kimlik no</dt><dd className="font-medium">{taxId}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Fatura e-postası</dt><dd className="font-medium">{invoiceEmail}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-slate-500">Paket</dt><dd className="font-medium">{o.planLabel} ({o.interval === "yearly" ? "yıllık" : "aylık"})</dd></div>
-              </dl>
-            </section>
-
-            <section aria-label="Onay ve ödeme" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold">Onay ve ödeme</h2>
-              {o.totals ? (
-                <OrderPayForm
-                  token={t ?? ""}
-                  termsText={termsText}
-                  renewalNote={renewalNote}
-                  totalDisplay={o.totals.displayTotal}
-                  documents={docCtx.documents}
-                  acceptedVersions={docCtx.acceptedVersions}
-                  providerDisplayName={docCtx.provider.displayName}
-                  providerTermsUrl={docCtx.provider.termsUrl}
-                  docsApproved={docCtx.docsApproved}
-                  isMock={docCtx.isMock}
-                />
-              ) : (
-                <p className="text-sm text-slate-600">
-                  Paket fiyatı şu an çözülemedi ({plan ? "fiyat yayında değil" : "paket yayında değil"}).
-                  Kayıt ödeme beklemeye devam ediyor.
-                </p>
-              )}
-            </section>
-          </div>
-
-          <aside aria-label="Sipariş özeti" className="h-fit rounded-2xl border border-amber-200/70 bg-white p-5 shadow-lg shadow-amber-900/5 md:sticky md:top-6">
-            <h2 className="text-base font-semibold">Sipariş özeti</h2>
-            <div className="mt-3">
-              {o.totals ? (
-                <OrderSummaryRows
-                  planLabel={o.planLabel}
-                  intervalLabel={o.interval === "yearly" ? "yıllık" : "aylık"}
-                  exVatDisplay={o.totals.displayExcl}
-                  monthlyEquivalentDisplay={null}
-                  taxLabel={`KDV (${o.totals.rateLabel}${o.totals.taxDemo ? ", örnek oran" : ""})`}
-                  taxDisplay={o.totals.displayTax}
-                  totalDisplay={o.totals.displayTotal}
-                  demoNote={o.totals.taxDemo ? "Örnek vergi hesabı; oran doğrulanmadı." : null}
-                />
-              ) : (
-                <p className="text-sm text-slate-600">Fiyat çözülemedi.</p>
-              )}
+      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
+        <CheckoutSteps current={2} />
+        <h1 className="mt-6 text-3xl sm:text-4xl">Önizleme ve ödeme</h1>
+        <p className="mt-2 text-slate-600">Bilgilerinizi kontrol edin, iki zorunlu onayı işaretleyin ve ödemeyi tamamlayın.</p>
+        <div className="mt-8">
+          {o.totals ? (
+            <OrderPayForm
+              token={token}
+              termsText={`${o.planLabel} (${intervalLabel}), KDV dahil toplam ${o.totals.displayTotal}.`}
+              renewalNote={renewalNoteFor(o.interval)}
+              summary={{
+                planLabel: o.planLabel,
+                intervalLabel,
+                exVatDisplay: o.totals.displayExcl,
+                taxLabel: `KDV (${o.totals.rateLabel}${o.totals.taxDemo ? ", örnek oran" : ""})`,
+                taxDisplay: o.totals.displayTax,
+                totalDisplay: o.totals.displayTotal,
+                demoNote: o.totals.taxDemo ? "Örnek vergi hesabı; oran doğrulanmadı." : null,
+              }}
+              documents={docCtx.documents}
+              acceptedVersions={docCtx.acceptedVersions}
+              providerDisplayName={docCtx.provider.displayName}
+              providerTermsUrl={docCtx.provider.termsUrl}
+              docsApproved={docCtx.docsApproved}
+              isMock={docCtx.isMock}
+            >
+              {details}
+            </OrderPayForm>
+          ) : (
+            <div className="space-y-6">
+              {details}
+              <p className="rounded-2xl bg-white p-5 text-sm text-slate-600 ring-1 ring-amber-900/10">
+                Paket fiyatı şu an çözülemedi ({plan ? "fiyat yayında değil" : "paket yayında değil"}). Kaydınız ödeme beklemeye devam ediyor, bilgileriniz kaybolmadı.
+              </p>
             </div>
-          </aside>
+          )}
         </div>
       </main>
     </div>
