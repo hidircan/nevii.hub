@@ -6,7 +6,8 @@ import Link from "@/components/link";
 import type { CSSProperties, ReactNode } from "react";
 import { FEATURE_GROUPS, FEATURES } from "@/lib/marketing/features";
 import { SECTORS } from "@/lib/marketing/sectors";
-import { BLOG_POSTS } from "@/lib/marketing/blog";
+import { getBlogCategory } from "@/lib/marketing/blog";
+import { listPublishedPosts } from "@/lib/platform/blog";
 import { LEGAL_PAGES } from "@/lib/marketing/legal-links";
 import { CallMeForm } from "./call-me-form";
 import { PanelMock, ScreenAi, ScreenApplications, ScreenAttendance, ScreenFinance, ScreenMakeup, ScreenProgram, ScreenReports } from "./product-screens";
@@ -131,7 +132,7 @@ export function TailorSection() {
     { title: "Modüller size göre açılır", text: "Kullanmadığınız ekran karşınıza çıkmaz. Paket ve modüller kurum bazında açılıp kapanır, büyüdükçe genişler." },
     { title: "Kuralları siz belirlersiniz", text: "Branşlar, ders süreleri, paketler, kampanyalar, ücret kuralları, çalışma günleri, başvuru formları ve e-posta metinleri kurumunuza göre ayarlanır." },
     { title: "Sürecinize özel ekranlar", text: "Sizde farklı işleyen bir süreç mi var? Görüşelim, ihtiyacınızı dinleyelim; gerekli modülü ve paneli kurumunuza uyarlayalım." },
-    { title: "Güçlü altyapı, sağlam temel", text: "Rol bazlı yetki, kurumlar arası veri ayrımı, denetim kaydı ve yapay zekâ her kurumda aynı güvenlik kurallarıyla çalışır." },
+    { title: "Güçlü altyapı, sağlam temel", text: "Rol bazlı yetki, işlem kayıtları ve onaylı yapay zekâ baştan kurulu gelir. Siz yalnız kendi işinize bakarsınız." },
   ];
   return (
     <section id="uyarlama" className="relative scroll-mt-32 overflow-hidden bg-[#5c3d00] px-6 py-16 text-white sm:py-24" style={{ "--text-primary": "#ffffff" } as CSSProperties}>
@@ -153,17 +154,17 @@ export function TailorSection() {
 
 export function TrustSection() {
   const items = [
-    ["Veriniz size ait", "Her kurumun verisi diğerlerinden ayrı tutulur; kimlik yalnız oturumdan çözülür, dışarıdan değiştirilemez."],
     ["Herkes yetkisi kadar görür", "Kurum sahibi, yönetici, öğretmen, öğrenci ve veli için ayrı yetki. Finans ekranı yalnız yetkiliye açılır."],
-    ["Her kritik işlem kayıtlı", "Kim, neyi, ne zaman yaptı görülür. Kritik silmelerde ek parola istenir."],
+    ["Her işlemin kaydı tutulur", "Kim, neyi, ne zaman yaptı görülür. Önemli silmelerde ek parola istenir."],
     ["Girişler korunur", "Şifreli bağlantı, otomatik saldırılara karşı doğrulama ve hesap başına deneme sınırı."],
-    ["Sunucular Frankfurt'ta", "Uygulama ve veritabanı Avrupa Birliği'ndeki (Frankfurt) sunucularda çalışır. Altyapı sağlayıcıları yasal metinlerde tek tek yazılıdır."],
+    ["Mesajlar onayınızla çıkar", "Yapay zekâ taslağı hazırlar, gönderip göndermemeye siz karar verirsiniz. Veliye sizden habersiz mesaj gitmez."],
+    ["Kart bilgisi bizde durmaz", "Ödemeler lisanslı ödeme kuruluşu üzerinden alınır. Kart numarası ve CVV sistemimize hiç girmez."],
     ["KVKK süreçleri ürünün içinde", "Aydınlatma metni, açık rıza formları, fotoğraf/video izinleri ve hesap silme talebi."],
   ];
   return (
     <section id="guven" className="scroll-mt-32 bg-white px-6 py-16 sm:py-24">
       <div className="mx-auto max-w-6xl">
-        <Head eyebrow="Güven" title="Öğrenci verisi emanettir" description="Güvenlik sonradan eklenen bir özellik değil, sistemin kuruluş biçimidir." />
+        <Head eyebrow="Güven" title="İçiniz rahat çalışın" description="Veliler kurumunuza güveniyor. Bu güveni korumak için aldığımız önlemler günlük işinizi yavaşlatmaz." />
         <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map(([t, d]) => (
             <li key={t} className="nh-view-up rounded-2xl border border-slate-200 p-6">
@@ -190,7 +191,7 @@ export function SetupSection() {
   const steps = [
     ["İlk hafta kurulum desteği", "Şube, öğretmen, oda ve öğrenci listenizi birlikte aktaralım; ekibinizi eğitelim, hızlıca başlayın."],
     ["30 gün ücretsiz deneyin", "Kart bilgisi gerekmez. Denemenin sonunda devam edip etmemek size kalır."],
-    ["Veritabanınız Avrupa'da (Frankfurt)", "KVKK süreçleri hazır; kurumunuzun verisi diğer kurumlardan ayrı tutulur."],
+    ["KVKK süreçleri hazır gelir", "Aydınlatma metni, açık rıza formları, fotoğraf ve video izinleri kurulumla birlikte kullanıma açılır."],
   ];
   return (
     <section id="nasil-baslarsiniz" className="scroll-mt-32 bg-[#fbf8f2] px-6 py-16 sm:py-24">
@@ -220,16 +221,17 @@ export function SetupSection() {
   );
 }
 
-export function BlogTeaserSection() {
+export async function BlogTeaserSection() {
+  const posts = (await listPublishedPosts()).slice(0, 3);
   return (
     <section id="blog" className="scroll-mt-32 bg-white px-6 py-16 sm:py-24">
       <div className="mx-auto max-w-6xl">
         <Head eyebrow="Blog" title="Eğitim kurumu yönetimine dair rehberler" />
         <ul className="mt-10 grid gap-4 md:grid-cols-3">
-          {BLOG_POSTS.slice(0, 3).map((p) => (
+          {posts.map((p) => (
             <li key={p.slug} className="nh-view-up">
               <Link href={`/blog/${p.slug}`} className={`nh-lift flex h-full flex-col rounded-2xl border border-slate-200 p-6 hover:border-amber-300 ${FOCUS}`}>
-                <span className="text-xs font-bold uppercase tracking-wide text-amber-700">{p.sector}</span>
+                <span className="text-xs font-bold uppercase tracking-wide text-amber-700">{getBlogCategory(p.category)?.name}</span>
                 <span className="mt-2 font-semibold leading-snug text-slate-900">{p.title}</span>
                 <span className="mt-2 line-clamp-2 text-sm text-slate-600">{p.description}</span>
               </Link>

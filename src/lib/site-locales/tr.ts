@@ -34,7 +34,7 @@ export const trContent: SiteLocaleContent = {
   about: {
     title: "Kurumunuzun günlük işleyişi için tasarlandı",
     description:
-      "NeviiHub; ders planlamasından yoklamaya, sözleşmeden tahsilata kadar kurumun tüm operasyonunu tek bir yerde toplar. Her kurum kendi verisini görür, her rol yalnızca yetkili olduğu kadarını.",
+      "NeviiHub; ders planlamasından yoklamaya, sözleşmeden tahsilata kadar kurumun tüm operasyonunu tek bir yerde toplar. Herkes yalnızca işine yarayan ekranı görür.",
   },
   features: {
     title: "Kurumun tüm işi, tek platformda",

@@ -1,170 +1,101 @@
-/** Blog yazıları. Uydurma istatistik veya alıntı yok; pratik rehber niteliğinde özgün metinler. */
-export type BlogPost = {
+/**
+ * Blog ortak tanımları. Hazır yazılar `blog-posts/` altında kodda durur; NeviiOS'tan yazılanlar ve hazır yazılara
+ * yapılan düzenlemeler `platform/blog.ts` ile veritabanından okunur. Metin biçimi düz yazıdır, HTML kabul edilmez:
+ * boş satır paragraf, `## ` alt başlık, `- ` madde.
+ */
+import { BUILTIN_POSTS } from "./blog-posts";
+
+export type BlogCategory = { slug: string; name: string; sectorSlug: string | null };
+
+export const BLOG_CATEGORIES: BlogCategory[] = [
+  { slug: "muzik", name: "Müzik", sectorSlug: "muzik-okulu-yazilimi" },
+  { slug: "dans-bale", name: "Dans ve Bale", sectorSlug: "dans-bale-okulu-yazilimi" },
+  { slug: "yoga-pilates", name: "Yoga ve Pilates", sectorSlug: "yoga-pilates-studyosu-yazilimi" },
+  { slug: "dil-kursu", name: "Dil Kursu", sectorSlug: "dil-kursu-yazilimi" },
+  { slug: "etut-dershane", name: "Etüt ve Dershane", sectorSlug: "etut-merkezi-dershane-yazilimi" },
+  { slug: "spor", name: "Spor", sectorSlug: "spor-akademisi-yazilimi" },
+  { slug: "sanat", name: "Sanat", sectorSlug: "sanat-atolyesi-yazilimi" },
+  { slug: "kodlama-robotik", name: "Kodlama ve Robotik", sectorSlug: "kodlama-robotik-kursu-yazilimi" },
+  { slug: "ozel-ders-kocluk", name: "Özel Ders ve Koçluk", sectorSlug: "ozel-ders-kocluk-yazilimi" },
+  { slug: "kurum-yonetimi", name: "Kurum Yönetimi", sectorSlug: null },
+];
+
+export const getBlogCategory = (slug: string) => BLOG_CATEGORIES.find((c) => c.slug === slug);
+
+export type BlogCover = { id: string; width: number; height: number; size: number; alt: string };
+
+export type BlogPostMeta = {
   slug: string;
   title: string;
   description: string;
-  sector: string;
+  category: string;
   date: string;
-  sections: { heading: string; body: string }[];
+  minutes: number;
+  cover: BlogCover | null;
+  published: boolean;
   features: string[];
-  sectorSlug: string;
+  /** Kodda hazır gelen yazı; silinemez, yayından kaldırılır veya hazır hâline döndürülür. */
+  builtin: boolean;
+  /** Veritabanında kaydı var (hazır yazıda: düzenlenmiş). */
+  edited?: boolean;
 };
 
-const DATE = "2026-10-31";
+export type BlogPost = BlogPostMeta & { body: string };
 
-export const BLOG_POSTS: BlogPost[] = [
-  {
-    slug: "muzik-okulu-nasil-yonetilir",
-    title: "Müzik Okulu Nasıl Yönetilir? Program, Telafi ve Hakedişte Düzen Kurmak",
-    description: "Bireysel derslerle çalışan müzik okullarında program, telafi ve öğretmen ödemelerini sadeleştirmenin pratik yolları.",
-    sector: "Müzik",
-    sectorSlug: "muzik-okulu-yazilimi",
-    date: DATE,
-    features: ["ders-programi", "telafi-merkezi", "ogretmen-hakedis"],
-    sections: [
-      { heading: "Bireysel ders, planlamanın en zor hâlidir", body: "Müzik okulunda her ders bir öğretmen, bir öğrenci ve bir oda demektir. Tek bir saat değişikliği üç takvimi birden etkiler. Bu yüzden planlamayı kişilerin hafızasına bırakmak yerine, öğretmen müsaitliğini ve oda doluluğunu birlikte gösteren tek bir program kullanmak ilk adımdır." },
-      { heading: "Telafi kuralını yazılı ve görünür yapın", body: "Velilerle yaşanan tartışmaların büyük kısmı telafi hakkı konusunda çıkar. Dönem başında kaç hak olduğunu, kaç gün içinde kullanılacağını ve kimin süre uzatabileceğini netleştirin. Kural sistemde tanımlı olduğunda karar kişiye göre değişmez, herkes aynı tabloyu görür." },
-      { heading: "Hakedişi yoklamadan üretin", body: "Ay sonunda ders saymak hem zaman alır hem hataya açıktır. Öğretmen ücretini dakika veya branş kuralına bağladığınızda işlenen dersler kendiliğinden kalemlere dönüşür. Öğretmen de aynı dökümü gördüğünde hesap tartışması büyük ölçüde biter." },
-      { heading: "Nereden başlamalı?", body: "Hepsini aynı anda değiştirmeyin. Önce öğrenci ve öğretmen listenizi aktarın, ardından haftalık programı kurun, sonra yoklamaya geçin. Yoklama oturduğunda telafi ve hakediş kendiliğinden düzene girer." },
-    ],
-  },
-  {
-    slug: "dans-okulu-grup-dersi-yonetimi",
-    title: "Dans Okullarında Grup Dersi ve Salon Yönetimi Rehberi",
-    description: "Seviye grupları, salon planı ve dönemlik ücretleri olan dans okulları için sade bir yönetim düzeni.",
-    sector: "Dans",
-    sectorSlug: "dans-bale-okulu-yazilimi",
-    date: DATE,
-    features: ["grup-dersleri", "coklu-sube-oda-yonetimi", "odeme-takibi"],
-    sections: [
-      { heading: "Grubu önce seviye ve kontenjanla tanımlayın", body: "Dans okulunda asıl birim sınıf değil, seviye grubudur. Her grubun yaş aralığını, kontenjanını ve haftalık oturumlarını baştan tanımladığınızda yeni kayıt geldiğinde nereye yerleşeceği hemen görülür." },
-      { heading: "Salonu takvime bağlayın", body: "Salon sayısı sınırlıysa program değişiklikleri zincirleme etki yaratır. Salonları oda olarak tanımlayıp her oturumu bir salona bağlamak, aynı saate iki grup yazılmasını daha kayıt anında engeller." },
-      { heading: "Aylık ve dönemlik ücreti karıştırmayın", body: "Bazı gruplar aylık, gösteri hazırlıkları dönemlik ücretlendirilir. Her öğrencinin ödeme planını kendi sözleşmesinden üretmek, gecikme listesinin gerçek durumu göstermesini sağlar." },
-      { heading: "Gösteri dönemini ayrı yönetin", body: "Gösteri ve yarışma grupları için başvuru açıp üyeleri ayrı izlemek, normal dersleri etkilemeden ek provaları planlamanızı kolaylaştırır." },
-    ],
-  },
-  {
-    slug: "pilates-studyosu-uye-takibi",
-    title: "Pilates ve Yoga Stüdyolarında Üye ve Seans Takibi Nasıl Kolaylaşır?",
-    description: "Seans planı, paket hakları ve üye iletişimini sadeleştirmek isteyen yoga ve pilates stüdyoları için öneriler.",
-    sector: "Yoga ve Pilates",
-    sectorSlug: "yoga-pilates-studyosu-yazilimi",
-    date: DATE,
-    features: ["ders-programi", "yoklama-takvimi", "mobil-uygulama"],
-    sections: [
-      { heading: "Takvim tek kaynak olmalı", body: "Eğitmenin telefonundaki not, resepsiyondaki defter ve üyeye atılan mesaj ayrı ayrı güncellendiğinde hata kaçınılmazdır. Seans takvimini tek yerde tutup herkesin oradan görmesini sağlamak en büyük kazanımdır." },
-      { heading: "Paket hakkını elle saymayın", body: "Katılım işaretlendikçe üyenin durumu kendiliğinden güncellenirse kalan hak tartışması ortadan kalkar. Üyeye “kaç dersim kaldı?” sorusunun yanıtını anında verebilirsiniz." },
-      { heading: "İletişimi hedefli yapın", body: "Bir seans iptal olduğunda bütün üyelere değil, yalnız o seansın üyelerine bilgi gitmelidir. Hedefli duyuru hem iş yükünü hem de gereksiz bildirim şikâyetini azaltır." },
-      { heading: "Küçük stüdyo için de geçerli mi?", body: "Evet. Tek salon ve tek eğitmenle bile takvim, katılım ve tahsilatı birlikte tutmak, büyüdüğünüzde yeniden düzen kurma zahmetini ortadan kaldırır." },
-    ],
-  },
-  {
-    slug: "dil-kursu-kur-takibi",
-    title: "Dil Kurslarında Kur ve Seviye Takibi: Veliye ve Öğrenciye Şeffaf Süreç",
-    description: "Kur geçişleri, müfredat ilerlemesi ve seviye değerlendirmesini düzenlemek isteyen dil kursları için rehber.",
-    sector: "Dil Kursu",
-    sectorSlug: "dil-kursu-yazilimi",
-    date: DATE,
-    features: ["grup-dersleri", "mufredat-odev", "ogrenci-degerlendirme"],
-    sections: [
-      { heading: "Kuru grup, müfredatı yol haritası yapın", body: "Her kuru bir grup olarak açıp konularını müfredata dökmek, öğretmen değişse bile sınıfın nerede kaldığının görünmesini sağlar." },
-      { heading: "Seviye kararını ölçütlere bağlayın", body: "Kur geçişini yalnız öğretmen izlenimine bırakmak yerine konuşma, yazma ve dinleme gibi ölçütlerle değerlendirin. Veliye veya kurumsal müşteriye anlatması da kolaylaşır." },
-      { heading: "Devamsızlığı erken görün", body: "Dil öğreniminde süreklilik belirleyicidir. Devam raporunu haftalık izlemek, kursu bırakma riski olan öğrenciye zamanında ulaşmanızı sağlar." },
-      { heading: "Ön kaydı kolaylaştırın", body: "Yeni dönem öncesi ön kayıtları form bağlantısıyla toplamak, seviye tespiti için aranacak kişileri tek listede görmenizi sağlar." },
-    ],
-  },
-  {
-    slug: "etut-merkezi-veli-iletisimi",
-    title: "Etüt Merkezlerinde Yoklama ve Veli İletişimi Nasıl Güçlendirilir?",
-    description: "Etüt merkezleri ve sınav hazırlık kurumları için devam, ödev ve veli bilgilendirme düzeni.",
-    sector: "Etüt ve Dershane",
-    sectorSlug: "etut-merkezi-dershane-yazilimi",
-    date: DATE,
-    features: ["yoklama-raporu", "veli-ogrenci-portali", "mufredat-odev"],
-    sections: [
-      { heading: "Veli en çok devamı merak eder", body: "Öğrencinin derse gelip gelmediği, velinin kuruma duyduğu güvenin temelidir. Yoklama girildiği anda veli portalında görünmesi telefon trafiğini azaltır." },
-      { heading: "Ödevi takip edilebilir hale getirin", body: "Ödev kâğıtta kaldığında yapılıp yapılmadığı dönem sonunda anlaşılır. Portalda görünen ödev ve teslim durumu, sorunu erken yakalamanızı sağlar." },
-      { heading: "Etüt planını yoğun döneme hazırlayın", body: "Sınav yaklaştıkça etüt talebi artar. Öğretmen müsaitliğini ve sınıf doluluğunu birlikte görmek, ek etütleri çakışmadan planlamayı kolaylaştırır." },
-      { heading: "Raporla konuşun", body: "Veli görüşmesine dönemlik devam ve değerlendirme raporuyla girmek, konuşmayı izlenimden çıkarıp somut veriye taşır." },
-    ],
-  },
-  {
-    slug: "boks-spor-salonu-aidat-takibi",
-    title: "Boks ve Dövüş Sporu Salonlarında Aidat ve Grup Takibi",
-    description: "Boks, dövüş sporları ve spor akademileri için aidat, yaş grubu ve antrenör yönetimi önerileri.",
-    sector: "Spor",
-    sectorSlug: "spor-akademisi-yazilimi",
-    date: DATE,
-    features: ["kulupler", "odeme-takibi", "ogretmen-hakedis"],
-    sections: [
-      { heading: "Aidatı hatırlamak salon sahibinin işi olmamalı", body: "Kimin ödediğini defterden takip etmek zaman alır ve ilişkileri zorlaştırır. Geciken listesini sistemden görmek, hatırlatmayı kişisel bir mesele olmaktan çıkarır." },
-      { heading: "Grupları yaş ve seviyeyle ayırın", body: "Miniklerle yetişkinlerin programı, kontenjanı ve ücreti farklıdır. Her grubu ayrı tanımlamak, yeni üyenin doğru yere yerleşmesini kolaylaştırır." },
-      { heading: "Antrenör ödemesini kurala bağlayın", body: "Grup başına veya saat başına ödeme yapıyorsanız kuralı tanımlayıp yoklamayla ilişkilendirmek, ay sonu hesabını dakikalara indirir." },
-      { heading: "Duyuruyu gruba özel yapın", body: "Antrenman saati değiştiğinde yalnız ilgili gruba duyuru göndermek, herkesin telefonunu gereksiz bildirimle doldurmaz." },
-    ],
-  },
-  {
-    slug: "yuzme-okulu-seans-planlama",
-    title: "Yüzme Okullarında Kulvar, Seans ve Kontenjan Planlama",
-    description: "Sınırlı kulvar ve yoğun sezonla çalışan yüzme okulları için seans ve üyelik düzeni.",
-    sector: "Spor",
-    sectorSlug: "spor-akademisi-yazilimi",
-    date: DATE,
-    features: ["ders-programi", "kulupler", "duyuru-iletisim"],
-    sections: [
-      { heading: "Kapasite asıl kısıttır", body: "Yüzme okulunda sınır genellikle eğitmen değil kulvardır. Kulvarları oda gibi tanımlayıp seansları buna göre kurmak, sezon başındaki aşırı kaydı önler." },
-      { heading: "Bekleme listesini kaybetmeyin", body: "Yaz başında dolan gruplar için gelen talepleri not kâğıdında tutmak yerine bekleme listesine almak, yer açıldığında hızlı dönüş yapmanızı sağlar." },
-      { heading: "Telafiyi havaya ve hastalığa hazırlayın", body: "Çocuk gruplarında kaçırılan ders sıktır. Telafi kuralını önceden belirleyip sistemde tutmak hem veliyi hem eğitmeni rahatlatır." },
-      { heading: "Veli bilgilendirmesi güven verir", body: "Seviye değişimi ve gelişim notlarının düzenli paylaşılması, özellikle küçük yaş gruplarında veli memnuniyetini doğrudan etkiler." },
-    ],
-  },
-  {
-    slug: "sanat-atolyesi-donem-yonetimi",
-    title: "Sanat Atölyelerinde Dönem, Başvuru ve Gider Yönetimi",
-    description: "Resim, seramik ve tiyatro atölyeleri için başvuru, kontenjan ve malzeme giderini düzenleme rehberi.",
-    sector: "Sanat",
-    sectorSlug: "sanat-atolyesi-yazilimi",
-    date: DATE,
-    features: ["online-basvuru-formlari", "kulupler", "finans-ozeti"],
-    sections: [
-      { heading: "Başvuruyu mesajlardan kurtarın", body: "Sosyal medyadan gelen talepleri tek bir başvuru bağlantısına yönlendirmek, kimin hangi atölyeyi istediğini tek listede görmenizi sağlar." },
-      { heading: "Dönemi baştan tanımlayın", body: "Başlangıç ve bitiş tarihi, oturum sayısı ve ücreti net olan bir dönem hem katılımcıya güven verir hem sizin planlamanızı kolaylaştırır." },
-      { heading: "Malzeme giderini görünür yapın", body: "Atölyelerde kâr çoğu zaman malzeme ve kira arasında kaybolur. Giderleri kategori bazında girmek, hangi atölyenin gerçekten kazandırdığını gösterir." },
-      { heading: "Görsel izinlerini kayıt altına alın", body: "Atölye çalışmalarını paylaşacaksanız fotoğraf ve video iznini kayıt anında almak ve arşivlemek, KVKK açısından sağlıklı bir yol izlemenizi sağlar." },
-    ],
-  },
-  {
-    slug: "kodlama-kursu-veli-raporu",
-    title: "Kodlama ve Robotik Kurslarında Veliye Gelişimi Göstermek",
-    description: "Kodlama, robotik ve zekâ oyunları kurslarında müfredat ilerlemesi ve veli raporlama önerileri.",
-    sector: "Kodlama",
-    sectorSlug: "kodlama-robotik-kursu-yazilimi",
-    date: DATE,
-    features: ["mufredat-odev", "ogretmen-gelisim-raporlari", "veli-ogrenci-portali"],
-    sections: [
-      { heading: "Soyut öğrenmeyi görünür kılın", body: "Veli kodlama dersinde ne öğrenildiğini kolayca göremez. Müfredatı modüllere ayırıp her öğrencinin ilerlemesini göstermek, kursun değerini somutlaştırır." },
-      { heading: "Düzenli rapor, kayıt yenilemeyi kolaylaştırır", body: "Birkaç derste bir kısa gelişim raporu yazmak, dönem sonunda sürpriz yaşanmasını önler. Sistem hangi raporun geldiğini hatırlatırsa bu iş öğretmene yük olmaz." },
-      { heading: "Yaş gruplarını karıştırmayın", body: "Aynı içerik farklı yaşlarda farklı hızda ilerler. Grupları yaş ve seviye ile ayırmak hem öğrenmeyi hem sınıf yönetimini iyileştirir." },
-      { heading: "Proje ve materyalleri paylaşın", body: "Öğrencinin yaptığı çalışmaları ve ders materyallerini portalda görmek, velinin sürece katılımını artırır." },
-    ],
-  },
-  {
-    slug: "egitim-kurumlari-kvkk-rehberi",
-    title: "Eğitim Kurumları İçin KVKK'ya Hazırlık: Pratik Kontrol Listesi",
-    description: "Öğrenci ve veli verisi işleyen özel eğitim kurumlarının gözden geçirmesi gereken temel KVKK başlıkları.",
-    sector: "Tüm kurumlar",
-    sectorSlug: "muzik-okulu-yazilimi",
-    date: DATE,
-    features: ["evraklar-merkezi", "guvenlik-denetim"],
-    sections: [
-      { heading: "Hangi veriyi neden topluyorsunuz?", body: "İlk adım envanter çıkarmaktır. Kayıt formunda istediğiniz her bilginin bir amacı olmalıdır; gerekmeyen veriyi hiç toplamamak en güvenli yöntemdir. Bu yazı genel bilgilendirme amaçlıdır, hukuki danışmanlık yerine geçmez." },
-      { heading: "Aydınlatma ve açık rızayı ayırın", body: "Aydınlatma metni veriyi neden işlediğinizi anlatır; fotoğraf ve video paylaşımı gibi konularda ise ayrıca açık rıza gerekebilir. Bu iki belgeyi tek metinde birleştirmemek ve kaydını saklamak önemlidir." },
-      { heading: "Erişimi rol bazında sınırlayın", body: "Öğretmenin bütün velilerin ödeme bilgisini görmesi gerekmez. Herkesin yalnız işi kadar veriye erişmesi hem riski azaltır hem denetimde rahat ettirir." },
-      { heading: "İz bırakın", body: "Kim, hangi kaydı ne zaman değiştirdi sorusunun yanıtını verebilmek, olası bir sorunda en güçlü dayanağınızdır. Denetim kaydı bu nedenle yönetim yazılımında olmazsa olmazdır." },
-    ],
-  },
-];
+export type BuiltinPost = { slug: string; title: string; description: string; category: string; features: string[]; body: string };
 
-export function getPost(slug: string): BlogPost | undefined {
-  return BLOG_POSTS.find((p) => p.slug === slug);
+/** Hazır yazıların yayın tarihi. */
+const BUILTIN_DATE = "2026-10-31";
+
+export function readingMinutes(body: string): number {
+  return Math.max(1, Math.round(body.trim().split(/\s+/).length / 200));
+}
+
+const metaOf = ({ body, ...p }: BuiltinPost): BlogPostMeta => ({ ...p, date: BUILTIN_DATE, minutes: readingMinutes(body), cover: null, published: true, builtin: true });
+
+export function builtinPost(slug: string): BlogPost | null {
+  const p = BUILTIN_POSTS.find((x) => x.slug === slug);
+  return p ? { ...metaOf(p), body: p.body } : null;
+}
+
+export const builtinMetas = (): BlogPostMeta[] => BUILTIN_POSTS.map(metaOf);
+
+export type BlogBlock = { type: "h2"; text: string } | { type: "p"; text: string } | { type: "ul"; items: string[] };
+
+/** Düz metni bloklara ayırır; çıktı React ile basılır, içerik HTML olarak yorumlanmaz. */
+export function parseBlogBody(body: string): BlogBlock[] {
+  const blocks: BlogBlock[] = [];
+  for (const chunk of body.replace(/\r\n/g, "\n").split(/\n\s*\n/)) {
+    const lines = chunk.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) continue;
+    if (lines.every((l) => l.startsWith("- "))) {
+      blocks.push({ type: "ul", items: lines.map((l) => l.slice(2).trim()) });
+    } else if (lines[0]!.startsWith("## ")) {
+      blocks.push({ type: "h2", text: lines[0]!.slice(3).trim() });
+      if (lines.length > 1) blocks.push({ type: "p", text: lines.slice(1).join(" ") });
+    } else {
+      blocks.push({ type: "p", text: lines.join(" ") });
+    }
+  }
+  return blocks;
+}
+
+const TR_MAP: Record<string, string> = { ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" };
+
+export function slugifyTitle(title: string): string {
+  return title
+    .toLocaleLowerCase("tr-TR")
+    .replace(/[çğıöşü]/g, (c) => TR_MAP[c]!)
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/, "");
+}
+
+/** Özet girilmediyse ilk paragraftan arama sonucu açıklaması türetilir. */
+export function descriptionFromBody(body: string): string {
+  const first = parseBlogBody(body).find((b) => b.type === "p");
+  const text = first?.type === "p" ? first.text : "";
+  return text.length > 155 ? `${text.slice(0, 152).replace(/\s+\S*$/, "")}…` : text;
 }

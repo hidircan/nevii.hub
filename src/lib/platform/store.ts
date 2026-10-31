@@ -510,6 +510,31 @@ export async function getSettingOverride(scopeType: string, scopeId: string, key
   return state.settingOverrides.find((o) => o.scopeType === scopeType && o.scopeId === scopeId && o.key === key) ?? null;
 }
 
+/** Bir kapsamdaki aynı anahtarlı satırlar (ör. yalnız blog özetleri); yazı gövdesi ve görsel baytı taşınmaz. */
+export async function listSettingOverridesByKey(scopeType: string, key: string): Promise<SettingOverride[]> {
+  if (isDbMode) {
+    try {
+      const { getPrisma } = await import("../db");
+      const rows = await getPrisma().settingOverride.findMany({
+        where: { scopeType, key },
+        select: { scopeId: true, value: true, updatedAt: true, updatedBy: true },
+      });
+      return rows.map((r) => ({
+        scopeType: scopeType as SettingScope,
+        scopeId: r.scopeId,
+        key,
+        value: r.value as JsonValue,
+        updatedAt: r.updatedAt.toISOString(),
+        updatedBy: r.updatedBy,
+      }));
+    } catch (e) {
+      dbFailClosed(e);
+    }
+  }
+  const state = await loadState();
+  return state.settingOverrides.filter((o) => o.scopeType === scopeType && o.key === key);
+}
+
 export async function listSettingOverrides(filter?: OverrideScopeFilter): Promise<SettingOverride[]> {
   const pairs = filter ? scopePairs(filter) : null;
   const inScope = (o: { scopeType: string; scopeId: string; key: string }) =>

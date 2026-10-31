@@ -51,6 +51,8 @@ const LABELS: Record<string, string> = {
   "platform.integration.test": "Entegrasyon bağlantısı denendi",
   "platform.logo.update": "Logo değişti",
   "platform.logo.reset": "Logo sıfırlandı",
+  "platform.blog.save": "Blog yazısı kaydedildi",
+  "platform.blog.delete": "Blog yazısı silindi",
   "site.social.update": "Sosyal medya bağlantıları güncellendi",
   "site.mobileApps.update": "Mobil uygulama bağlantıları güncellendi",
   "site.content.update": "Site metinleri güncellendi",

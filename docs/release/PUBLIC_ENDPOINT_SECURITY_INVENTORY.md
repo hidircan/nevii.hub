@@ -50,6 +50,7 @@ Gelecek iş (authenticated diagnostic): DB/provider readiness detayı gerekiyors
 | `/api/v1/invitations/[inviteId]/accept` | Evet | Davet kabulü | — | — | Değişmedi | mevcut testler | ✅ |
 | `/api/v1/account/email-change/confirm` | Evet | E-posta değişikliği onayı | — | — | Değişmedi | mevcut testler | ✅ |
 | `/api/v1/catalog/plans` | Evet | Yayındaki fiyat kataloğu | Yalnız yayındaki katalog | — | Değişmedi | mevcut testler | ✅ |
+| `GET /blog/gorsel/[id]` | Evet | Blog kapak görseli | Yalnız 16 haneli içerik özeti kabul eder; sunucuda yeniden kodlanmış WebP, `nosniff` + sandbox CSP, CDN önbelleği 1 yıl | — | Blog yönetimi: `/platform/blog`, yalnız HYPER_ADMIN |
 | `GET /api/v1/branding/platform-logo` | Evet | Platform logosu | Doğrulanmış görsel veya `/brand/logo.png` redirect; `nosniff` + sandbox CSP | — | Değişmedi | `neviios-round3.test.ts` | ✅ |
 
 Beklenmeyen hata: `withApiHandler` hata detayını yalnız sunucuda loglar; public yanıt `INTERNAL_ERROR` + `requestId`

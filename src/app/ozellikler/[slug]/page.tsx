@@ -25,7 +25,7 @@ export default async function FeaturePage({ params }: Props) {
   const faq = [
     { q: `${f.title} hangi kurumlar için uygundur?`, a: `${f.title}, müzik okulu, dans ve yoga stüdyosu, dil kursu, etüt merkezi, spor akademisi ve sanat atölyesi gibi ders veren her kurumda kullanılabilir. Terimler ve kurallar kurumunuza göre ayarlanır.` },
     { q: `${f.screen} ekranı kurumumuzun sürecine uyarlanabilir mi?`, a: "Evet. Paketler, kurallar, ücretler ve şablonlar kurumunuza göre tanımlanır. Farklı işleyen bir süreciniz varsa görüşelim, ihtiyacınıza göre uyarlayalım." },
-    { q: "Verilerimiz güvende mi?", a: "Her kurumun verisi ayrı tutulur, ekranlara yalnız yetkili kişiler erişir ve kritik işlemler denetim kaydına yazılır." },
+    { q: "Bu ekranı kimler görebilir?", a: "Yalnız sizin yetki verdiğiniz kişiler. Kurum sahibi, yönetici, öğretmen, öğrenci ve veli kendi rolüne uygun ekranları görür; önemli işlemler kayda geçer." },
   ];
   return (
     <MarketingShell>

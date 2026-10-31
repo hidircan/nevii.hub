@@ -70,13 +70,13 @@ export const versionOf = (sha256: string) => sha256.slice(0, 16);
 const assetUrl = (variant: PlatformLogoVariant, version: string) =>
   `/api/v1/branding/platform-logo?variant=${variant}&v=${version}`;
 
-export function validateLogoUpload(mime: string, dataBase64: string): { ok: true; bytes: Buffer } | { ok: false; message: string } {
+export function validateLogoUpload(mime: string, dataBase64: string, label = "Logo"): { ok: true; bytes: Buffer } | { ok: false; message: string } {
   const check = MIME_MAGIC[mime];
   if (!check) return { ok: false, message: "Yalnız PNG, JPEG veya WebP yüklenebilir (SVG kabul edilmez)." };
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) return { ok: false, message: "Dosya içeriği geçersiz." };
   const bytes = Buffer.from(dataBase64, "base64");
   if (bytes.length === 0) return { ok: false, message: "Dosya boş." };
-  if (bytes.length > PLATFORM_LOGO_MAX_BYTES) return { ok: false, message: "Logo en fazla 3 MB olabilir. Dosyayı küçültüp tekrar yükleyin." };
+  if (bytes.length > PLATFORM_LOGO_MAX_BYTES) return { ok: false, message: `${label} en fazla 3 MB olabilir. Dosyayı küçültüp tekrar yükleyin.` };
   if (!check(bytes)) return { ok: false, message: "Dosya içeriği bildirilen türle eşleşmiyor." };
   return { ok: true, bytes };
 }

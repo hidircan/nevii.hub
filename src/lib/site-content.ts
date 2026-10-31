@@ -226,7 +226,7 @@ export const SITE_PLATFORM_SURFACES: PlatformSurface[] = [
       "Ödevler, müfredat ilerlemesi ve dönemsel değerlendirmeler",
       "Ödeme bilgileri, sözleşmeler ve indirilebilir belgeler",
       "Değerlendirme sonuçları ve kurum duyuruları",
-      "Her kullanıcı yalnız kendi kaydını görür; veriler kurum sınırında izole",
+      "Veli yalnız kendi çocuğunun, öğrenci yalnız kendi kaydını görür",
     ],
   },
 ];

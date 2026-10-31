@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Link from "@/components/link";
 import { JsonLd, LeadBand, MarketingShell, PageHero } from "@/components/site/marketing-shell";
-import { BLOG_POSTS } from "@/lib/marketing/blog";
+import { BLOG_CATEGORIES } from "@/lib/marketing/blog";
+import { listPublishedPosts } from "@/lib/platform/blog";
 import { getFeature } from "@/lib/marketing/features";
 import { getSector } from "@/lib/marketing/sectors";
 import { breadcrumb, pageMetadata } from "@/lib/marketing/seo";
@@ -19,7 +20,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function SectorPage({ params }: Props) {
   const s = getSector((await params).slug);
   if (!s) notFound();
-  const posts = BLOG_POSTS.filter((p) => p.sectorSlug === s.slug);
+  const category = BLOG_CATEGORIES.find((c) => c.sectorSlug === s.slug)?.slug;
+  const posts = (await listPublishedPosts()).filter((p) => p.category === category);
   return (
     <MarketingShell>
       <JsonLd data={breadcrumb([{ name: "Ana sayfa", path: "/" }, { name: "Sektörler", path: "/sektorler" }, { name: s.name, path: `/sektorler/${s.slug}` }])} />

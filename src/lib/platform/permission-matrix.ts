@@ -268,6 +268,7 @@ export const SCREEN_REGISTRY: ScreenDef[] = [
   // ── Marka ve Site ──
   { id: "platform.branding", label: "Platform markası", area: "platform", path: "/platform/marka", requires: P("platform_branding", "configure"), navGroup: "Marka ve Site", keywords: ["logo", "marka"] },
   { id: "platform.site", label: "Site ayarları", area: "platform", path: "/platform/site-ayarlari", requires: P("platform_branding", "configure"), navGroup: "Marka ve Site", keywords: ["site", "sosyal medya", "anasayfa", "mobil uygulama", "mağaza"] },
+  { id: "platform.blog", label: "Blog", area: "platform", path: "/platform/blog", requires: P("platform_branding", "configure"), navGroup: "Marka ve Site", keywords: ["blog", "yazı", "kategori"] },
   // ── Entegrasyonlar (ödeme + diğer, tek girişler) ──
   { id: "platform.billing.providers", label: "Ödeme Sağlayıcıları", area: "platform", path: "/platform/odeme-saglayicilari", requires: P("saas_billing", "manage"), navGroup: "Entegrasyonlar", keywords: ["paytr", "iyzico", "sağlayıcı", "merchant", "callback", "webhook", "kart"] },
   { id: "platform.integrations", label: "Mesajlaşma ve servisler", area: "platform", path: "/platform/entegrasyonlar", requires: P("integrations", "configure"), navGroup: "Entegrasyonlar", keywords: ["sms", "smtp", "e-posta", "whatsapp", "ai"] },
